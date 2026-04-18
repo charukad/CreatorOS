@@ -1,0 +1,18 @@
+[project]
+name = "creatoros"
+version = "0.1.0"
+description = "Personal-use AI social media automation system"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["apps", "workers", "tests", "alembic"]
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "UP"]
+

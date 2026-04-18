@@ -1,0 +1,54 @@
+# Operating system clutter
+.DS_Store
+
+# Node / frontend
+node_modules/
+.pnpm-store/
+.next/
+out/
+dist/
+coverage/
+
+# Python
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+*.py[cod]
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*
+!**/.env.example
+
+# Logs
+*.log
+
+# Browser automation artifacts
+playwright/.auth/
+browser-profiles/
+
+# Generated media and storage outputs
+storage/*
+!storage/.gitignore
+!storage/projects/
+!storage/downloads/
+!storage/previews/
+!storage/exports/
+!storage/temp/
+storage/projects/*
+!storage/projects/.gitkeep
+storage/downloads/*
+!storage/downloads/.gitkeep
+storage/previews/*
+!storage/previews/.gitkeep
+storage/exports/*
+!storage/exports/.gitkeep
+storage/temp/*
+!storage/temp/.gitkeep
+
