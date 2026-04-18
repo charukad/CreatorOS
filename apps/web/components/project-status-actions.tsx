@@ -8,9 +8,11 @@ import {
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import { transitionProjectStatus } from "../lib/api";
-import type { BackgroundJob, Project, ProjectScript } from "../types/api";
+import type { ApprovalRecord, Asset, BackgroundJob, Project, ProjectScript } from "../types/api";
 
 type ProjectStatusActionsProps = {
+  approvals: ApprovalRecord[];
+  assets: Asset[];
   currentScript: ProjectScript | null;
   jobs: BackgroundJob[];
   project: Project;
@@ -39,6 +41,8 @@ function buttonClassName(status: Project["status"]): string {
 }
 
 export function ProjectStatusActions({
+  approvals,
+  assets,
   currentScript,
   jobs,
   project,
@@ -55,6 +59,24 @@ export function ProjectStatusActions({
         job.script_id === currentScript.id &&
         (job.job_type === "generate_audio_browser" || job.job_type === "generate_visuals_browser"),
     );
+  const currentScriptAssets =
+    currentScript === null
+      ? []
+      : assets.filter((asset) => asset.script_id === currentScript.id);
+  const hasReadyNarrationAsset = currentScriptAssets.some(
+    (asset) => asset.status === "ready" && asset.asset_type === "narration_audio",
+  );
+  const hasReadyVisualAsset = currentScriptAssets.some(
+    (asset) =>
+      asset.status === "ready" &&
+      (asset.asset_type === "scene_image" || asset.asset_type === "scene_video"),
+  );
+  const latestAssetApproval =
+    currentScript === null
+      ? null
+      : approvals.find(
+          (approval) => approval.stage === "assets" && approval.target_id === currentScript.id,
+        ) ?? null;
 
   function getBlockedReason(targetStatus: Project["status"]): string | null {
     if (targetStatus === "asset_generation" && currentScript?.status !== "approved") {
@@ -63,6 +85,20 @@ export function ProjectStatusActions({
 
     if (targetStatus === "asset_generation" && !hasQueuedGenerationPlan) {
       return "Queue narration or visual generation from the studio before moving into asset generation.";
+    }
+
+    if (
+      targetStatus === "asset_pending_approval" &&
+      (!hasReadyNarrationAsset || !hasReadyVisualAsset)
+    ) {
+      return "Wait until narration and scene assets are generated before moving into asset review.";
+    }
+
+    if (
+      targetStatus === "rough_cut_ready" &&
+      latestAssetApproval?.decision !== "approved"
+    ) {
+      return "Approve the current asset set before moving beyond asset review.";
     }
 
     return null;

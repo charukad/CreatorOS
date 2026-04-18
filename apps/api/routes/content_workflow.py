@@ -2,8 +2,10 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from apps.api.core.config import get_settings
 from apps.api.db.session import get_db
 from apps.api.schemas.approvals import ApprovalDecisionRequest, ApprovalResponse
 from apps.api.schemas.content_workflow import (
@@ -20,6 +22,12 @@ from apps.api.schemas.content_workflow import (
     VisualGenerationRequest,
 )
 from apps.api.services.approvals import list_project_approvals
+from apps.api.services.assets import (
+    approve_current_script_assets,
+    get_asset,
+    reject_current_script_assets,
+    resolve_asset_file_path,
+)
 from apps.api.services.content_workflow import (
     approve_content_idea,
     approve_project_script,
@@ -92,6 +100,24 @@ def list_project_assets_route(project_id: UUID, db: DbSession) -> list[AssetResp
 
     assets = list_project_assets(db, project)
     return [AssetResponse.model_validate(asset) for asset in assets]
+
+
+@router.get("/assets/{asset_id}/content")
+def get_asset_content_route(asset_id: UUID, db: DbSession):
+    user = get_or_create_default_user(db)
+    asset = get_asset(db, user, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+
+    settings = get_settings()
+    try:
+        asset_path = resolve_asset_file_path(asset, settings.storage_root)
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return FileResponse(asset_path, media_type=asset.mime_type)
 
 
 @router.post(
@@ -331,6 +357,64 @@ def queue_visual_generation_route(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return BackgroundJobResponse.model_validate(job)
+
+
+@router.post("/projects/{project_id}/assets/approve", response_model=ApprovalResponse)
+def approve_project_assets_route(
+    project_id: UUID,
+    payload: ApprovalDecisionRequest,
+    db: DbSession,
+) -> ApprovalResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    current_script = get_current_script(db, project)
+    if current_script is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
+
+    try:
+        approval = approve_current_script_assets(
+            db,
+            user=user,
+            project=project,
+            script=current_script,
+            feedback_notes=payload.feedback_notes,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return ApprovalResponse.model_validate(approval)
+
+
+@router.post("/projects/{project_id}/assets/reject", response_model=ApprovalResponse)
+def reject_project_assets_route(
+    project_id: UUID,
+    payload: ApprovalDecisionRequest,
+    db: DbSession,
+) -> ApprovalResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    current_script = get_current_script(db, project)
+    if current_script is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
+
+    try:
+        approval = reject_current_script_assets(
+            db,
+            user=user,
+            project=project,
+            script=current_script,
+            feedback_notes=payload.feedback_notes,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return ApprovalResponse.model_validate(approval)
 
 
 @router.post(

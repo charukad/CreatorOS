@@ -13,6 +13,7 @@
 - the current idea and script workflow runs synchronously inside the API as a local deterministic generator
 - asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
 - the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
+- when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
 - Redis-backed execution, retries, and worker progress updates are still planned
 
 ## Core Resources
@@ -32,6 +33,8 @@
 - `GET /api/projects/:id/approvals`
 - `GET /api/projects/:id/jobs`
 - `GET /api/projects/:id/assets`
+- `POST /api/projects/:id/assets/approve`
+- `POST /api/projects/:id/assets/reject`
 - `POST /api/projects/:id/ideas/generate`
 - `GET /api/projects/:id/scripts/current`
 - `POST /api/projects/:id/scripts/generate`
@@ -50,6 +53,9 @@
 
 ### Scenes
 - `PATCH /api/scenes/:id`
+
+### Asset Files
+- `GET /api/assets/:id/content`
 
 ## Implemented Payloads
 ### `POST /api/brand-profiles`
@@ -293,6 +299,33 @@ Behavior note:
 
 ### `GET /api/projects/:id/assets`
 - returns planned and produced asset records for the project, including placeholder records created before worker execution starts
+
+### `POST /api/projects/:id/assets/approve`
+```json
+{
+  "feedback_notes": "These are good enough to move into the next stage."
+}
+```
+
+Behavior note:
+- this records an `assets`-stage approval for the current script
+- the route requires the project to already be in `asset_pending_approval`
+
+### `POST /api/projects/:id/assets/reject`
+```json
+{
+  "feedback_notes": "The visuals need a clearer direction."
+}
+```
+
+Behavior note:
+- this records an `assets`-stage rejection for the current script
+- ready assets from the current script are marked `rejected`
+- the project moves back into `asset_generation` so you can queue another pass
+
+### `GET /api/assets/:id/content`
+- streams the stored asset file for preview
+- access is limited to files inside the configured storage root
 
 ## Planned Next Endpoints
 - `POST /api/scripts/:id/regenerate`

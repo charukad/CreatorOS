@@ -6,7 +6,10 @@ from sqlalchemy.orm import Session, selectinload
 from apps.api.models.asset import Asset
 from apps.api.models.background_job import BackgroundJob
 from apps.api.models.generation_attempt import GenerationAttempt
-from apps.api.schemas.enums import AssetStatus, BackgroundJobState, BackgroundJobType
+from apps.api.models.project import Project
+from apps.api.models.project_script import ProjectScript
+from apps.api.schemas.enums import AssetStatus, BackgroundJobState, BackgroundJobType, ProjectStatus
+from apps.api.services.assets import can_enter_asset_review
 
 CLAIMABLE_BROWSER_JOB_TYPES = (
     BackgroundJobType.GENERATE_AUDIO_BROWSER,
@@ -66,6 +69,7 @@ def mark_job_completed(db: Session, job: BackgroundJob) -> None:
     job.finished_at = datetime.now(UTC)
     job.error_message = None
     db.add(job)
+    _promote_project_to_asset_review(db, job)
     db.commit()
     db.refresh(job)
 
@@ -121,3 +125,19 @@ def mark_attempt_completed(db: Session, attempt: GenerationAttempt) -> None:
 
 def get_attempt_assets(attempt: GenerationAttempt) -> list[Asset]:
     return list(attempt.assets)
+
+
+def _promote_project_to_asset_review(db: Session, job: BackgroundJob) -> None:
+    db.flush()
+
+    project = db.get(Project, job.project_id)
+    if project is None or project.status != ProjectStatus.ASSET_GENERATION:
+        return
+
+    script = db.get(ProjectScript, job.script_id)
+    if script is None:
+        return
+
+    if can_enter_asset_review(db, project, script):
+        project.status = ProjectStatus.ASSET_PENDING_APPROVAL
+        db.add(project)

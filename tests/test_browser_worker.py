@@ -90,6 +90,32 @@ def _create_approved_script_for_tests(client: TestClient, project_id: str) -> di
     return script
 
 
+def _queue_asset_jobs(client: TestClient, project_id: str) -> None:
+    audio_queue_response = client.post(
+        f"/api/projects/{project_id}/generate/audio",
+        json={"voice_label": "Warm guide"},
+    )
+    visuals_queue_response = client.post(f"/api/projects/{project_id}/generate/visuals", json={})
+
+    assert audio_queue_response.status_code == 201
+    assert visuals_queue_response.status_code == 201
+
+
+def _run_browser_worker(
+    *,
+    tmp_path: Path,
+    session_factory: sessionmaker[Session],
+) -> int:
+    return run_pending_jobs(
+        settings=BrowserWorkerSettings(
+            browser_provider_mode="dry_run",
+            browser_max_jobs_per_run=10,
+            playwright_download_root=tmp_path / "downloads",
+        ),
+        session_factory=session_factory,
+    )
+
+
 def test_browser_worker_processes_queued_generation_jobs(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -106,23 +132,9 @@ def test_browser_worker_processes_queued_generation_jobs(tmp_path: Path, monkeyp
     )
     script = _create_approved_script_for_tests(client, project_id)
 
-    audio_queue_response = client.post(
-        f"/api/projects/{project_id}/generate/audio",
-        json={"voice_label": "Warm guide"},
-    )
-    visuals_queue_response = client.post(f"/api/projects/{project_id}/generate/visuals", json={})
+    _queue_asset_jobs(client, project_id)
 
-    assert audio_queue_response.status_code == 201
-    assert visuals_queue_response.status_code == 201
-
-    processed_jobs = run_pending_jobs(
-        settings=BrowserWorkerSettings(
-            browser_provider_mode="dry_run",
-            browser_max_jobs_per_run=10,
-            playwright_download_root=tmp_path / "downloads",
-        ),
-        session_factory=session_factory,
-    )
+    processed_jobs = _run_browser_worker(tmp_path=tmp_path, session_factory=session_factory)
 
     assert processed_jobs == 2
 
@@ -158,6 +170,110 @@ def test_browser_worker_processes_queued_generation_jobs(tmp_path: Path, monkeyp
 
     project_response = client.get(f"/api/projects/{project_id}")
     assert project_response.status_code == 200
+    assert project_response.json()["status"] == "asset_pending_approval"
+
+    app.dependency_overrides.clear()
+
+
+def test_asset_review_routes_update_status_and_approval_history(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    session_factory = _create_test_session()
+    client = _make_test_client(session_factory)
+
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Review generated assets",
+        objective="Validate asset approval and rejection flow",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    _queue_asset_jobs(client, project_id)
+    _run_browser_worker(tmp_path=tmp_path, session_factory=session_factory)
+
+    blocked_transition_response = client.post(
+        f"/api/projects/{project_id}/transition",
+        json={"target_status": "rough_cut_ready"},
+    )
+    assert blocked_transition_response.status_code == 409
+    assert "asset set has been explicitly approved" in blocked_transition_response.json()["detail"]
+
+    approve_assets_response = client.post(f"/api/projects/{project_id}/assets/approve", json={})
+    assert approve_assets_response.status_code == 200
+    assert approve_assets_response.json()["stage"] == "assets"
+    assert approve_assets_response.json()["decision"] == "approved"
+
+    approvals_response = client.get(f"/api/projects/{project_id}/approvals")
+    assert approvals_response.status_code == 200
+    approvals = approvals_response.json()
+    assert any(
+        approval["stage"] == "assets" and approval["decision"] == "approved"
+        for approval in approvals
+    )
+
+    allowed_transition_response = client.post(
+        f"/api/projects/{project_id}/transition",
+        json={"target_status": "rough_cut_ready"},
+    )
+    assert allowed_transition_response.status_code == 200
+    assert allowed_transition_response.json()["status"] == "rough_cut_ready"
+
+    app.dependency_overrides.clear()
+
+
+def test_asset_rejection_and_content_route_work_after_generation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    session_factory = _create_test_session()
+    client = _make_test_client(session_factory)
+
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Reject generated assets",
+        objective="Validate review rejection and content previews",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    _queue_asset_jobs(client, project_id)
+    _run_browser_worker(tmp_path=tmp_path, session_factory=session_factory)
+
+    assets_response = client.get(f"/api/projects/{project_id}/assets")
+    assets = assets_response.json()
+    visual_asset = next(asset for asset in assets if asset["asset_type"] == "scene_image")
+
+    content_response = client.get(f"/api/assets/{visual_asset['id']}/content")
+    assert content_response.status_code == 200
+    assert content_response.headers["content-type"].startswith("image/svg+xml")
+    assert "Dry-run visual artifact" in content_response.text
+
+    reject_assets_response = client.post(
+        f"/api/projects/{project_id}/assets/reject",
+        json={"feedback_notes": "These visuals need a stronger direction."},
+    )
+    assert reject_assets_response.status_code == 200
+    assert reject_assets_response.json()["stage"] == "assets"
+    assert reject_assets_response.json()["decision"] == "rejected"
+
+    project_response = client.get(f"/api/projects/{project_id}")
+    assert project_response.status_code == 200
     assert project_response.json()["status"] == "asset_generation"
+
+    updated_assets_response = client.get(f"/api/projects/{project_id}/assets")
+    updated_assets = updated_assets_response.json()
+    assert all(
+        asset["status"] == "rejected" for asset in updated_assets if asset["status"] != "planned"
+    )
 
     app.dependency_overrides.clear()

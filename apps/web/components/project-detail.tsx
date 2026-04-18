@@ -139,7 +139,13 @@ export function ProjectDetail({
             promptPack={promptPack}
             project={project}
           />
-          <ProjectStatusActions currentScript={currentScript} jobs={jobs} project={project} />
+          <ProjectStatusActions
+            approvals={approvals}
+            assets={assets}
+            currentScript={currentScript}
+            jobs={jobs}
+            project={project}
+          />
         </>
       ) : null}
     </main>

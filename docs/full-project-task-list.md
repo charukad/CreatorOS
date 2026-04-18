@@ -280,15 +280,18 @@ There is now a dry-run Flow-style provider that produces local SVG scene artifac
 
 ## Phase 14 - Download Manager and Asset Registry
 
+Current implementation note:
+The worker now moves dry-run outputs into canonical project storage paths, and the project page can preview and approve or reject the current asset set. File hashing, quarantine handling, and asset-level regeneration are still pending.
+
 ### Build tasks
 - [ ] Implement download watcher or explicit ingest flow for browser outputs
 - [ ] Add file hash calculation and duplicate detection
-- [ ] Add canonical storage path generation under `storage/projects/{project_id}`
-- [ ] Move files from temporary download folders into permanent storage
+- [x] Add canonical storage path generation under `storage/projects/{project_id}`
+- [x] Move files from temporary download folders into permanent storage
 - [ ] Register assets with metadata including file path, mime type, duration, resolution, checksum, scene link, and attempt link
 - [ ] Add quarantine path for unknown or mismatched downloads
 - [ ] Add asset approval/rejection/regeneration APIs
-- [ ] Add asset gallery and preview UI
+- [x] Add asset gallery and preview UI
 - [ ] Add tests for download ingestion mapping and duplicate handling
 
 ### Manual checks
