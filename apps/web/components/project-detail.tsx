@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ProjectForm } from "./project-form";
+import { ProjectStatusActions } from "./project-status-actions";
 import { StatusBadge } from "./status-badge";
 import { updateProject } from "../lib/api";
 import type { BrandProfile, Project, ProjectPayload } from "../types/api";
@@ -101,6 +102,8 @@ export function ProjectDetail({ brandProfiles, error, project }: ProjectDetailPr
               />
             </div>
           </section>
+
+          <ProjectStatusActions project={project} />
         </>
       ) : null}
     </main>

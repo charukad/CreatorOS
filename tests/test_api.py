@@ -134,3 +134,83 @@ def test_projects_crud_flow() -> None:
     assert get_response.json()["id"] == created_project["id"]
 
     app.dependency_overrides.clear()
+
+
+def test_project_transitions_allow_valid_next_step() -> None:
+    client = _make_test_client()
+    brand_profile_response = client.post(
+        "/api/brand-profiles",
+        json={
+            "channel_name": "Creator Lab",
+            "niche": "AI productivity",
+            "target_audience": "Solo founders",
+            "tone": "Direct",
+            "hook_style": "Question first",
+            "cta_style": "Ask for comments",
+            "visual_style": "Screen recordings",
+            "posting_preferences_json": {"platforms": ["youtube_shorts"]},
+        },
+    )
+    brand_profile_id = brand_profile_response.json()["id"]
+
+    create_response = client.post(
+        "/api/projects",
+        json={
+            "brand_profile_id": brand_profile_id,
+            "title": "Workflow test project",
+            "target_platform": "youtube_shorts",
+            "objective": "Validate transitions",
+            "notes": None,
+        },
+    )
+    project_id = create_response.json()["id"]
+
+    transition_response = client.post(
+        f"/api/projects/{project_id}/transition",
+        json={"target_status": "idea_pending_approval"},
+    )
+
+    assert transition_response.status_code == 200
+    assert transition_response.json()["status"] == "idea_pending_approval"
+
+    app.dependency_overrides.clear()
+
+
+def test_project_transitions_block_invalid_jump() -> None:
+    client = _make_test_client()
+    brand_profile_response = client.post(
+        "/api/brand-profiles",
+        json={
+            "channel_name": "Creator Lab",
+            "niche": "AI productivity",
+            "target_audience": "Solo founders",
+            "tone": "Direct",
+            "hook_style": "Question first",
+            "cta_style": "Ask for comments",
+            "visual_style": "Screen recordings",
+            "posting_preferences_json": {"platforms": ["youtube_shorts"]},
+        },
+    )
+    brand_profile_id = brand_profile_response.json()["id"]
+
+    create_response = client.post(
+        "/api/projects",
+        json={
+            "brand_profile_id": brand_profile_id,
+            "title": "Invalid transition project",
+            "target_platform": "youtube_shorts",
+            "objective": "Validate blocked jumps",
+            "notes": None,
+        },
+    )
+    project_id = create_response.json()["id"]
+
+    transition_response = client.post(
+        f"/api/projects/{project_id}/transition",
+        json={"target_status": "ready_to_publish"},
+    )
+
+    assert transition_response.status_code == 409
+    assert "cannot transition" in transition_response.json()["detail"]
+
+    app.dependency_overrides.clear()

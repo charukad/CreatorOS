@@ -26,6 +26,10 @@ class ProjectUpdate(BaseModel):
     notes: str | None = None
 
 
+class ProjectTransitionRequest(BaseModel):
+    target_status: ProjectStatus
+
+
 class ProjectResponse(ProjectBase):
     model_config = ConfigDict(from_attributes=True)
 

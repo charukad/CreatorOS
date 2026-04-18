@@ -38,7 +38,7 @@ Legend:
 - [ ] Define scene manifest schema for media assembly
 - [ ] Define prompt pack schema for idea, script, narration, and visual generation inputs
 - [x] Define storage path helper contracts so all artifacts remain traceable to project, scene, and attempt
-- [ ] Add validation helpers for state transitions and approval gating
+- [x] Add validation helpers for state transitions and approval gating
 - [ ] Add test fixtures and factories for shared schema validation
 
 ### Manual checks
@@ -123,13 +123,13 @@ Legend:
 - [ ] Build project create, edit, view, archive, and list APIs
 - [x] Build project list and project detail pages in the web app
 - [x] Add project fields for title, target platform, objective, notes, and linked brand profile
-- [ ] Implement the project state machine from `draft` through `published` and `archived`
-- [ ] Add explicit transition guards for every state-changing action
+- [x] Implement the project state machine from `draft` through `published` and `archived`
+- [x] Add explicit transition guards for every state-changing action
 - [ ] Add visible project timeline/status history in the UI
 - [ ] Add manual override notes for admin/user interventions
 - [ ] Add project activity log capturing approvals, jobs, failures, retries, and publish actions
 - [x] Add project filtering and search in the UI
-- [ ] Add tests for valid and invalid project status transitions
+- [x] Add tests for valid and invalid project status transitions
 
 ### Manual checks
 - [ ] Manual check: invalid state transitions are blocked in both API and UI

@@ -67,6 +67,40 @@ export const projectStatusLabels: Record<ProjectStatus, string> = {
   archived: "Archived",
 };
 
+export const projectStatusDescriptions: Record<ProjectStatus, string> = {
+  draft: "Project setup is still being refined before idea generation begins.",
+  idea_pending_approval: "Ideas are ready for human review and one must be approved.",
+  script_pending_approval: "A script draft exists and is waiting for approval before asset work starts.",
+  asset_generation: "The browser workers are generating narration and visual assets.",
+  asset_pending_approval: "Generated assets are ready for human review and approval.",
+  rough_cut_ready: "The rough cut is assembled and can move into final review.",
+  final_pending_approval: "The final video is waiting for explicit approval.",
+  ready_to_publish: "The project is approved and ready for scheduling or publishing.",
+  scheduled: "The publish job has been scheduled but not yet published.",
+  published: "The content has been published and can move into analytics sync.",
+  failed: "A critical step failed and needs manual recovery before continuing.",
+  archived: "The project is archived and should not continue through the workflow.",
+};
+
+export const projectStatusTransitions: Record<ProjectStatus, ProjectStatus[]> = {
+  draft: ["idea_pending_approval", "archived"],
+  idea_pending_approval: ["draft", "script_pending_approval", "archived"],
+  script_pending_approval: ["idea_pending_approval", "asset_generation", "archived"],
+  asset_generation: ["script_pending_approval", "asset_pending_approval", "failed", "archived"],
+  asset_pending_approval: ["asset_generation", "rough_cut_ready", "archived"],
+  rough_cut_ready: ["asset_pending_approval", "final_pending_approval", "archived"],
+  final_pending_approval: ["rough_cut_ready", "ready_to_publish", "archived"],
+  ready_to_publish: ["final_pending_approval", "scheduled", "published", "archived"],
+  scheduled: ["ready_to_publish", "published", "archived"],
+  published: ["archived"],
+  failed: ["draft", "asset_generation", "archived"],
+  archived: [],
+};
+
+export function getAvailableProjectStatusTransitions(status: ProjectStatus): ProjectStatus[] {
+  return projectStatusTransitions[status];
+}
+
 export const workflowMilestones = [
   {
     id: "brand",
@@ -94,4 +128,3 @@ export const workflowMilestones = [
     description: "Prepare metadata, schedule only after approval, then sync analytics and learn from performance.",
   },
 ] as const;
-

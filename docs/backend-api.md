@@ -21,6 +21,7 @@
 - `GET /api/projects/:id`
 - `PATCH /api/projects/:id`
 - `GET /api/projects`
+- `POST /api/projects/:id/transition`
 
 ## Implemented v0 Foundation Payloads
 ### `POST /api/brand-profiles`
@@ -47,6 +48,13 @@
   "target_platform": "youtube_shorts",
   "objective": "Create a short-form educational video",
   "notes": "Keep this under 45 seconds"
+}
+```
+
+### `POST /api/projects/:id/transition`
+```json
+{
+  "target_status": "idea_pending_approval"
 }
 ```
 
@@ -96,6 +104,11 @@
 
 ## Example Project State Machine
 `draft -> idea_pending_approval -> script_pending_approval -> asset_generation -> asset_pending_approval -> rough_cut_ready -> final_pending_approval -> ready_to_publish -> scheduled|published|archived`
+
+## Current Guarded Transition Rules
+- the API only allows explicit transitions between known adjacent states
+- invalid jumps return `409 Conflict`
+- archived projects cannot transition further in the current implementation
 
 ## Error Model
 All errors should return:

@@ -46,6 +46,10 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   return parsedBody as T;
 }
 
+type ProjectTransitionPayload = {
+  target_status: Project["status"];
+};
+
 export function listBrandProfiles(): Promise<BrandProfile[]> {
   return apiRequest<BrandProfile[]>("/brand-profiles");
 }
@@ -89,6 +93,16 @@ export function getProject(projectId: string): Promise<Project> {
 export function updateProject(projectId: string, payload: ProjectPayload): Promise<Project> {
   return apiRequest<Project>(`/projects/${projectId}`, {
     method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function transitionProjectStatus(
+  projectId: string,
+  payload: ProjectTransitionPayload,
+): Promise<Project> {
+  return apiRequest<Project>(`/projects/${projectId}/transition`, {
+    method: "POST",
     body: JSON.stringify(payload),
   });
 }
