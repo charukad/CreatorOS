@@ -724,11 +724,12 @@ def test_queue_visual_generation_creates_scene_assets_for_current_script() -> No
     assert assets_response.status_code == 200
     assets = assets_response.json()
     assert len(assets) == len(script["scenes"])
-    assert all(asset["asset_type"] == "scene_video" for asset in assets)
+    assert all(asset["asset_type"] == "scene_image" for asset in assets)
     assert all(asset["status"] == "planned" for asset in assets)
     assert all(asset["provider_name"] == "flow_web" for asset in assets)
     assert all(asset["scene_id"] is not None for asset in assets)
     assert all(asset["generation_attempt_id"] is not None for asset in assets)
+    assert all(asset["file_path"].endswith(".svg") for asset in assets)
 
     jobs_response = client.get(f"/api/projects/{project_id}/jobs")
     assert jobs_response.status_code == 200

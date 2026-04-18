@@ -196,7 +196,7 @@ The repo now has a synchronous local script generator, scene persistence, script
 ## Phase 10 - Queue System, Background Jobs, and Progress Tracking
 
 Current implementation note:
-The repo now persists queued narration/visual job plans, per-attempt records, and planned asset placeholders from the project page. Redis-backed execution, retries, logs, and live progress updates are still pending.
+The repo now persists queued narration/visual job plans, per-attempt records, and planned asset placeholders from the project page. The browser worker can execute those jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, retries, logs, and live progress updates are still pending.
 
 ### Build tasks
 - [ ] Choose and implement the job runner architecture backed by Redis
@@ -216,22 +216,28 @@ The repo now persists queued narration/visual job plans, per-attempt records, an
 
 ## Phase 11 - Browser Worker Foundation
 
+Current implementation note:
+The browser worker can now claim queued jobs and run `dry_run` providers that emit local WAV/SVG artifacts for development. Live Playwright-driven provider automation is still pending.
+
 ### Build tasks
-- [ ] Create the browser worker entrypoint and worker lifecycle management
+- [x] Create the browser worker entrypoint and worker lifecycle management
 - [ ] Add Playwright setup with persistent browser profile support
-- [ ] Add provider abstraction with `ensure_session`, `open_workspace`, `submit_job`, `wait_for_completion`, `collect_downloads`, and `capture_debug_artifacts`
+- [x] Add provider abstraction with `ensure_session`, `open_workspace`, `submit_job`, `wait_for_completion`, `collect_downloads`, and `capture_debug_artifacts`
 - [ ] Create centralized selector registry with versioned selector files
 - [ ] Add screenshot and HTML snapshot capture for critical checkpoints and failures
 - [ ] Add download interception and metadata tagging
 - [ ] Add secret-safe logging for browser interactions
 - [ ] Add recoverable session handling and manual intervention status reporting
-- [ ] Add browser worker tests and smoke-test harness
+- [x] Add browser worker tests and smoke-test harness
 
 ### Manual checks
 - [ ] Manual check: browser profiles remain outside version control and survive worker restarts
 - [ ] Manual check: screenshots and logs are sufficient to debug failed browser runs
 
 ## Phase 12 - ElevenLabs Browser Automation
+
+Current implementation note:
+There is now a dry-run ElevenLabs-style provider that produces local WAV artifacts for development. The live authenticated browser flow is still pending.
 
 ### Build tasks
 - [ ] Implement ElevenLabs provider module
@@ -243,7 +249,7 @@ The repo now persists queued narration/visual job plans, per-attempt records, an
 - [ ] Add narration audio download handling
 - [ ] Emit generation attempt metadata and output asset registration payloads
 - [ ] Add retry-on-timeout and selector-failure behavior
-- [ ] Add smoke tests or dry-run scripts for ElevenLabs automation
+- [x] Add smoke tests or dry-run scripts for ElevenLabs automation
 
 ### Manual checks
 - [ ] Manual check: the browser flow still works against the live ElevenLabs UI
@@ -251,6 +257,9 @@ The repo now persists queued narration/visual job plans, per-attempt records, an
 - [ ] Manual check: login/captcha/manual-auth failures cleanly hand off to the user
 
 ## Phase 13 - Flow Browser Automation for Visual Generation
+
+Current implementation note:
+There is now a dry-run Flow-style provider that produces local SVG scene artifacts for development. The live authenticated browser flow is still pending.
 
 ### Build tasks
 - [ ] Implement Google Flow provider module
@@ -262,7 +271,7 @@ The repo now persists queued narration/visual job plans, per-attempt records, an
 - [ ] Map downloaded outputs back to project, scene, and generation attempt records
 - [ ] Add retry and timeout handling
 - [ ] Add selector fallback strategy where reasonable
-- [ ] Add smoke tests or dry-run scripts for Flow automation
+- [x] Add smoke tests or dry-run scripts for Flow automation
 
 ### Manual checks
 - [ ] Manual check: the browser flow still works against the live Flow UI

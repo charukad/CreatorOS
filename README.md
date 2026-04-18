@@ -4,12 +4,12 @@ CreatorOS is a personal-use AI content operating system for planning, generating
 
 ## Current Status
 
-The repository now includes the first implementation bootstrap:
-- a pnpm workspace with a starter Next.js app in `apps/web`
-- a starter FastAPI service in `apps/api`
-- starter browser and media worker entrypoints
+The repository now includes a working first vertical slice:
+- a Next.js dashboard for brand profiles, projects, ideas, scripts, approvals, queued jobs, and planned assets
+- a FastAPI service with persisted workflow records, approval history, background jobs, generation attempts, and assets
+- a browser worker that can consume queued narration/visual jobs in `dry_run` mode and write local development artifacts
 - shared TypeScript workflow contracts in `packages/shared`
-- basic migration, testing, and setup scaffolding
+- migration, testing, and setup scaffolding across the stack
 
 ## Project Goals
 
@@ -81,6 +81,13 @@ pnpm --filter web typecheck
 .venv/bin/ruff check .
 .venv/bin/pytest
 ```
+
+## Current Worker Note
+
+The browser worker currently supports a `dry_run` provider mode for local development. In that mode it:
+- claims queued browser jobs from the database
+- generates local WAV narration placeholders and SVG visual placeholders
+- marks attempts and assets as completed so the end-to-end workflow can be exercised before live Playwright provider automation is wired in
 
 ## Documentation
 

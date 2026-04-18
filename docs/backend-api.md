@@ -12,6 +12,7 @@
 ## Current Workflow Note
 - the current idea and script workflow runs synchronously inside the API as a local deterministic generator
 - asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
+- the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
 - Redis-backed execution, retries, and worker progress updates are still planned
 
 ## Core Resources

@@ -126,9 +126,9 @@ def queue_audio_generation_job(
             file_path=build_project_storage_path(
                 project.id,
                 "audio",
-                f"script-v{script.version_number}-narration.mp3",
+                f"script-v{script.version_number}-narration.wav",
             ),
-            mime_type="audio/mpeg",
+            mime_type="audio/wav",
             duration_seconds=script.estimated_duration_seconds,
         )
     )
@@ -211,15 +211,15 @@ def queue_visual_generation_job(
                 script_id=script.id,
                 scene_id=scene.scene_id,
                 generation_attempt_id=attempt.id,
-                asset_type=AssetType.SCENE_VIDEO,
+                asset_type=AssetType.SCENE_IMAGE,
                 status=AssetStatus.PLANNED,
                 provider_name=ProviderName.FLOW_WEB,
                 file_path=build_project_storage_path(
                     project.id,
                     "scenes",
-                    f"scene-{scene.scene_order:02d}-{_slugify(scene.title)}.mp4",
+                    f"scene-{scene.scene_order:02d}-{_slugify(scene.title)}.svg",
                 ),
-                mime_type="video/mp4",
+                mime_type="image/svg+xml",
                 duration_seconds=scene.estimated_duration_seconds,
             )
         )

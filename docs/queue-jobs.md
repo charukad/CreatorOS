@@ -3,6 +3,7 @@
 ## Current Implementation Note
 - `generate_audio_browser` and `generate_visuals_browser` can now be queued through the API
 - queue submission persists `background_jobs`, `generation_attempts`, and planned `assets`
+- the browser worker can now execute those queued jobs in local `dry_run` mode and materialize WAV/SVG development artifacts
 - actual Redis-backed execution, retries, and worker progress updates are still pending
 
 ## Principles
