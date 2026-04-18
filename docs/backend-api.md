@@ -6,6 +6,9 @@
 - background jobs returned as task references
 - explicit status enums
 
+## Personal-Use Bootstrap Note
+- until auth/session is implemented, v1 local development can attach brand profiles and projects to a single configured default user
+
 ## Core Resources
 ### Brand Profiles
 - `POST /api/brand-profiles`
@@ -18,6 +21,34 @@
 - `GET /api/projects/:id`
 - `PATCH /api/projects/:id`
 - `GET /api/projects`
+
+## Implemented v0 Foundation Payloads
+### `POST /api/brand-profiles`
+```json
+{
+  "channel_name": "Creator Lab",
+  "niche": "AI productivity",
+  "target_audience": "Founders and solo creators",
+  "tone": "Direct and optimistic",
+  "hook_style": "Question-led hook",
+  "cta_style": "Invite discussion",
+  "visual_style": "Cinematic screen-recording mix",
+  "posting_preferences_json": {
+    "platforms": ["youtube_shorts", "tiktok"]
+  }
+}
+```
+
+### `POST /api/projects`
+```json
+{
+  "brand_profile_id": "uuid",
+  "title": "3 AI automations I use daily",
+  "target_platform": "youtube_shorts",
+  "objective": "Create a short-form educational video",
+  "notes": "Keep this under 45 seconds"
+}
+```
 
 ### Ideas
 - `POST /api/projects/:id/ideas/generate`

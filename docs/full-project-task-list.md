@@ -48,9 +48,9 @@ Legend:
 ## Phase 2 - Database, Persistence, and Migrations
 
 ### Build tasks
-- [ ] Set up SQLAlchemy base models and migration tooling
+- [x] Set up SQLAlchemy base models and migration tooling
 - [ ] Create database models for `users`, `brand_profiles`, `projects`, `content_ideas`, `scripts`, `scenes`, `generation_attempts`, `assets`, `approvals`, `publish_jobs`, `analytics_snapshots`, `insights`, and `background_jobs`
-- [ ] Add explicit enum columns for workflow state where required
+- [x] Add explicit enum columns for workflow state where required
 - [ ] Add foreign keys and indexes for common lookup paths
 - [ ] Add created/updated timestamps consistently
 - [ ] Add immutable versioning strategy for scripts and generation attempts
@@ -58,7 +58,7 @@ Legend:
 - [ ] Add checksum persistence for ingested files
 - [ ] Add migration scripts for the full initial schema
 - [ ] Add seed data helpers for local development
-- [ ] Add repository/service-layer persistence helpers for the main domain entities
+- [x] Add repository/service-layer persistence helpers for the main domain entities
 
 ### Manual checks
 - [ ] Manual check: migrations can run from a clean database and produce the full schema successfully
@@ -67,17 +67,17 @@ Legend:
 ## Phase 3 - Backend App Foundation
 
 ### Build tasks
-- [ ] Create FastAPI app entrypoint and configuration loading
-- [ ] Add health and readiness endpoints
-- [ ] Add database session management and dependency injection
+- [x] Create FastAPI app entrypoint and configuration loading
+- [x] Add health and readiness endpoints
+- [x] Add database session management and dependency injection
 - [ ] Add Redis connection setup
-- [ ] Add structured logging and request correlation IDs
+- [x] Add structured logging and request correlation IDs
 - [ ] Add global error model matching `docs/backend-api.md`
-- [ ] Add API router registration and versioned route structure
-- [ ] Add auth/session placeholder or personal-user auth implementation appropriate for v1
+- [x] Add API router registration and versioned route structure
+- [x] Add auth/session placeholder or personal-user auth implementation appropriate for v1
 - [ ] Add background job submission helpers
-- [ ] Add service layer boundaries so routes stay thin
-- [ ] Add API test harness with database and Redis fixtures
+- [x] Add service layer boundaries so routes stay thin
+- [x] Add API test harness with database and Redis fixtures
 
 ### Manual checks
 - [ ] Manual check: API startup failures are clear and actionable when env vars are missing
@@ -104,8 +104,8 @@ Legend:
 ## Phase 5 - Brand Profile and Onboarding
 
 ### Build tasks
-- [ ] Build brand profile database/service/API support
-- [ ] Add brand profile create, edit, view, and list routes
+- [x] Build brand profile database/service/API support
+- [x] Add brand profile create, edit, view, and list routes
 - [ ] Add onboarding flow for channel name, niche, target audience, tone, hook style, CTA style, visual style, and posting preferences
 - [ ] Add settings UI for updating brand rules later
 - [ ] Add validation for missing or inconsistent brand profile data
@@ -122,7 +122,7 @@ Legend:
 ### Build tasks
 - [ ] Build project create, edit, view, archive, and list APIs
 - [ ] Build project list and project detail pages in the web app
-- [ ] Add project fields for title, target platform, objective, notes, and linked brand profile
+- [x] Add project fields for title, target platform, objective, notes, and linked brand profile
 - [ ] Implement the project state machine from `draft` through `published` and `archived`
 - [ ] Add explicit transition guards for every state-changing action
 - [ ] Add visible project timeline/status history in the UI

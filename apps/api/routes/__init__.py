@@ -1,7 +1,10 @@
 from fastapi import APIRouter
 
+from apps.api.routes.brand_profiles import router as brand_profile_router
 from apps.api.routes.health import router as health_router
+from apps.api.routes.projects import router as project_router
 
 api_router = APIRouter()
+api_router.include_router(brand_profile_router)
 api_router.include_router(health_router)
-
+api_router.include_router(project_router)

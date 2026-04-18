@@ -7,6 +7,9 @@
 - name
 - created_at
 
+Note:
+- v1 local development may bootstrap a single default user record from environment configuration until a fuller auth/session layer is added
+
 ### brand_profiles
 - id
 - user_id

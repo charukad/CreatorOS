@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from logging.config import fileConfig
 
+import apps.api.models  # noqa: F401
 from alembic import context
 from apps.api.core.config import get_settings
 from apps.api.db.base import Base
@@ -48,4 +49,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-
