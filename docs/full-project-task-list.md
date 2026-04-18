@@ -88,8 +88,8 @@ Legend:
 ### Build tasks
 - [ ] Create Next.js app structure with TypeScript, Tailwind, and shadcn/ui
 - [ ] Add global layout, navigation, and project-level routing
-- [ ] Add API client layer and typed response handling
-- [ ] Add shared UI states for loading, empty, error, and retry flows
+- [x] Add API client layer and typed response handling
+- [x] Add shared UI states for loading, empty, error, and retry flows
 - [ ] Add notification/toast pattern for asynchronous job updates
 - [ ] Add reusable cards, tables, status badges, forms, dialogs, and approval components
 - [ ] Add application-wide status color mapping for project, asset, job, approval, and publish states
@@ -121,14 +121,14 @@ Legend:
 
 ### Build tasks
 - [ ] Build project create, edit, view, archive, and list APIs
-- [ ] Build project list and project detail pages in the web app
+- [x] Build project list and project detail pages in the web app
 - [x] Add project fields for title, target platform, objective, notes, and linked brand profile
 - [ ] Implement the project state machine from `draft` through `published` and `archived`
 - [ ] Add explicit transition guards for every state-changing action
 - [ ] Add visible project timeline/status history in the UI
 - [ ] Add manual override notes for admin/user interventions
 - [ ] Add project activity log capturing approvals, jobs, failures, retries, and publish actions
-- [ ] Add project filtering and search in the UI
+- [x] Add project filtering and search in the UI
 - [ ] Add tests for valid and invalid project status transitions
 
 ### Manual checks

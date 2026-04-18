@@ -4,10 +4,25 @@ import {
   projectStatusLabels,
   workflowMilestones,
 } from "@creatoros/shared";
+import { DashboardWorkspace } from "../components/dashboard-workspace";
 import { StatusBadge } from "../components/status-badge";
+import { listBrandProfiles, listProjects } from "../lib/api";
 import { apiBaseUrl } from "../lib/env";
+import type { BrandProfile, Project } from "../types/api";
 
-export default function HomePage() {
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  let initialError: string | null = null;
+  let brandProfiles: BrandProfile[] = [];
+  let projects: Project[] = [];
+
+  try {
+    [brandProfiles, projects] = await Promise.all([listBrandProfiles(), listProjects()]);
+  } catch (loadError) {
+    initialError = loadError instanceof Error ? loadError.message : "Unable to load dashboard data.";
+  }
+
   return (
     <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-10 px-6 py-10">
       <section className="rounded-[2rem] border border-white/10 bg-white/5 p-8 shadow-2xl shadow-cyan-950/30 backdrop-blur">
@@ -34,6 +49,12 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      <DashboardWorkspace
+        initialBrandProfiles={brandProfiles}
+        initialError={initialError}
+        initialProjects={projects}
+      />
 
       <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-[1.75rem] border border-white/10 bg-[var(--card)] p-6">
@@ -69,4 +90,3 @@ export default function HomePage() {
     </main>
   );
 }
-
