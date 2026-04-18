@@ -9,6 +9,10 @@
 ## Personal-Use Bootstrap Note
 - until auth/session is implemented, v1 local development can attach brand profiles and projects to a single configured default user
 
+## Current Workflow Note
+- the current idea and script workflow runs synchronously inside the API as a local deterministic generator
+- queue-backed job submission for generation steps is still planned, but the persisted workflow path is already live
+
 ## Core Resources
 ### Brand Profiles
 - `POST /api/brand-profiles`
@@ -22,8 +26,15 @@
 - `PATCH /api/projects/:id`
 - `GET /api/projects`
 - `POST /api/projects/:id/transition`
+- `GET /api/projects/:id/ideas`
+- `POST /api/projects/:id/ideas/generate`
+- `GET /api/projects/:id/scripts/current`
+- `POST /api/projects/:id/scripts/generate`
 
-## Implemented v0 Foundation Payloads
+### Ideas
+- `POST /api/ideas/:id/approve`
+
+## Implemented Payloads
 ### `POST /api/brand-profiles`
 ```json
 {
@@ -58,19 +69,80 @@
 }
 ```
 
-### Ideas
-- `POST /api/projects/:id/ideas/generate`
-- `POST /api/ideas/:id/approve`
-- `POST /api/ideas/:id/reject`
+### `POST /api/projects/:id/ideas/generate`
+Request body:
+```json
+{}
+```
 
-### Scripts
-- `POST /api/projects/:id/scripts/generate`
-- `GET /api/projects/:id/scripts/current`
+Response excerpt:
+```json
+[
+  {
+    "id": "uuid",
+    "project_id": "uuid",
+    "suggested_title": "3 ways solo founders can apply Build a daily content loop this week",
+    "hook": "What if build a daily content loop could save solo founders hours this week?",
+    "angle": "Turn the project objective into a practical three-step playbook tailored to solo founders.",
+    "rationale": "Fits the brand tone and gives short-form viewers a fast payoff.",
+    "score": 91,
+    "status": "proposed"
+  }
+]
+```
+
+### `POST /api/ideas/:id/approve`
+```json
+{
+  "feedback_notes": "Lean harder into the transformation angle."
+}
+```
+
+### `POST /api/projects/:id/scripts/generate`
+```json
+{
+  "source_feedback_notes": "Keep the pacing tight and practical."
+}
+```
+
+Response excerpt:
+```json
+{
+  "id": "uuid",
+  "project_id": "uuid",
+  "content_idea_id": "uuid",
+  "version_number": 1,
+  "status": "draft",
+  "hook": "What if build a daily content loop could save solo founders hours this week?",
+  "body": "Solo founders usually hear that turning one workflow into multiple pieces of content needs a huge system...",
+  "cta": "Close by ask for comments and invite viewers to test the first step before the day ends.",
+  "title_options": [
+    "3 ways solo founders can apply Build a daily content loop this week",
+    "Build a daily content loop: the short playbook"
+  ],
+  "hashtags": ["#YoutubeShorts", "#AiProductivity", "#BuildADailyContentLoop"],
+  "estimated_duration_seconds": 33,
+  "scenes": [
+    {
+      "scene_order": 1,
+      "title": "Hook",
+      "narration_text": "What if build a daily content loop could save solo founders hours this week?",
+      "overlay_text": "The fast promise",
+      "image_prompt": "High-contrast cover frame...",
+      "video_prompt": "Start with a punchy first-person clip..."
+    }
+  ]
+}
+```
+
+### `GET /api/projects/:id/scripts/current`
+- returns `null` when the project has no saved script yet
+
+## Planned Next Endpoints
+- `POST /api/ideas/:id/reject`
 - `POST /api/scripts/:id/approve`
 - `POST /api/scripts/:id/reject`
 - `POST /api/scripts/:id/regenerate`
-
-### Scenes
 - `GET /api/scripts/:id/scenes`
 - `PATCH /api/scenes/:id`
 
@@ -108,6 +180,7 @@
 ## Current Guarded Transition Rules
 - the API only allows explicit transitions between known adjacent states
 - invalid jumps return `409 Conflict`
+- moving into `script_pending_approval` or `asset_generation` now requires a generated script to exist
 - archived projects cannot transition further in the current implementation
 
 ## Error Model

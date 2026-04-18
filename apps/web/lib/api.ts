@@ -2,8 +2,12 @@ import { apiBaseUrl } from "./env";
 import type {
   BrandProfile,
   BrandProfilePayload,
+  ContentIdea,
+  IdeaApprovalPayload,
   Project,
   ProjectPayload,
+  ProjectScript,
+  ScriptGeneratePayload,
 } from "../types/api";
 
 type ApiErrorShape = {
@@ -102,6 +106,40 @@ export function transitionProjectStatus(
   payload: ProjectTransitionPayload,
 ): Promise<Project> {
   return apiRequest<Project>(`/projects/${projectId}/transition`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function listProjectIdeas(projectId: string): Promise<ContentIdea[]> {
+  return apiRequest<ContentIdea[]>(`/projects/${projectId}/ideas`);
+}
+
+export function generateProjectIdeas(projectId: string): Promise<ContentIdea[]> {
+  return apiRequest<ContentIdea[]>(`/projects/${projectId}/ideas/generate`, {
+    method: "POST",
+  });
+}
+
+export function approveIdea(
+  ideaId: string,
+  payload: IdeaApprovalPayload = {},
+): Promise<ContentIdea> {
+  return apiRequest<ContentIdea>(`/ideas/${ideaId}/approve`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getCurrentProjectScript(projectId: string): Promise<ProjectScript | null> {
+  return apiRequest<ProjectScript | null>(`/projects/${projectId}/scripts/current`);
+}
+
+export function generateProjectScript(
+  projectId: string,
+  payload: ScriptGeneratePayload = {},
+): Promise<ProjectScript> {
+  return apiRequest<ProjectScript>(`/projects/${projectId}/scripts/generate`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

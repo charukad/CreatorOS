@@ -137,15 +137,19 @@ Legend:
 
 ## Phase 7 - Idea Generation and Research Workflow
 
+Current implementation note:
+The repo now has a synchronous local idea generator, persisted idea records, and project-page approval UI. Queue-backed job submission and richer research/regeneration are still pending.
+
 ### Build tasks
 - [ ] Implement idea generation job submission from a project
-- [ ] Add idea generation service using brand context and topic constraints
+- [x] Add idea generation service using brand context and topic constraints
 - [ ] Add optional research step for trends, competitor angles, and posting strategies
+- [x] Persist generated content ideas with title, hook, angle, rationale, score, and approval status
 - [ ] Persist generated content ideas with score, rationale, topic, and angle
 - [ ] Add UI for idea review, comparison, approval, rejection, and regeneration
 - [ ] Add revision notes and regenerate-with-feedback flow
 - [ ] Update project status when ideas are pending approval or approved
-- [ ] Add tests for idea generation payload creation and approval gating
+- [x] Add tests for idea generation payload creation and approval gating
 
 ### Manual checks
 - [ ] Manual check: generated ideas feel aligned with the brand profile and target platform
@@ -153,14 +157,17 @@ Legend:
 
 ## Phase 8 - Script Generation, Scene Planning, and Prompt Packs
 
+Current implementation note:
+The repo now has a synchronous local script generator, scene persistence, script version numbers, and a project-page script viewer. Queue jobs, approval history, editing tools, and prompt-pack outputs are still pending.
+
 ### Build tasks
 - [ ] Implement script generation job submission from an approved idea
-- [ ] Build script generation service to produce hook, full script, estimated duration, titles, captions, and hashtags
+- [x] Build script generation service to produce hook, full script, estimated duration, titles, captions, and hashtags
 - [ ] Persist script versions without overwriting previous approved or rejected versions
-- [ ] Build scene breakdown generation with narration text, duration, overlay text, image prompt, video prompt, and notes
+- [x] Build scene breakdown generation with narration text, duration, overlay text, image prompt, video prompt, and notes
 - [ ] Add script view and scene editor UI
 - [ ] Add scene reorder, edit, and validation behavior
-- [ ] Add regenerate script flow while preserving version history
+- [x] Add regenerate script flow while preserving version history
 - [ ] Add prompt-pack generation for narration and visual tools
 - [ ] Add tests for scene JSON validation and script versioning
 

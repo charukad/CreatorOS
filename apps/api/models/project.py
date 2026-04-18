@@ -34,3 +34,13 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     user = relationship("User", back_populates="projects")
     brand_profile = relationship("BrandProfile", back_populates="projects")
+    content_ideas = relationship(
+        "ContentIdea",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    scripts = relationship(
+        "ProjectScript",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )

@@ -8,6 +8,7 @@ from apps.api.models.project import Project
 from apps.api.models.user import User
 from apps.api.schemas.enums import ProjectStatus
 from apps.api.schemas.projects import ProjectCreate, ProjectUpdate
+from apps.api.services.content_workflow import validate_project_transition_prerequisites
 
 project_status_transitions: dict[ProjectStatus, set[ProjectStatus]] = {
     ProjectStatus.DRAFT: {ProjectStatus.IDEA_PENDING_APPROVAL, ProjectStatus.ARCHIVED},
@@ -136,6 +137,8 @@ def transition_project_status(
             f"Project cannot transition from '{project.status.value}' to '{target_status.value}'. "
             f"Allowed transitions: {allowed_values}."
         )
+
+    validate_project_transition_prerequisites(db, project, target_status)
 
     project.status = target_status
     db.add(project)

@@ -24,6 +24,19 @@ class ApprovalStage(StrEnum):
     PUBLISH = "publish"
 
 
+class ContentIdeaStatus(StrEnum):
+    PROPOSED = "proposed"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class ScriptStatus(StrEnum):
+    DRAFT = "draft"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    SUPERSEDED = "superseded"
+
+
 class AssetType(StrEnum):
     SCRIPT_DOC = "script_doc"
     NARRATION_AUDIO = "narration_audio"
@@ -47,4 +60,3 @@ class BackgroundJobState(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
-

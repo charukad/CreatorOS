@@ -25,6 +25,14 @@ export const approvalStages = [
 
 export type ApprovalStage = (typeof approvalStages)[number];
 
+export const contentIdeaStatuses = ["proposed", "approved", "rejected"] as const;
+
+export type ContentIdeaStatus = (typeof contentIdeaStatuses)[number];
+
+export const scriptStatuses = ["draft", "approved", "rejected", "superseded"] as const;
+
+export type ScriptStatus = (typeof scriptStatuses)[number];
+
 export const assetTypes = [
   "script_doc",
   "narration_audio",
@@ -80,6 +88,19 @@ export const projectStatusDescriptions: Record<ProjectStatus, string> = {
   published: "The content has been published and can move into analytics sync.",
   failed: "A critical step failed and needs manual recovery before continuing.",
   archived: "The project is archived and should not continue through the workflow.",
+};
+
+export const contentIdeaStatusLabels: Record<ContentIdeaStatus, string> = {
+  proposed: "Proposed",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+
+export const scriptStatusLabels: Record<ScriptStatus, string> = {
+  draft: "Draft",
+  approved: "Approved",
+  rejected: "Rejected",
+  superseded: "Superseded",
 };
 
 export const projectStatusTransitions: Record<ProjectStatus, ProjectStatus[]> = {

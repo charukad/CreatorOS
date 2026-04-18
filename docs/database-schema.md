@@ -38,35 +38,50 @@ Note:
 
 ### content_ideas
 - id
+- user_id
 - project_id
-- title
+- suggested_title
+- hook
 - angle
-- topic
 - rationale
 - score
 - status
+- feedback_notes
 - created_at
+- updated_at
 
 ### scripts
 - id
+- user_id
 - project_id
-- version
+- content_idea_id
+- version_number
 - hook
+- body
+- cta
 - full_script
+- caption
+- title_options
+- hashtags
 - estimated_duration_seconds
 - status
+- source_feedback_notes
 - created_at
+- updated_at
 
 ### scenes
 - id
 - script_id
-- order_index
+- scene_order
+- title
 - narration_text
-- duration_seconds
 - overlay_text
 - image_prompt
 - video_prompt
+- estimated_duration_seconds
 - notes
+- created_at
+- updated_at
 
 ### generation_attempts
 - id
@@ -165,6 +180,17 @@ Note:
 - published
 - failed
 - archived
+
+### content_ideas.status
+- proposed
+- approved
+- rejected
+
+### scripts.status
+- draft
+- approved
+- rejected
+- superseded
 
 ### asset.asset_type
 - script_doc

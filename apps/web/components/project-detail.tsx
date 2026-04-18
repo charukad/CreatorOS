@@ -2,15 +2,24 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ProjectContentStudio } from "./project-content-studio";
 import { ProjectForm } from "./project-form";
 import { ProjectStatusActions } from "./project-status-actions";
 import { StatusBadge } from "./status-badge";
 import { updateProject } from "../lib/api";
-import type { BrandProfile, Project, ProjectPayload } from "../types/api";
+import type {
+  BrandProfile,
+  ContentIdea,
+  Project,
+  ProjectPayload,
+  ProjectScript,
+} from "../types/api";
 
 type ProjectDetailProps = {
   brandProfiles: BrandProfile[];
+  currentScript: ProjectScript | null;
   error: string | null;
+  ideas: ContentIdea[];
   project: Project | null;
 };
 
@@ -18,7 +27,13 @@ function formatTimestamp(value: string): string {
   return new Date(value).toLocaleString();
 }
 
-export function ProjectDetail({ brandProfiles, error, project }: ProjectDetailProps) {
+export function ProjectDetail({
+  brandProfiles,
+  currentScript,
+  error,
+  ideas,
+  project,
+}: ProjectDetailProps) {
   const router = useRouter();
 
   async function handleSubmit(payload: ProjectPayload) {
@@ -103,6 +118,7 @@ export function ProjectDetail({ brandProfiles, error, project }: ProjectDetailPr
             </div>
           </section>
 
+          <ProjectContentStudio currentScript={currentScript} ideas={ideas} project={project} />
           <ProjectStatusActions project={project} />
         </>
       ) : null}

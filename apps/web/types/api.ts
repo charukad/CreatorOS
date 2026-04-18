@@ -1,4 +1,4 @@
-import type { ProjectStatus } from "@creatoros/shared";
+import type { ContentIdeaStatus, ProjectStatus, ScriptStatus } from "@creatoros/shared";
 
 export type BrandProfile = {
   id: string;
@@ -47,3 +47,61 @@ export type ProjectPayload = {
   notes: string | null;
 };
 
+export type ContentIdea = {
+  id: string;
+  user_id: string;
+  project_id: string;
+  suggested_title: string;
+  hook: string;
+  angle: string;
+  rationale: string;
+  score: number;
+  status: ContentIdeaStatus;
+  feedback_notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type IdeaApprovalPayload = {
+  feedback_notes?: string | null;
+};
+
+export type ScriptScene = {
+  id: string;
+  script_id: string;
+  scene_order: number;
+  title: string;
+  narration_text: string;
+  overlay_text: string;
+  image_prompt: string;
+  video_prompt: string;
+  estimated_duration_seconds: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectScript = {
+  id: string;
+  user_id: string;
+  project_id: string;
+  content_idea_id: string;
+  version_number: number;
+  status: ScriptStatus;
+  hook: string;
+  body: string;
+  cta: string;
+  full_script: string;
+  caption: string;
+  title_options: string[];
+  hashtags: string[];
+  estimated_duration_seconds: number;
+  source_feedback_notes: string | null;
+  created_at: string;
+  updated_at: string;
+  scenes: ScriptScene[];
+};
+
+export type ScriptGeneratePayload = {
+  source_feedback_notes?: string | null;
+};
