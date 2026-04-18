@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import desc, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from apps.api.models.brand_profile import BrandProfile
 from apps.api.models.content_idea import ContentIdea
@@ -11,8 +11,21 @@ from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
 from apps.api.models.scene import Scene
 from apps.api.models.user import User
-from apps.api.schemas.content_workflow import ScriptGenerateRequest
-from apps.api.schemas.enums import ContentIdeaStatus, ProjectStatus, ScriptStatus
+from apps.api.schemas.content_workflow import (
+    ScenePromptPackResponse,
+    SceneUpdate,
+    ScriptGenerateRequest,
+    ScriptPromptPackResponse,
+)
+from apps.api.schemas.enums import (
+    ApprovalDecision,
+    ApprovalStage,
+    ApprovalTargetType,
+    ContentIdeaStatus,
+    ProjectStatus,
+    ScriptStatus,
+)
+from apps.api.services.approvals import create_approval_record
 
 
 def list_project_ideas(db: Session, project: Project) -> list[ContentIdea]:
@@ -51,6 +64,25 @@ def get_current_script(db: Session, project: Project) -> ProjectScript | None:
     return db.scalar(statement)
 
 
+def get_project_script(db: Session, user: User, script_id: UUID) -> ProjectScript | None:
+    statement = (
+        select(ProjectScript)
+        .options(selectinload(ProjectScript.scenes))
+        .where(ProjectScript.id == script_id, ProjectScript.user_id == user.id)
+    )
+    return db.scalar(statement)
+
+
+def get_scene(db: Session, user: User, scene_id: UUID) -> Scene | None:
+    statement = (
+        select(Scene)
+        .options(joinedload(Scene.script))
+        .join(ProjectScript, Scene.script_id == ProjectScript.id)
+        .where(Scene.id == scene_id, ProjectScript.user_id == user.id)
+    )
+    return db.scalar(statement)
+
+
 def generate_content_ideas(
     db: Session,
     user: User,
@@ -85,6 +117,7 @@ def generate_content_ideas(
 
 def approve_content_idea(
     db: Session,
+    user: User,
     project: Project,
     idea: ContentIdea,
     feedback_notes: str | None = None,
@@ -94,6 +127,9 @@ def approve_content_idea(
 
     if project.status != ProjectStatus.IDEA_PENDING_APPROVAL:
         raise ValueError("Ideas can only be approved while the project is in idea approval.")
+
+    if idea.status == ContentIdeaStatus.APPROVED:
+        raise ValueError("This idea is already approved.")
 
     ideas = list_project_ideas(db, project)
     for existing_idea in ideas:
@@ -105,6 +141,53 @@ def approve_content_idea(
 
         db.add(existing_idea)
 
+    create_approval_record(
+        db,
+        user=user,
+        project=project,
+        target_type=ApprovalTargetType.CONTENT_IDEA,
+        target_id=idea.id,
+        stage=ApprovalStage.IDEA,
+        decision=ApprovalDecision.APPROVED,
+        feedback_notes=feedback_notes,
+    )
+    db.commit()
+    db.refresh(idea)
+    return idea
+
+
+def reject_content_idea(
+    db: Session,
+    user: User,
+    project: Project,
+    idea: ContentIdea,
+    feedback_notes: str | None = None,
+) -> ContentIdea:
+    if idea.project_id != project.id:
+        raise ValueError("The selected idea does not belong to this project.")
+
+    if project.status != ProjectStatus.IDEA_PENDING_APPROVAL:
+        raise ValueError("Ideas can only be rejected while the project is in idea approval.")
+
+    if idea.status == ContentIdeaStatus.REJECTED:
+        raise ValueError("This idea is already rejected.")
+
+    if idea.status == ContentIdeaStatus.APPROVED:
+        raise ValueError("Approved ideas cannot be rejected after selection.")
+
+    idea.status = ContentIdeaStatus.REJECTED
+    idea.feedback_notes = feedback_notes
+    db.add(idea)
+    create_approval_record(
+        db,
+        user=user,
+        project=project,
+        target_type=ApprovalTargetType.CONTENT_IDEA,
+        target_id=idea.id,
+        stage=ApprovalStage.IDEA,
+        decision=ApprovalDecision.REJECTED,
+        feedback_notes=feedback_notes,
+    )
     db.commit()
     db.refresh(idea)
     return idea
@@ -136,7 +219,7 @@ def generate_project_script(
     current_script = get_current_script(db, project)
     next_version_number = 1 if current_script is None else current_script.version_number + 1
 
-    if current_script is not None and current_script.status == ScriptStatus.DRAFT:
+    if current_script is not None and current_script.status != ScriptStatus.SUPERSEDED:
         current_script.status = ScriptStatus.SUPERSEDED
         db.add(current_script)
 
@@ -193,15 +276,181 @@ def generate_project_script(
     return refreshed_script
 
 
+def approve_project_script(
+    db: Session,
+    user: User,
+    project: Project,
+    script: ProjectScript,
+    feedback_notes: str | None = None,
+) -> ProjectScript:
+    current_script = get_current_script(db, project)
+    if current_script is None or current_script.id != script.id:
+        raise ValueError("Only the current script version can be approved.")
+
+    if project.status != ProjectStatus.SCRIPT_PENDING_APPROVAL:
+        raise ValueError("Scripts can only be approved while the project is in script approval.")
+
+    if script.status == ScriptStatus.APPROVED:
+        raise ValueError("This script is already approved.")
+
+    if script.status == ScriptStatus.SUPERSEDED:
+        raise ValueError("Superseded scripts cannot be approved.")
+
+    script.status = ScriptStatus.APPROVED
+    db.add(script)
+    create_approval_record(
+        db,
+        user=user,
+        project=project,
+        target_type=ApprovalTargetType.SCRIPT,
+        target_id=script.id,
+        stage=ApprovalStage.SCRIPT,
+        decision=ApprovalDecision.APPROVED,
+        feedback_notes=feedback_notes,
+    )
+    db.commit()
+    db.refresh(script)
+    return script
+
+
+def reject_project_script(
+    db: Session,
+    user: User,
+    project: Project,
+    script: ProjectScript,
+    feedback_notes: str | None = None,
+) -> ProjectScript:
+    current_script = get_current_script(db, project)
+    if current_script is None or current_script.id != script.id:
+        raise ValueError("Only the current script version can be rejected.")
+
+    if project.status != ProjectStatus.SCRIPT_PENDING_APPROVAL:
+        raise ValueError("Scripts can only be rejected while the project is in script approval.")
+
+    if script.status == ScriptStatus.REJECTED:
+        raise ValueError("This script is already rejected.")
+
+    if script.status == ScriptStatus.SUPERSEDED:
+        raise ValueError("Superseded scripts cannot be rejected.")
+
+    script.status = ScriptStatus.REJECTED
+    db.add(script)
+    create_approval_record(
+        db,
+        user=user,
+        project=project,
+        target_type=ApprovalTargetType.SCRIPT,
+        target_id=script.id,
+        stage=ApprovalStage.SCRIPT,
+        decision=ApprovalDecision.REJECTED,
+        feedback_notes=feedback_notes,
+    )
+    db.commit()
+    db.refresh(script)
+    return script
+
+
+def update_scene(
+    db: Session,
+    *,
+    project: Project,
+    script: ProjectScript,
+    scene: Scene,
+    payload: SceneUpdate,
+) -> Scene:
+    current_script = get_current_script(db, project)
+    if current_script is None or current_script.id != script.id:
+        raise ValueError("Only scenes on the current script can be edited.")
+
+    if project.status != ProjectStatus.SCRIPT_PENDING_APPROVAL:
+        raise ValueError("Scenes can only be edited while the project is in script approval.")
+
+    if script.status not in {ScriptStatus.DRAFT, ScriptStatus.REJECTED}:
+        raise ValueError("Scenes can only be edited while the current script is draft or rejected.")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(scene, field, value)
+
+    db.add(scene)
+    db.commit()
+    db.refresh(scene)
+    return scene
+
+
+def build_script_prompt_pack(
+    *,
+    project: Project,
+    brand_profile: BrandProfile,
+    approved_idea: ContentIdea,
+    script: ProjectScript,
+) -> ScriptPromptPackResponse:
+    narration_direction = (
+        f"Read in a {brand_profile.tone.lower()} tone for {brand_profile.target_audience.lower()}. "
+        f"Keep the pace suitable for {project.target_platform.replace('_', ' ')}."
+    )
+
+    scenes = [
+        ScenePromptPackResponse(
+            scene_id=scene.id,
+            scene_order=scene.scene_order,
+            title=scene.title,
+            estimated_duration_seconds=scene.estimated_duration_seconds,
+            overlay_text=scene.overlay_text,
+            narration_input=scene.narration_text,
+            narration_direction=narration_direction,
+            image_generation_prompt=(
+                f"{brand_profile.visual_style}. {scene.image_prompt} Overlay guidance: "
+                f"{scene.overlay_text}. Channel: {brand_profile.channel_name}."
+            ),
+            video_generation_prompt=(
+                f"{brand_profile.visual_style}. {scene.video_prompt} "
+                f"Objective: {project.objective}. "
+                f"Platform: {project.target_platform.replace('_', ' ')}."
+            ),
+            notes=scene.notes,
+        )
+        for scene in script.scenes
+    ]
+
+    return ScriptPromptPackResponse(
+        script_id=script.id,
+        project_id=project.id,
+        brand_profile_id=brand_profile.id,
+        channel_name=brand_profile.channel_name,
+        target_platform=project.target_platform,
+        objective=project.objective,
+        script_status=script.status,
+        version_number=script.version_number,
+        source_idea_title=approved_idea.suggested_title,
+        caption=script.caption,
+        hashtags=script.hashtags,
+        title_options=script.title_options,
+        scenes=scenes,
+    )
+
+
 def validate_project_transition_prerequisites(
     db: Session,
     project: Project,
     target_status: ProjectStatus,
 ) -> None:
-    if target_status in {ProjectStatus.SCRIPT_PENDING_APPROVAL, ProjectStatus.ASSET_GENERATION}:
-        if get_current_script(db, project) is None:
+    current_script = get_current_script(db, project)
+
+    if target_status == ProjectStatus.SCRIPT_PENDING_APPROVAL and current_script is None:
+        raise ValueError(
+            f"Project cannot transition to '{target_status.value}' without a generated script."
+        )
+
+    if target_status == ProjectStatus.ASSET_GENERATION:
+        if current_script is None:
             raise ValueError(
                 f"Project cannot transition to '{target_status.value}' without a generated script."
+            )
+        if current_script.status != ScriptStatus.APPROVED:
+            raise ValueError(
+                "Project cannot transition to 'asset_generation' until the current script "
+                "is approved."
             )
 
 

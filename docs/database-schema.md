@@ -112,13 +112,13 @@ Note:
 
 ### approvals
 - id
+- user_id
 - project_id
 - target_type
 - target_id
 - stage
 - decision
-- feedback
-- approved_by
+- feedback_notes
 - created_at
 
 ### publish_jobs
@@ -208,3 +208,11 @@ Note:
 - assets
 - final_video
 - publish
+
+### approval.decision
+- approved
+- rejected
+
+### approval.target_type
+- content_idea
+- script

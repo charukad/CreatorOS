@@ -25,6 +25,14 @@ export const approvalStages = [
 
 export type ApprovalStage = (typeof approvalStages)[number];
 
+export const approvalDecisions = ["approved", "rejected"] as const;
+
+export type ApprovalDecision = (typeof approvalDecisions)[number];
+
+export const approvalTargetTypes = ["content_idea", "script"] as const;
+
+export type ApprovalTargetType = (typeof approvalTargetTypes)[number];
+
 export const contentIdeaStatuses = ["proposed", "approved", "rejected"] as const;
 
 export type ContentIdeaStatus = (typeof contentIdeaStatuses)[number];
@@ -101,6 +109,19 @@ export const scriptStatusLabels: Record<ScriptStatus, string> = {
   approved: "Approved",
   rejected: "Rejected",
   superseded: "Superseded",
+};
+
+export const approvalStageLabels: Record<ApprovalStage, string> = {
+  idea: "Idea",
+  script: "Script",
+  assets: "Assets",
+  final_video: "Final Video",
+  publish: "Publish",
+};
+
+export const approvalDecisionLabels: Record<ApprovalDecision, string> = {
+  approved: "Approved",
+  rejected: "Rejected",
 };
 
 export const projectStatusTransitions: Record<ProjectStatus, ProjectStatus[]> = {

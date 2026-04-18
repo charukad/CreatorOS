@@ -138,7 +138,7 @@ Legend:
 ## Phase 7 - Idea Generation and Research Workflow
 
 Current implementation note:
-The repo now has a synchronous local idea generator, persisted idea records, and project-page approval UI. Queue-backed job submission and richer research/regeneration are still pending.
+The repo now has a synchronous local idea generator, persisted idea records, explicit approve/reject actions, and project-page approval history UI. Queue-backed job submission and richer research/regeneration are still pending.
 
 ### Build tasks
 - [ ] Implement idea generation job submission from a project
@@ -146,7 +146,7 @@ The repo now has a synchronous local idea generator, persisted idea records, and
 - [ ] Add optional research step for trends, competitor angles, and posting strategies
 - [x] Persist generated content ideas with title, hook, angle, rationale, score, and approval status
 - [ ] Persist generated content ideas with score, rationale, topic, and angle
-- [ ] Add UI for idea review, comparison, approval, rejection, and regeneration
+- [x] Add UI for idea review, comparison, approval, rejection, and regeneration
 - [ ] Add revision notes and regenerate-with-feedback flow
 - [ ] Update project status when ideas are pending approval or approved
 - [x] Add tests for idea generation payload creation and approval gating
@@ -158,17 +158,18 @@ The repo now has a synchronous local idea generator, persisted idea records, and
 ## Phase 8 - Script Generation, Scene Planning, and Prompt Packs
 
 Current implementation note:
-The repo now has a synchronous local script generator, scene persistence, script version numbers, and a project-page script viewer. Queue jobs, approval history, editing tools, and prompt-pack outputs are still pending.
+The repo now has a synchronous local script generator, scene persistence, script version numbers, explicit script approve/reject actions, a project-page script viewer with approval history, scene editing, and prompt-pack output for downstream workers. Queue jobs and richer editing ergonomics are still pending.
 
 ### Build tasks
 - [ ] Implement script generation job submission from an approved idea
 - [x] Build script generation service to produce hook, full script, estimated duration, titles, captions, and hashtags
-- [ ] Persist script versions without overwriting previous approved or rejected versions
+- [x] Persist script versions without overwriting previous approved or rejected versions
 - [x] Build scene breakdown generation with narration text, duration, overlay text, image prompt, video prompt, and notes
-- [ ] Add script view and scene editor UI
+- [x] Add script view UI
+- [x] Add scene editor UI
 - [ ] Add scene reorder, edit, and validation behavior
 - [x] Add regenerate script flow while preserving version history
-- [ ] Add prompt-pack generation for narration and visual tools
+- [x] Add prompt-pack generation for narration and visual tools
 - [ ] Add tests for scene JSON validation and script versioning
 
 ### Manual checks
@@ -178,15 +179,15 @@ The repo now has a synchronous local script generator, scene persistence, script
 ## Phase 9 - Approval Engine and Review History
 
 ### Build tasks
-- [ ] Implement approval records for idea, script, assets, final video, and publish stages
-- [ ] Add immutable approval history persistence
-- [ ] Add API endpoints for approve, reject, and regenerate feedback actions
-- [ ] Add reusable approval UI components for all stages
-- [ ] Add approval comments/feedback capture
-- [ ] Add rules so downstream jobs cannot start unless the current stage is approved
+- [x] Implement approval records for idea and script stages
+- [x] Add immutable approval history persistence
+- [ ] Add API endpoints for approve, reject, and regenerate feedback actions for all stages
+- [x] Add reusable approval UI components for idea and script stages
+- [x] Add approval comments/feedback capture
+- [x] Add rules so downstream jobs cannot start unless the current stage is approved
 - [ ] Add clear pending-approval inbox views for the dashboard
 - [ ] Add notifications for items awaiting approval
-- [ ] Add tests for approval gating across the full workflow
+- [x] Add tests for approval gating across the implemented workflow
 
 ### Manual checks
 - [ ] Manual check: publish-related actions are impossible without explicit approval state

@@ -8,18 +8,22 @@ import { ProjectStatusActions } from "./project-status-actions";
 import { StatusBadge } from "./status-badge";
 import { updateProject } from "../lib/api";
 import type {
+  ApprovalRecord,
   BrandProfile,
   ContentIdea,
   Project,
   ProjectPayload,
   ProjectScript,
+  ScriptPromptPack,
 } from "../types/api";
 
 type ProjectDetailProps = {
+  approvals: ApprovalRecord[];
   brandProfiles: BrandProfile[];
   currentScript: ProjectScript | null;
   error: string | null;
   ideas: ContentIdea[];
+  promptPack: ScriptPromptPack | null;
   project: Project | null;
 };
 
@@ -28,10 +32,12 @@ function formatTimestamp(value: string): string {
 }
 
 export function ProjectDetail({
+  approvals,
   brandProfiles,
   currentScript,
   error,
   ideas,
+  promptPack,
   project,
 }: ProjectDetailProps) {
   const router = useRouter();
@@ -118,8 +124,14 @@ export function ProjectDetail({
             </div>
           </section>
 
-          <ProjectContentStudio currentScript={currentScript} ideas={ideas} project={project} />
-          <ProjectStatusActions project={project} />
+          <ProjectContentStudio
+            approvals={approvals}
+            currentScript={currentScript}
+            ideas={ideas}
+            promptPack={promptPack}
+            project={project}
+          />
+          <ProjectStatusActions currentScript={currentScript} project={project} />
         </>
       ) : null}
     </main>

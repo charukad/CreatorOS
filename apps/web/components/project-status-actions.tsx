@@ -8,9 +8,10 @@ import {
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import { transitionProjectStatus } from "../lib/api";
-import type { Project } from "../types/api";
+import type { Project, ProjectScript } from "../types/api";
 
 type ProjectStatusActionsProps = {
+  currentScript: ProjectScript | null;
   project: Project;
 };
 
@@ -36,12 +37,20 @@ function buttonClassName(status: Project["status"]): string {
   }
 }
 
-export function ProjectStatusActions({ project }: ProjectStatusActionsProps) {
+export function ProjectStatusActions({ currentScript, project }: ProjectStatusActionsProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pendingTarget, setPendingTarget] = useState<Project["status"] | null>(null);
 
   const availableTransitions = getAvailableProjectStatusTransitions(project.status);
+
+  function getBlockedReason(targetStatus: Project["status"]): string | null {
+    if (targetStatus === "asset_generation" && currentScript?.status !== "approved") {
+      return "Approve the current script before starting asset generation.";
+    }
+
+    return null;
+  }
 
   function handleTransition(targetStatus: Project["status"]) {
     setError(null);
@@ -91,31 +100,49 @@ export function ProjectStatusActions({ project }: ProjectStatusActionsProps) {
       ) : (
         <div className="mt-6 flex flex-wrap gap-3">
           {availableTransitions.map((status) => (
-            <button
-              key={status}
-              className={`rounded-full border px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-50 ${buttonClassName(status)}`}
-              disabled={pendingTarget !== null}
-              onClick={() => handleTransition(status)}
-              type="button"
-            >
-              {pendingTarget === status ? "Updating..." : `Move to ${projectStatusLabels[status]}`}
-            </button>
+            (() => {
+              const blockedReason = getBlockedReason(status);
+
+              return (
+                <button
+                  key={status}
+                  className={`rounded-full border px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-50 ${buttonClassName(status)}`}
+                  disabled={pendingTarget !== null || blockedReason !== null}
+                  onClick={() => handleTransition(status)}
+                  title={blockedReason ?? undefined}
+                  type="button"
+                >
+                  {pendingTarget === status
+                    ? "Updating..."
+                    : `Move to ${projectStatusLabels[status]}`}
+                </button>
+              );
+            })()
           ))}
         </div>
       )}
 
       <div className="mt-6 grid gap-3 md:grid-cols-2">
-        {availableTransitions.map((status) => (
-          <article
-            key={`description-${status}`}
-            className="rounded-2xl border border-white/8 bg-white/4 p-4"
-          >
-            <p className="text-sm font-semibold text-white">{projectStatusLabels[status]}</p>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              {projectStatusDescriptions[status]}
-            </p>
-          </article>
-        ))}
+        {availableTransitions.map((status) => {
+          const blockedReason = getBlockedReason(status);
+
+          return (
+            <article
+              key={`description-${status}`}
+              className="rounded-2xl border border-white/8 bg-white/4 p-4"
+            >
+              <p className="text-sm font-semibold text-white">{projectStatusLabels[status]}</p>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                {projectStatusDescriptions[status]}
+              </p>
+              {blockedReason ? (
+                <p className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100">
+                  {blockedReason}
+                </p>
+              ) : null}
+            </article>
+          );
+        })}
       </div>
 
       {error ? (

@@ -44,6 +44,16 @@ class SceneResponse(BaseModel):
     updated_at: datetime
 
 
+class SceneUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    narration_text: str | None = Field(default=None, min_length=1)
+    overlay_text: str | None = Field(default=None, min_length=1)
+    image_prompt: str | None = Field(default=None, min_length=1)
+    video_prompt: str | None = Field(default=None, min_length=1)
+    estimated_duration_seconds: int | None = Field(default=None, ge=1, le=120)
+    notes: str | None = None
+
+
 class ScriptGenerateRequest(BaseModel):
     source_feedback_notes: str | None = Field(default=None, max_length=5000)
 
@@ -69,3 +79,32 @@ class ProjectScriptResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     scenes: list[SceneResponse]
+
+
+class ScenePromptPackResponse(BaseModel):
+    scene_id: UUID
+    scene_order: int
+    title: str
+    estimated_duration_seconds: int
+    overlay_text: str
+    narration_input: str
+    narration_direction: str
+    image_generation_prompt: str
+    video_generation_prompt: str
+    notes: str | None
+
+
+class ScriptPromptPackResponse(BaseModel):
+    script_id: UUID
+    project_id: UUID
+    brand_profile_id: UUID
+    channel_name: str
+    target_platform: str
+    objective: str
+    script_status: ScriptStatus
+    version_number: int
+    source_idea_title: str
+    caption: str
+    hashtags: list[str]
+    title_options: list[str]
+    scenes: list[ScenePromptPackResponse]

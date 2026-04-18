@@ -314,6 +314,13 @@ def test_idea_approval_and_script_generation_flow() -> None:
     assert project_response.status_code == 200
     assert project_response.json()["status"] == "script_pending_approval"
 
+    approvals_response = client.get(f"/api/projects/{project_id}/approvals")
+    assert approvals_response.status_code == 200
+    approvals = approvals_response.json()
+    assert len(approvals) == 1
+    assert approvals[0]["stage"] == "idea"
+    assert approvals[0]["decision"] == "approved"
+
     app.dependency_overrides.clear()
 
 
@@ -358,5 +365,240 @@ def test_project_transition_to_script_pending_requires_generated_script() -> Non
     )
     assert move_to_script_response.status_code == 409
     assert "generated script" in move_to_script_response.json()["detail"]
+
+    app.dependency_overrides.clear()
+
+
+def test_rejecting_idea_records_approval_history() -> None:
+    client = _make_test_client()
+    brand_profile_response = client.post(
+        "/api/brand-profiles",
+        json={
+            "channel_name": "Creator Lab",
+            "niche": "AI productivity",
+            "target_audience": "Solo founders",
+            "tone": "Direct",
+            "hook_style": "Question first",
+            "cta_style": "Ask for comments",
+            "visual_style": "Screen recordings",
+            "posting_preferences_json": {"platforms": ["youtube_shorts"]},
+        },
+    )
+    brand_profile_id = brand_profile_response.json()["id"]
+
+    create_response = client.post(
+        "/api/projects",
+        json={
+            "brand_profile_id": brand_profile_id,
+            "title": "Reject weak ideas",
+            "target_platform": "youtube_shorts",
+            "objective": "Validate explicit rejection history",
+            "notes": None,
+        },
+    )
+    project_id = create_response.json()["id"]
+
+    generate_ideas_response = client.post(f"/api/projects/{project_id}/ideas/generate")
+    idea_id = generate_ideas_response.json()[0]["id"]
+
+    reject_response = client.post(
+        f"/api/ideas/{idea_id}/reject",
+        json={"feedback_notes": "This angle is too broad."},
+    )
+
+    assert reject_response.status_code == 200
+    assert reject_response.json()["status"] == "rejected"
+    assert reject_response.json()["feedback_notes"] == "This angle is too broad."
+
+    approvals_response = client.get(f"/api/projects/{project_id}/approvals")
+    assert approvals_response.status_code == 200
+    approvals = approvals_response.json()
+    assert len(approvals) == 1
+    assert approvals[0]["stage"] == "idea"
+    assert approvals[0]["decision"] == "rejected"
+    assert approvals[0]["feedback_notes"] == "This angle is too broad."
+
+    app.dependency_overrides.clear()
+
+
+def test_script_approval_unblocks_asset_generation() -> None:
+    client = _make_test_client()
+    brand_profile_response = client.post(
+        "/api/brand-profiles",
+        json={
+            "channel_name": "Creator Lab",
+            "niche": "AI productivity",
+            "target_audience": "Solo founders",
+            "tone": "Direct",
+            "hook_style": "Question first",
+            "cta_style": "Ask for comments",
+            "visual_style": "Screen recordings",
+            "posting_preferences_json": {"platforms": ["youtube_shorts"]},
+        },
+    )
+    brand_profile_id = brand_profile_response.json()["id"]
+
+    create_response = client.post(
+        "/api/projects",
+        json={
+            "brand_profile_id": brand_profile_id,
+            "title": "Approve script before assets",
+            "target_platform": "youtube_shorts",
+            "objective": "Ensure asset generation stays gated",
+            "notes": None,
+        },
+    )
+    project_id = create_response.json()["id"]
+
+    ideas_response = client.post(f"/api/projects/{project_id}/ideas/generate")
+    approved_idea_id = ideas_response.json()[0]["id"]
+    client.post(f"/api/ideas/{approved_idea_id}/approve", json={})
+
+    script_response = client.post(f"/api/projects/{project_id}/scripts/generate", json={})
+    script_id = script_response.json()["id"]
+
+    blocked_transition_response = client.post(
+        f"/api/projects/{project_id}/transition",
+        json={"target_status": "asset_generation"},
+    )
+    assert blocked_transition_response.status_code == 409
+    assert "current script is approved" in blocked_transition_response.json()["detail"]
+
+    approve_script_response = client.post(
+        f"/api/scripts/{script_id}/approve",
+        json={"feedback_notes": "Good enough to move into assets."},
+    )
+    assert approve_script_response.status_code == 200
+    assert approve_script_response.json()["status"] == "approved"
+
+    approvals_response = client.get(f"/api/projects/{project_id}/approvals")
+    assert approvals_response.status_code == 200
+    approvals = approvals_response.json()
+    assert len(approvals) == 2
+    assert any(
+        approval["stage"] == "script" and approval["decision"] == "approved"
+        for approval in approvals
+    )
+
+    allowed_transition_response = client.post(
+        f"/api/projects/{project_id}/transition",
+        json={"target_status": "asset_generation"},
+    )
+    assert allowed_transition_response.status_code == 200
+    assert allowed_transition_response.json()["status"] == "asset_generation"
+
+    app.dependency_overrides.clear()
+
+
+def test_scene_updates_persist_and_prompt_pack_reflects_changes() -> None:
+    client = _make_test_client()
+    brand_profile_response = client.post(
+        "/api/brand-profiles",
+        json={
+            "channel_name": "Creator Lab",
+            "niche": "AI productivity",
+            "target_audience": "Solo founders",
+            "tone": "Direct",
+            "hook_style": "Question first",
+            "cta_style": "Ask for comments",
+            "visual_style": "Screen recordings",
+            "posting_preferences_json": {"platforms": ["youtube_shorts"]},
+        },
+    )
+    brand_profile_id = brand_profile_response.json()["id"]
+
+    create_response = client.post(
+        "/api/projects",
+        json={
+            "brand_profile_id": brand_profile_id,
+            "title": "Edit scenes before approval",
+            "target_platform": "youtube_shorts",
+            "objective": "Prepare a worker-ready prompt pack",
+            "notes": None,
+        },
+    )
+    project_id = create_response.json()["id"]
+
+    ideas_response = client.post(f"/api/projects/{project_id}/ideas/generate")
+    approved_idea_id = ideas_response.json()[0]["id"]
+    client.post(f"/api/ideas/{approved_idea_id}/approve", json={})
+
+    script_response = client.post(f"/api/projects/{project_id}/scripts/generate", json={})
+    script = script_response.json()
+    script_id = script["id"]
+    first_scene_id = script["scenes"][0]["id"]
+
+    update_scene_response = client.patch(
+        f"/api/scenes/{first_scene_id}",
+        json={
+            "overlay_text": "Updated overlay guidance",
+            "estimated_duration_seconds": 9,
+            "notes": "Use a cleaner visual example.",
+        },
+    )
+    assert update_scene_response.status_code == 200
+    updated_scene = update_scene_response.json()
+    assert updated_scene["overlay_text"] == "Updated overlay guidance"
+    assert updated_scene["estimated_duration_seconds"] == 9
+    assert updated_scene["notes"] == "Use a cleaner visual example."
+
+    prompt_pack_response = client.get(f"/api/scripts/{script_id}/prompt-pack")
+    assert prompt_pack_response.status_code == 200
+    prompt_pack = prompt_pack_response.json()
+    assert prompt_pack["source_idea_title"]
+    assert prompt_pack["scenes"][0]["overlay_text"] == "Updated overlay guidance"
+    assert prompt_pack["scenes"][0]["estimated_duration_seconds"] == 9
+    assert "Creator Lab" in prompt_pack["scenes"][0]["image_generation_prompt"]
+
+    app.dependency_overrides.clear()
+
+
+def test_scene_updates_are_blocked_after_script_approval() -> None:
+    client = _make_test_client()
+    brand_profile_response = client.post(
+        "/api/brand-profiles",
+        json={
+            "channel_name": "Creator Lab",
+            "niche": "AI productivity",
+            "target_audience": "Solo founders",
+            "tone": "Direct",
+            "hook_style": "Question first",
+            "cta_style": "Ask for comments",
+            "visual_style": "Screen recordings",
+            "posting_preferences_json": {"platforms": ["youtube_shorts"]},
+        },
+    )
+    brand_profile_id = brand_profile_response.json()["id"]
+
+    create_response = client.post(
+        "/api/projects",
+        json={
+            "brand_profile_id": brand_profile_id,
+            "title": "Freeze scenes after approval",
+            "target_platform": "youtube_shorts",
+            "objective": "Protect approved script content",
+            "notes": None,
+        },
+    )
+    project_id = create_response.json()["id"]
+
+    ideas_response = client.post(f"/api/projects/{project_id}/ideas/generate")
+    approved_idea_id = ideas_response.json()[0]["id"]
+    client.post(f"/api/ideas/{approved_idea_id}/approve", json={})
+
+    script_response = client.post(f"/api/projects/{project_id}/scripts/generate", json={})
+    script = script_response.json()
+    script_id = script["id"]
+    first_scene_id = script["scenes"][0]["id"]
+
+    approve_script_response = client.post(f"/api/scripts/{script_id}/approve", json={})
+    assert approve_script_response.status_code == 200
+
+    blocked_update_response = client.patch(
+        f"/api/scenes/{first_scene_id}",
+        json={"overlay_text": "This should not be allowed"},
+    )
+    assert blocked_update_response.status_code == 409
+    assert "draft or rejected" in blocked_update_response.json()["detail"]
 
     app.dependency_overrides.clear()

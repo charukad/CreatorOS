@@ -44,3 +44,8 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    approvals = relationship(
+        "Approval",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )

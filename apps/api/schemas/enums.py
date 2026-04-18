@@ -24,6 +24,16 @@ class ApprovalStage(StrEnum):
     PUBLISH = "publish"
 
 
+class ApprovalDecision(StrEnum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class ApprovalTargetType(StrEnum):
+    CONTENT_IDEA = "content_idea"
+    SCRIPT = "script"
+
+
 class ContentIdeaStatus(StrEnum):
     PROPOSED = "proposed"
     APPROVED = "approved"

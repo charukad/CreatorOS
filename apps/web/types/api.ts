@@ -1,4 +1,11 @@
-import type { ContentIdeaStatus, ProjectStatus, ScriptStatus } from "@creatoros/shared";
+import type {
+  ApprovalDecision,
+  ApprovalStage,
+  ApprovalTargetType,
+  ContentIdeaStatus,
+  ProjectStatus,
+  ScriptStatus,
+} from "@creatoros/shared";
 
 export type BrandProfile = {
   id: string;
@@ -104,4 +111,59 @@ export type ProjectScript = {
 
 export type ScriptGeneratePayload = {
   source_feedback_notes?: string | null;
+};
+
+export type SceneUpdatePayload = {
+  title?: string;
+  narration_text?: string;
+  overlay_text?: string;
+  image_prompt?: string;
+  video_prompt?: string;
+  estimated_duration_seconds?: number;
+  notes?: string | null;
+};
+
+export type ScenePromptPack = {
+  scene_id: string;
+  scene_order: number;
+  title: string;
+  estimated_duration_seconds: number;
+  overlay_text: string;
+  narration_input: string;
+  narration_direction: string;
+  image_generation_prompt: string;
+  video_generation_prompt: string;
+  notes: string | null;
+};
+
+export type ScriptPromptPack = {
+  script_id: string;
+  project_id: string;
+  brand_profile_id: string;
+  channel_name: string;
+  target_platform: string;
+  objective: string;
+  script_status: ScriptStatus;
+  version_number: number;
+  source_idea_title: string;
+  caption: string;
+  hashtags: string[];
+  title_options: string[];
+  scenes: ScenePromptPack[];
+};
+
+export type ApprovalRecord = {
+  id: string;
+  user_id: string;
+  project_id: string;
+  target_type: ApprovalTargetType;
+  target_id: string;
+  stage: ApprovalStage;
+  decision: ApprovalDecision;
+  feedback_notes: string | null;
+  created_at: string;
+};
+
+export type ApprovalDecisionPayload = {
+  feedback_notes?: string | null;
 };

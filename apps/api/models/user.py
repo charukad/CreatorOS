@@ -17,6 +17,7 @@ class User(UUIDPrimaryKeyMixin, Base):
         nullable=False,
     )
 
+    approvals = relationship("Approval", back_populates="user")
     brand_profiles = relationship("BrandProfile", back_populates="user")
     content_ideas = relationship("ContentIdea", back_populates="user")
     projects = relationship("Project", back_populates="user")

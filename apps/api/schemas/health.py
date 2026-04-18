@@ -8,4 +8,3 @@ class HealthResponse(BaseModel):
     service: str
     environment: str
     dependencies: dict[str, str]
-

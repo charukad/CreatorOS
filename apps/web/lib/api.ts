@@ -1,5 +1,7 @@
 import { apiBaseUrl } from "./env";
 import type {
+  ApprovalDecisionPayload,
+  ApprovalRecord,
   BrandProfile,
   BrandProfilePayload,
   ContentIdea,
@@ -7,6 +9,8 @@ import type {
   Project,
   ProjectPayload,
   ProjectScript,
+  SceneUpdatePayload,
+  ScriptPromptPack,
   ScriptGeneratePayload,
 } from "../types/api";
 
@@ -115,6 +119,10 @@ export function listProjectIdeas(projectId: string): Promise<ContentIdea[]> {
   return apiRequest<ContentIdea[]>(`/projects/${projectId}/ideas`);
 }
 
+export function listProjectApprovals(projectId: string): Promise<ApprovalRecord[]> {
+  return apiRequest<ApprovalRecord[]>(`/projects/${projectId}/approvals`);
+}
+
 export function generateProjectIdeas(projectId: string): Promise<ContentIdea[]> {
   return apiRequest<ContentIdea[]>(`/projects/${projectId}/ideas/generate`, {
     method: "POST",
@@ -131,8 +139,22 @@ export function approveIdea(
   });
 }
 
+export function rejectIdea(
+  ideaId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<ContentIdea> {
+  return apiRequest<ContentIdea>(`/ideas/${ideaId}/reject`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getCurrentProjectScript(projectId: string): Promise<ProjectScript | null> {
   return apiRequest<ProjectScript | null>(`/projects/${projectId}/scripts/current`);
+}
+
+export function getScriptPromptPack(scriptId: string): Promise<ScriptPromptPack> {
+  return apiRequest<ScriptPromptPack>(`/scripts/${scriptId}/prompt-pack`);
 }
 
 export function generateProjectScript(
@@ -140,6 +162,33 @@ export function generateProjectScript(
   payload: ScriptGeneratePayload = {},
 ): Promise<ProjectScript> {
   return apiRequest<ProjectScript>(`/projects/${projectId}/scripts/generate`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateScene(sceneId: string, payload: SceneUpdatePayload) {
+  return apiRequest<ProjectScript["scenes"][number]>(`/scenes/${sceneId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function approveScript(
+  scriptId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<ProjectScript> {
+  return apiRequest<ProjectScript>(`/scripts/${scriptId}/approve`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function rejectScript(
+  scriptId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<ProjectScript> {
+  return apiRequest<ProjectScript>(`/scripts/${scriptId}/reject`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

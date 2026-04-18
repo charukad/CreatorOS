@@ -27,12 +27,23 @@
 - `GET /api/projects`
 - `POST /api/projects/:id/transition`
 - `GET /api/projects/:id/ideas`
+- `GET /api/projects/:id/approvals`
 - `POST /api/projects/:id/ideas/generate`
 - `GET /api/projects/:id/scripts/current`
 - `POST /api/projects/:id/scripts/generate`
 
 ### Ideas
 - `POST /api/ideas/:id/approve`
+- `POST /api/ideas/:id/reject`
+
+### Scripts
+- `POST /api/scripts/:id/approve`
+- `POST /api/scripts/:id/reject`
+- `GET /api/scripts/:id/scenes`
+- `GET /api/scripts/:id/prompt-pack`
+
+### Scenes
+- `PATCH /api/scenes/:id`
 
 ## Implemented Payloads
 ### `POST /api/brand-profiles`
@@ -98,6 +109,13 @@ Response excerpt:
 }
 ```
 
+### `POST /api/ideas/:id/reject`
+```json
+{
+  "feedback_notes": "This angle is too broad for the first video."
+}
+```
+
 ### `POST /api/projects/:id/scripts/generate`
 ```json
 {
@@ -138,13 +156,77 @@ Response excerpt:
 ### `GET /api/projects/:id/scripts/current`
 - returns `null` when the project has no saved script yet
 
+### `GET /api/scripts/:id/scenes`
+- returns the persisted scene list for the requested script version
+
+### `POST /api/scripts/:id/approve`
+```json
+{
+  "feedback_notes": "Approved for asset generation."
+}
+```
+
+### `POST /api/scripts/:id/reject`
+```json
+{
+  "feedback_notes": "The hook is fine, but the middle section needs a stronger proof point."
+}
+```
+
+### `GET /api/projects/:id/approvals`
+Response excerpt:
+```json
+[
+  {
+    "id": "uuid",
+    "project_id": "uuid",
+    "target_type": "script",
+    "target_id": "uuid",
+    "stage": "script",
+    "decision": "approved",
+    "feedback_notes": "Approved for asset generation.",
+    "created_at": "2026-04-19T00:20:00Z"
+  }
+]
+```
+
+### `PATCH /api/scenes/:id`
+```json
+{
+  "overlay_text": "Updated overlay guidance",
+  "estimated_duration_seconds": 9,
+  "notes": "Use a cleaner visual example."
+}
+```
+
+### `GET /api/scripts/:id/prompt-pack`
+Response excerpt:
+```json
+{
+  "script_id": "uuid",
+  "project_id": "uuid",
+  "brand_profile_id": "uuid",
+  "channel_name": "Creator Lab",
+  "target_platform": "youtube_shorts",
+  "objective": "Prepare a worker-ready prompt pack",
+  "script_status": "draft",
+  "version_number": 1,
+  "source_idea_title": "3 ways solo founders can apply Build a daily content loop this week",
+  "scenes": [
+    {
+      "scene_id": "uuid",
+      "scene_order": 1,
+      "narration_input": "What if build a daily content loop could save solo founders hours this week?",
+      "narration_direction": "Read in a direct tone for solo founders...",
+      "image_generation_prompt": "Screen recordings. High-contrast cover frame...",
+      "video_generation_prompt": "Screen recordings. Start with a punchy first-person clip..."
+    }
+  ]
+}
+```
+
 ## Planned Next Endpoints
-- `POST /api/ideas/:id/reject`
-- `POST /api/scripts/:id/approve`
-- `POST /api/scripts/:id/reject`
 - `POST /api/scripts/:id/regenerate`
-- `GET /api/scripts/:id/scenes`
-- `PATCH /api/scenes/:id`
 
 ### Generation Jobs
 - `POST /api/projects/:id/generate/audio`
@@ -180,7 +262,9 @@ Response excerpt:
 ## Current Guarded Transition Rules
 - the API only allows explicit transitions between known adjacent states
 - invalid jumps return `409 Conflict`
-- moving into `script_pending_approval` or `asset_generation` now requires a generated script to exist
+- moving into `script_pending_approval` requires a generated script to exist
+- moving into `asset_generation` now requires the current script version to be explicitly approved
+- scene edits are only allowed while the current script is in `draft` or `rejected` state during script approval
 - archived projects cannot transition further in the current implementation
 
 ## Error Model
