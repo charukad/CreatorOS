@@ -24,6 +24,29 @@ class ApprovalStage(StrEnum):
     PUBLISH = "publish"
 
 
+class ApprovalDecision(StrEnum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class ApprovalTargetType(StrEnum):
+    CONTENT_IDEA = "content_idea"
+    SCRIPT = "script"
+
+
+class ContentIdeaStatus(StrEnum):
+    PROPOSED = "proposed"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class ScriptStatus(StrEnum):
+    DRAFT = "draft"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    SUPERSEDED = "superseded"
+
+
 class AssetType(StrEnum):
     SCRIPT_DOC = "script_doc"
     NARRATION_AUDIO = "narration_audio"
@@ -35,9 +58,22 @@ class AssetType(StrEnum):
     THUMBNAIL = "thumbnail"
 
 
+class AssetStatus(StrEnum):
+    PLANNED = "planned"
+    GENERATING = "generating"
+    READY = "ready"
+    FAILED = "failed"
+    REJECTED = "rejected"
+
+
 class ProviderName(StrEnum):
     ELEVENLABS_WEB = "elevenlabs_web"
     FLOW_WEB = "flow_web"
+
+
+class BackgroundJobType(StrEnum):
+    GENERATE_AUDIO_BROWSER = "generate_audio_browser"
+    GENERATE_VISUALS_BROWSER = "generate_visuals_browser"
 
 
 class BackgroundJobState(StrEnum):
@@ -47,4 +83,3 @@ class BackgroundJobState(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
-

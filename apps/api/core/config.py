@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     storage_root: Path = Field(default=Path("storage"), alias="STORAGE_ROOT")
     downloads_root: Path = Field(default=Path("storage/downloads"), alias="DOWNLOADS_ROOT")
     secret_key: str = Field(default="dev-secret-key", alias="SECRET_KEY")
+    default_user_email: str = Field(
+        default="creatoros-local@example.com",
+        alias="DEFAULT_USER_EMAIL",
+    )
+    default_user_name: str = Field(default="CreatorOS Local User", alias="DEFAULT_USER_NAME")
     cors_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:3000"],
         alias="CORS_ORIGINS",
@@ -32,4 +37,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

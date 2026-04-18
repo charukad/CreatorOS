@@ -7,6 +7,9 @@
 - name
 - created_at
 
+Note:
+- v1 local development may bootstrap a single default user record from environment configuration until a fuller auth/session layer is added
+
 ### brand_profiles
 - id
 - user_id
@@ -35,54 +38,76 @@
 
 ### content_ideas
 - id
+- user_id
 - project_id
-- title
+- suggested_title
+- hook
 - angle
-- topic
 - rationale
 - score
 - status
+- feedback_notes
 - created_at
+- updated_at
 
 ### scripts
 - id
+- user_id
 - project_id
-- version
+- content_idea_id
+- version_number
 - hook
+- body
+- cta
 - full_script
+- caption
+- title_options
+- hashtags
 - estimated_duration_seconds
 - status
+- source_feedback_notes
 - created_at
+- updated_at
 
 ### scenes
 - id
 - script_id
-- order_index
+- scene_order
+- title
 - narration_text
-- duration_seconds
 - overlay_text
 - image_prompt
 - video_prompt
+- estimated_duration_seconds
 - notes
+- created_at
+- updated_at
 
 ### generation_attempts
 - id
+- user_id
 - project_id
+- script_id
+- background_job_id
 - scene_id nullable
-- provider_type
 - provider_name
 - input_payload_json
 - status
+- created_at
+- updated_at
 - started_at
 - finished_at
 - error_message
 
 ### assets
 - id
+- user_id
 - project_id
+- script_id
 - scene_id nullable
 - generation_attempt_id nullable
 - asset_type
+- provider_name nullable
 - file_path
 - mime_type
 - duration_seconds nullable
@@ -91,16 +116,17 @@
 - checksum
 - status
 - created_at
+- updated_at
 
 ### approvals
 - id
+- user_id
 - project_id
 - target_type
 - target_id
 - stage
 - decision
-- feedback
-- approved_by
+- feedback_notes
 - created_at
 
 ### publish_jobs
@@ -140,10 +166,17 @@
 
 ### background_jobs
 - id
+- user_id
+- project_id
+- script_id
 - job_type
+- provider_name nullable
 - payload_json
 - status
 - attempts
+- progress_percent
+- created_at
+- updated_at
 - started_at
 - finished_at
 - error_message
@@ -163,6 +196,17 @@
 - failed
 - archived
 
+### content_ideas.status
+- proposed
+- approved
+- rejected
+
+### scripts.status
+- draft
+- approved
+- rejected
+- superseded
+
 ### asset.asset_type
 - script_doc
 - narration_audio
@@ -173,9 +217,40 @@
 - subtitle_file
 - thumbnail
 
+### asset.status
+- planned
+- generating
+- ready
+- failed
+- rejected
+
 ### approval.stage
 - idea
 - script
 - assets
 - final_video
 - publish
+
+### approval.decision
+- approved
+- rejected
+
+### approval.target_type
+- content_idea
+- script
+
+### background_jobs.job_type
+- generate_audio_browser
+- generate_visuals_browser
+
+### background_jobs.state
+- queued
+- running
+- waiting_external
+- completed
+- failed
+- cancelled
+
+### provider_name
+- elevenlabs_web
+- flow_web

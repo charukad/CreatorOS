@@ -3,6 +3,11 @@
 ## Purpose
 Use Playwright-based browser automation to operate subscription-based tools through their web UI when API usage is not available or not desired.
 
+## Current Implementation Note
+- the browser worker can already claim queued narration and visual jobs from the database
+- local development currently uses a `dry_run` provider mode that writes WAV narration placeholders and SVG visual placeholders
+- live Playwright navigation, selectors, screenshots, and download handling are still pending for the real providers
+
 ## Supported Providers in v1
 - ElevenLabs web workflow
 - Google Flow web workflow

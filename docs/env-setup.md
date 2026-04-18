@@ -17,8 +17,12 @@
 - `DOWNLOADS_ROOT`
 - `APP_ENV`
 - `SECRET_KEY`
+- `DEFAULT_USER_EMAIL`
+- `DEFAULT_USER_NAME`
 
 ### Browser Worker
+- `BROWSER_PROVIDER_MODE`
+- `BROWSER_MAX_JOBS_PER_RUN`
 - `PLAYWRIGHT_HEADLESS`
 - `PLAYWRIGHT_PROFILE_ROOT`
 - `PLAYWRIGHT_DOWNLOAD_ROOT`
@@ -32,6 +36,7 @@
 - browser downloads should land in a dedicated folder per run or provider
 - project assets should move into canonical storage after ingestion
 - browser profiles should remain outside version control
+- in local development, `BROWSER_PROVIDER_MODE=dry_run` lets the browser worker generate WAV/SVG placeholder outputs without live provider sessions
 
 ## Setup Steps
 1. Install system dependencies.

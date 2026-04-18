@@ -1,5 +1,11 @@
 # Queue Jobs
 
+## Current Implementation Note
+- `generate_audio_browser` and `generate_visuals_browser` can now be queued through the API
+- queue submission persists `background_jobs`, `generation_attempts`, and planned `assets`
+- the browser worker can now execute those queued jobs in local `dry_run` mode and materialize WAV/SVG development artifacts
+- actual Redis-backed execution, retries, and worker progress updates are still pending
+
 ## Principles
 - Every long-running operation is a queued job.
 - Jobs must be retryable.
@@ -37,6 +43,11 @@ Output:
 - narration audio asset
 - generation attempt record
 
+Persisted queue payload includes:
+- script version
+- optional voice label
+- narration segments derived from the current prompt pack
+
 ### `generate_visuals_browser`
 Input:
 - project_id
@@ -47,6 +58,11 @@ Input:
 Output:
 - scene video/image assets
 - generation attempt records
+
+Persisted queue payload includes:
+- script version
+- selected scene ids
+- scene prompt excerpts for the browser worker handoff
 
 ### `ingest_download`
 Input:

@@ -17,4 +17,3 @@ def get_db() -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
-

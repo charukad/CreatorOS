@@ -40,4 +40,3 @@ def read_root() -> dict[str, str]:
         "environment": settings.app_env,
         "docs_url": "/docs",
     }
-

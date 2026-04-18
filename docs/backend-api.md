@@ -6,6 +6,15 @@
 - background jobs returned as task references
 - explicit status enums
 
+## Personal-Use Bootstrap Note
+- until auth/session is implemented, v1 local development can attach brand profiles and projects to a single configured default user
+
+## Current Workflow Note
+- the current idea and script workflow runs synchronously inside the API as a local deterministic generator
+- asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
+- the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
+- Redis-backed execution, retries, and worker progress updates are still planned
+
 ## Core Resources
 ### Brand Profiles
 - `POST /api/brand-profiles`
@@ -18,26 +27,277 @@
 - `GET /api/projects/:id`
 - `PATCH /api/projects/:id`
 - `GET /api/projects`
+- `POST /api/projects/:id/transition`
+- `GET /api/projects/:id/ideas`
+- `GET /api/projects/:id/approvals`
+- `GET /api/projects/:id/jobs`
+- `GET /api/projects/:id/assets`
+- `POST /api/projects/:id/ideas/generate`
+- `GET /api/projects/:id/scripts/current`
+- `POST /api/projects/:id/scripts/generate`
+- `POST /api/projects/:id/generate/audio`
+- `POST /api/projects/:id/generate/visuals`
 
 ### Ideas
-- `POST /api/projects/:id/ideas/generate`
 - `POST /api/ideas/:id/approve`
 - `POST /api/ideas/:id/reject`
 
 ### Scripts
-- `POST /api/projects/:id/scripts/generate`
-- `GET /api/projects/:id/scripts/current`
 - `POST /api/scripts/:id/approve`
 - `POST /api/scripts/:id/reject`
-- `POST /api/scripts/:id/regenerate`
+- `GET /api/scripts/:id/scenes`
+- `GET /api/scripts/:id/prompt-pack`
 
 ### Scenes
-- `GET /api/scripts/:id/scenes`
 - `PATCH /api/scenes/:id`
 
+## Implemented Payloads
+### `POST /api/brand-profiles`
+```json
+{
+  "channel_name": "Creator Lab",
+  "niche": "AI productivity",
+  "target_audience": "Founders and solo creators",
+  "tone": "Direct and optimistic",
+  "hook_style": "Question-led hook",
+  "cta_style": "Invite discussion",
+  "visual_style": "Cinematic screen-recording mix",
+  "posting_preferences_json": {
+    "platforms": ["youtube_shorts", "tiktok"]
+  }
+}
+```
+
+### `POST /api/projects`
+```json
+{
+  "brand_profile_id": "uuid",
+  "title": "3 AI automations I use daily",
+  "target_platform": "youtube_shorts",
+  "objective": "Create a short-form educational video",
+  "notes": "Keep this under 45 seconds"
+}
+```
+
+### `POST /api/projects/:id/transition`
+```json
+{
+  "target_status": "idea_pending_approval"
+}
+```
+
+### `POST /api/projects/:id/ideas/generate`
+Request body:
+```json
+{}
+```
+
+Response excerpt:
+```json
+[
+  {
+    "id": "uuid",
+    "project_id": "uuid",
+    "suggested_title": "3 ways solo founders can apply Build a daily content loop this week",
+    "hook": "What if build a daily content loop could save solo founders hours this week?",
+    "angle": "Turn the project objective into a practical three-step playbook tailored to solo founders.",
+    "rationale": "Fits the brand tone and gives short-form viewers a fast payoff.",
+    "score": 91,
+    "status": "proposed"
+  }
+]
+```
+
+### `POST /api/ideas/:id/approve`
+```json
+{
+  "feedback_notes": "Lean harder into the transformation angle."
+}
+```
+
+### `POST /api/ideas/:id/reject`
+```json
+{
+  "feedback_notes": "This angle is too broad for the first video."
+}
+```
+
+### `POST /api/projects/:id/scripts/generate`
+```json
+{
+  "source_feedback_notes": "Keep the pacing tight and practical."
+}
+```
+
+Response excerpt:
+```json
+{
+  "id": "uuid",
+  "project_id": "uuid",
+  "content_idea_id": "uuid",
+  "version_number": 1,
+  "status": "draft",
+  "hook": "What if build a daily content loop could save solo founders hours this week?",
+  "body": "Solo founders usually hear that turning one workflow into multiple pieces of content needs a huge system...",
+  "cta": "Close by ask for comments and invite viewers to test the first step before the day ends.",
+  "title_options": [
+    "3 ways solo founders can apply Build a daily content loop this week",
+    "Build a daily content loop: the short playbook"
+  ],
+  "hashtags": ["#YoutubeShorts", "#AiProductivity", "#BuildADailyContentLoop"],
+  "estimated_duration_seconds": 33,
+  "scenes": [
+    {
+      "scene_order": 1,
+      "title": "Hook",
+      "narration_text": "What if build a daily content loop could save solo founders hours this week?",
+      "overlay_text": "The fast promise",
+      "image_prompt": "High-contrast cover frame...",
+      "video_prompt": "Start with a punchy first-person clip..."
+    }
+  ]
+}
+```
+
+### `GET /api/projects/:id/scripts/current`
+- returns `null` when the project has no saved script yet
+
+### `GET /api/scripts/:id/scenes`
+- returns the persisted scene list for the requested script version
+
+### `POST /api/scripts/:id/approve`
+```json
+{
+  "feedback_notes": "Approved for asset generation."
+}
+```
+
+### `POST /api/scripts/:id/reject`
+```json
+{
+  "feedback_notes": "The hook is fine, but the middle section needs a stronger proof point."
+}
+```
+
+### `GET /api/projects/:id/approvals`
+Response excerpt:
+```json
+[
+  {
+    "id": "uuid",
+    "project_id": "uuid",
+    "target_type": "script",
+    "target_id": "uuid",
+    "stage": "script",
+    "decision": "approved",
+    "feedback_notes": "Approved for asset generation.",
+    "created_at": "2026-04-19T00:20:00Z"
+  }
+]
+```
+
+### `PATCH /api/scenes/:id`
+```json
+{
+  "overlay_text": "Updated overlay guidance",
+  "estimated_duration_seconds": 9,
+  "notes": "Use a cleaner visual example."
+}
+```
+
+### `GET /api/scripts/:id/prompt-pack`
+Response excerpt:
+```json
+{
+  "script_id": "uuid",
+  "project_id": "uuid",
+  "brand_profile_id": "uuid",
+  "channel_name": "Creator Lab",
+  "target_platform": "youtube_shorts",
+  "objective": "Prepare a worker-ready prompt pack",
+  "script_status": "draft",
+  "version_number": 1,
+  "source_idea_title": "3 ways solo founders can apply Build a daily content loop this week",
+  "scenes": [
+    {
+      "scene_id": "uuid",
+      "scene_order": 1,
+      "narration_input": "What if build a daily content loop could save solo founders hours this week?",
+      "narration_direction": "Read in a direct tone for solo founders...",
+      "image_generation_prompt": "Screen recordings. High-contrast cover frame...",
+      "video_generation_prompt": "Screen recordings. Start with a punchy first-person clip..."
+    }
+  ]
+}
+```
+
+### `POST /api/projects/:id/generate/audio`
+```json
+{
+  "voice_label": "Warm guide"
+}
+```
+
+Response excerpt:
+```json
+{
+  "id": "uuid",
+  "project_id": "uuid",
+  "script_id": "uuid",
+  "job_type": "generate_audio_browser",
+  "provider_name": "elevenlabs_web",
+  "state": "queued",
+  "progress_percent": 0,
+  "payload_json": {
+    "script_version": 1,
+    "voice_label": "Warm guide",
+    "scene_count": 4
+  }
+}
+```
+
+Behavior note:
+- queueing narration promotes the project into `asset_generation` automatically when successful
+- the API blocks duplicate active audio jobs for the same current script
+
+### `POST /api/projects/:id/generate/visuals`
+```json
+{
+  "scene_ids": ["uuid-optional", "uuid-optional"]
+}
+```
+
+Response excerpt:
+```json
+{
+  "id": "uuid",
+  "project_id": "uuid",
+  "script_id": "uuid",
+  "job_type": "generate_visuals_browser",
+  "provider_name": "flow_web",
+  "state": "queued",
+  "payload_json": {
+    "script_version": 1,
+    "scene_count": 4,
+    "scene_ids": ["uuid", "uuid"]
+  }
+}
+```
+
+Behavior note:
+- omitting `scene_ids` queues every scene from the current approved script
+- the API blocks duplicate active visual jobs for the same current script
+
+### `GET /api/projects/:id/jobs`
+- returns persisted queued generation jobs for the project, newest first
+
+### `GET /api/projects/:id/assets`
+- returns planned and produced asset records for the project, including placeholder records created before worker execution starts
+
+## Planned Next Endpoints
+- `POST /api/scripts/:id/regenerate`
+
 ### Generation Jobs
-- `POST /api/projects/:id/generate/audio`
-- `POST /api/projects/:id/generate/visuals`
 - `GET /api/jobs/:id`
 
 ### Assets
@@ -65,6 +325,14 @@
 
 ## Example Project State Machine
 `draft -> idea_pending_approval -> script_pending_approval -> asset_generation -> asset_pending_approval -> rough_cut_ready -> final_pending_approval -> ready_to_publish -> scheduled|published|archived`
+
+## Current Guarded Transition Rules
+- the API only allows explicit transitions between known adjacent states
+- invalid jumps return `409 Conflict`
+- moving into `script_pending_approval` requires a generated script to exist
+- moving into `asset_generation` now requires the current script version to be explicitly approved
+- scene edits are only allowed while the current script is in `draft` or `rejected` state during script approval
+- archived projects cannot transition further in the current implementation
 
 ## Error Model
 All errors should return:

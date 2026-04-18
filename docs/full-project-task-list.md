@@ -38,7 +38,7 @@ Legend:
 - [ ] Define scene manifest schema for media assembly
 - [ ] Define prompt pack schema for idea, script, narration, and visual generation inputs
 - [x] Define storage path helper contracts so all artifacts remain traceable to project, scene, and attempt
-- [ ] Add validation helpers for state transitions and approval gating
+- [x] Add validation helpers for state transitions and approval gating
 - [ ] Add test fixtures and factories for shared schema validation
 
 ### Manual checks
@@ -48,9 +48,9 @@ Legend:
 ## Phase 2 - Database, Persistence, and Migrations
 
 ### Build tasks
-- [ ] Set up SQLAlchemy base models and migration tooling
+- [x] Set up SQLAlchemy base models and migration tooling
 - [ ] Create database models for `users`, `brand_profiles`, `projects`, `content_ideas`, `scripts`, `scenes`, `generation_attempts`, `assets`, `approvals`, `publish_jobs`, `analytics_snapshots`, `insights`, and `background_jobs`
-- [ ] Add explicit enum columns for workflow state where required
+- [x] Add explicit enum columns for workflow state where required
 - [ ] Add foreign keys and indexes for common lookup paths
 - [ ] Add created/updated timestamps consistently
 - [ ] Add immutable versioning strategy for scripts and generation attempts
@@ -58,7 +58,7 @@ Legend:
 - [ ] Add checksum persistence for ingested files
 - [ ] Add migration scripts for the full initial schema
 - [ ] Add seed data helpers for local development
-- [ ] Add repository/service-layer persistence helpers for the main domain entities
+- [x] Add repository/service-layer persistence helpers for the main domain entities
 
 ### Manual checks
 - [ ] Manual check: migrations can run from a clean database and produce the full schema successfully
@@ -67,17 +67,17 @@ Legend:
 ## Phase 3 - Backend App Foundation
 
 ### Build tasks
-- [ ] Create FastAPI app entrypoint and configuration loading
-- [ ] Add health and readiness endpoints
-- [ ] Add database session management and dependency injection
+- [x] Create FastAPI app entrypoint and configuration loading
+- [x] Add health and readiness endpoints
+- [x] Add database session management and dependency injection
 - [ ] Add Redis connection setup
-- [ ] Add structured logging and request correlation IDs
+- [x] Add structured logging and request correlation IDs
 - [ ] Add global error model matching `docs/backend-api.md`
-- [ ] Add API router registration and versioned route structure
-- [ ] Add auth/session placeholder or personal-user auth implementation appropriate for v1
+- [x] Add API router registration and versioned route structure
+- [x] Add auth/session placeholder or personal-user auth implementation appropriate for v1
 - [ ] Add background job submission helpers
-- [ ] Add service layer boundaries so routes stay thin
-- [ ] Add API test harness with database and Redis fixtures
+- [x] Add service layer boundaries so routes stay thin
+- [x] Add API test harness with database and Redis fixtures
 
 ### Manual checks
 - [ ] Manual check: API startup failures are clear and actionable when env vars are missing
@@ -88,8 +88,8 @@ Legend:
 ### Build tasks
 - [ ] Create Next.js app structure with TypeScript, Tailwind, and shadcn/ui
 - [ ] Add global layout, navigation, and project-level routing
-- [ ] Add API client layer and typed response handling
-- [ ] Add shared UI states for loading, empty, error, and retry flows
+- [x] Add API client layer and typed response handling
+- [x] Add shared UI states for loading, empty, error, and retry flows
 - [ ] Add notification/toast pattern for asynchronous job updates
 - [ ] Add reusable cards, tables, status badges, forms, dialogs, and approval components
 - [ ] Add application-wide status color mapping for project, asset, job, approval, and publish states
@@ -104,8 +104,8 @@ Legend:
 ## Phase 5 - Brand Profile and Onboarding
 
 ### Build tasks
-- [ ] Build brand profile database/service/API support
-- [ ] Add brand profile create, edit, view, and list routes
+- [x] Build brand profile database/service/API support
+- [x] Add brand profile create, edit, view, and list routes
 - [ ] Add onboarding flow for channel name, niche, target audience, tone, hook style, CTA style, visual style, and posting preferences
 - [ ] Add settings UI for updating brand rules later
 - [ ] Add validation for missing or inconsistent brand profile data
@@ -121,15 +121,15 @@ Legend:
 
 ### Build tasks
 - [ ] Build project create, edit, view, archive, and list APIs
-- [ ] Build project list and project detail pages in the web app
-- [ ] Add project fields for title, target platform, objective, notes, and linked brand profile
-- [ ] Implement the project state machine from `draft` through `published` and `archived`
-- [ ] Add explicit transition guards for every state-changing action
+- [x] Build project list and project detail pages in the web app
+- [x] Add project fields for title, target platform, objective, notes, and linked brand profile
+- [x] Implement the project state machine from `draft` through `published` and `archived`
+- [x] Add explicit transition guards for every state-changing action
 - [ ] Add visible project timeline/status history in the UI
 - [ ] Add manual override notes for admin/user interventions
 - [ ] Add project activity log capturing approvals, jobs, failures, retries, and publish actions
-- [ ] Add project filtering and search in the UI
-- [ ] Add tests for valid and invalid project status transitions
+- [x] Add project filtering and search in the UI
+- [x] Add tests for valid and invalid project status transitions
 
 ### Manual checks
 - [ ] Manual check: invalid state transitions are blocked in both API and UI
@@ -137,15 +137,19 @@ Legend:
 
 ## Phase 7 - Idea Generation and Research Workflow
 
+Current implementation note:
+The repo now has a synchronous local idea generator, persisted idea records, explicit approve/reject actions, and project-page approval history UI. Queue-backed job submission and richer research/regeneration are still pending.
+
 ### Build tasks
 - [ ] Implement idea generation job submission from a project
-- [ ] Add idea generation service using brand context and topic constraints
+- [x] Add idea generation service using brand context and topic constraints
 - [ ] Add optional research step for trends, competitor angles, and posting strategies
+- [x] Persist generated content ideas with title, hook, angle, rationale, score, and approval status
 - [ ] Persist generated content ideas with score, rationale, topic, and angle
-- [ ] Add UI for idea review, comparison, approval, rejection, and regeneration
+- [x] Add UI for idea review, comparison, approval, rejection, and regeneration
 - [ ] Add revision notes and regenerate-with-feedback flow
 - [ ] Update project status when ideas are pending approval or approved
-- [ ] Add tests for idea generation payload creation and approval gating
+- [x] Add tests for idea generation payload creation and approval gating
 
 ### Manual checks
 - [ ] Manual check: generated ideas feel aligned with the brand profile and target platform
@@ -153,15 +157,19 @@ Legend:
 
 ## Phase 8 - Script Generation, Scene Planning, and Prompt Packs
 
+Current implementation note:
+The repo now has a synchronous local script generator, scene persistence, script version numbers, explicit script approve/reject actions, a project-page script viewer with approval history, scene editing, and prompt-pack output for downstream workers. Queue jobs and richer editing ergonomics are still pending.
+
 ### Build tasks
 - [ ] Implement script generation job submission from an approved idea
-- [ ] Build script generation service to produce hook, full script, estimated duration, titles, captions, and hashtags
-- [ ] Persist script versions without overwriting previous approved or rejected versions
-- [ ] Build scene breakdown generation with narration text, duration, overlay text, image prompt, video prompt, and notes
-- [ ] Add script view and scene editor UI
+- [x] Build script generation service to produce hook, full script, estimated duration, titles, captions, and hashtags
+- [x] Persist script versions without overwriting previous approved or rejected versions
+- [x] Build scene breakdown generation with narration text, duration, overlay text, image prompt, video prompt, and notes
+- [x] Add script view UI
+- [x] Add scene editor UI
 - [ ] Add scene reorder, edit, and validation behavior
-- [ ] Add regenerate script flow while preserving version history
-- [ ] Add prompt-pack generation for narration and visual tools
+- [x] Add regenerate script flow while preserving version history
+- [x] Add prompt-pack generation for narration and visual tools
 - [ ] Add tests for scene JSON validation and script versioning
 
 ### Manual checks
@@ -171,15 +179,15 @@ Legend:
 ## Phase 9 - Approval Engine and Review History
 
 ### Build tasks
-- [ ] Implement approval records for idea, script, assets, final video, and publish stages
-- [ ] Add immutable approval history persistence
-- [ ] Add API endpoints for approve, reject, and regenerate feedback actions
-- [ ] Add reusable approval UI components for all stages
-- [ ] Add approval comments/feedback capture
-- [ ] Add rules so downstream jobs cannot start unless the current stage is approved
+- [x] Implement approval records for idea and script stages
+- [x] Add immutable approval history persistence
+- [ ] Add API endpoints for approve, reject, and regenerate feedback actions for all stages
+- [x] Add reusable approval UI components for idea and script stages
+- [x] Add approval comments/feedback capture
+- [x] Add rules so downstream jobs cannot start unless the current stage is approved
 - [ ] Add clear pending-approval inbox views for the dashboard
 - [ ] Add notifications for items awaiting approval
-- [ ] Add tests for approval gating across the full workflow
+- [x] Add tests for approval gating across the implemented workflow
 
 ### Manual checks
 - [ ] Manual check: publish-related actions are impossible without explicit approval state
@@ -187,10 +195,13 @@ Legend:
 
 ## Phase 10 - Queue System, Background Jobs, and Progress Tracking
 
+Current implementation note:
+The repo now persists queued narration/visual job plans, per-attempt records, and planned asset placeholders from the project page. The browser worker can execute those jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, retries, logs, and live progress updates are still pending.
+
 ### Build tasks
 - [ ] Choose and implement the job runner architecture backed by Redis
-- [ ] Add `background_jobs` persistence and job lifecycle tracking
-- [ ] Implement job states `queued`, `running`, `waiting_external`, `completed`, `failed`, and `cancelled`
+- [x] Add `background_jobs` persistence and job lifecycle tracking
+- [x] Implement job states `queued`, `running`, `waiting_external`, `completed`, `failed`, and `cancelled`
 - [ ] Implement retry policy per job type as defined in `docs/queue-jobs.md`
 - [ ] Add progress update hooks for long-running tasks
 - [ ] Add idempotency handling for publish scheduling and file ingestion
@@ -205,22 +216,28 @@ Legend:
 
 ## Phase 11 - Browser Worker Foundation
 
+Current implementation note:
+The browser worker can now claim queued jobs and run `dry_run` providers that emit local WAV/SVG artifacts for development. Live Playwright-driven provider automation is still pending.
+
 ### Build tasks
-- [ ] Create the browser worker entrypoint and worker lifecycle management
+- [x] Create the browser worker entrypoint and worker lifecycle management
 - [ ] Add Playwright setup with persistent browser profile support
-- [ ] Add provider abstraction with `ensure_session`, `open_workspace`, `submit_job`, `wait_for_completion`, `collect_downloads`, and `capture_debug_artifacts`
+- [x] Add provider abstraction with `ensure_session`, `open_workspace`, `submit_job`, `wait_for_completion`, `collect_downloads`, and `capture_debug_artifacts`
 - [ ] Create centralized selector registry with versioned selector files
 - [ ] Add screenshot and HTML snapshot capture for critical checkpoints and failures
 - [ ] Add download interception and metadata tagging
 - [ ] Add secret-safe logging for browser interactions
 - [ ] Add recoverable session handling and manual intervention status reporting
-- [ ] Add browser worker tests and smoke-test harness
+- [x] Add browser worker tests and smoke-test harness
 
 ### Manual checks
 - [ ] Manual check: browser profiles remain outside version control and survive worker restarts
 - [ ] Manual check: screenshots and logs are sufficient to debug failed browser runs
 
 ## Phase 12 - ElevenLabs Browser Automation
+
+Current implementation note:
+There is now a dry-run ElevenLabs-style provider that produces local WAV artifacts for development. The live authenticated browser flow is still pending.
 
 ### Build tasks
 - [ ] Implement ElevenLabs provider module
@@ -232,7 +249,7 @@ Legend:
 - [ ] Add narration audio download handling
 - [ ] Emit generation attempt metadata and output asset registration payloads
 - [ ] Add retry-on-timeout and selector-failure behavior
-- [ ] Add smoke tests or dry-run scripts for ElevenLabs automation
+- [x] Add smoke tests or dry-run scripts for ElevenLabs automation
 
 ### Manual checks
 - [ ] Manual check: the browser flow still works against the live ElevenLabs UI
@@ -240,6 +257,9 @@ Legend:
 - [ ] Manual check: login/captcha/manual-auth failures cleanly hand off to the user
 
 ## Phase 13 - Flow Browser Automation for Visual Generation
+
+Current implementation note:
+There is now a dry-run Flow-style provider that produces local SVG scene artifacts for development. The live authenticated browser flow is still pending.
 
 ### Build tasks
 - [ ] Implement Google Flow provider module
@@ -251,7 +271,7 @@ Legend:
 - [ ] Map downloaded outputs back to project, scene, and generation attempt records
 - [ ] Add retry and timeout handling
 - [ ] Add selector fallback strategy where reasonable
-- [ ] Add smoke tests or dry-run scripts for Flow automation
+- [x] Add smoke tests or dry-run scripts for Flow automation
 
 ### Manual checks
 - [ ] Manual check: the browser flow still works against the live Flow UI
