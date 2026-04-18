@@ -1,14 +1,19 @@
 "use client";
 
 import {
+  assetStatusLabels,
   approvalDecisionLabels,
   approvalStageLabels,
+  backgroundJobStateLabels,
+  backgroundJobTypeLabels,
   contentIdeaStatusLabels,
   scriptStatusLabels,
 } from "@creatoros/shared";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import {
+  queueAudioGeneration,
+  queueVisualGeneration,
   approveIdea,
   approveScript,
   generateProjectIdeas,
@@ -19,7 +24,9 @@ import {
 } from "../lib/api";
 import { SceneEditorCard } from "./scene-editor-card";
 import type {
+  Asset,
   ApprovalRecord,
+  BackgroundJob,
   ContentIdea,
   Project,
   ProjectScript,
@@ -28,9 +35,11 @@ import type {
 } from "../types/api";
 
 type ProjectContentStudioProps = {
+  assets: Asset[];
   approvals: ApprovalRecord[];
   currentScript: ProjectScript | null;
   ideas: ContentIdea[];
+  jobs: BackgroundJob[];
   promptPack: ScriptPromptPack | null;
   project: Project;
 };
@@ -56,10 +65,46 @@ function decisionBadgeClassName(decision: ApprovalRecord["decision"]): string {
     : "border-rose-300/30 bg-rose-400/10 text-rose-100";
 }
 
+function jobStateClassName(state: BackgroundJob["state"]): string {
+  switch (state) {
+    case "queued":
+      return "border-cyan-300/30 bg-cyan-400/10 text-cyan-100";
+    case "running":
+    case "waiting_external":
+      return "border-amber-300/30 bg-amber-400/10 text-amber-100";
+    case "completed":
+      return "border-emerald-300/30 bg-emerald-400/10 text-emerald-100";
+    default:
+      return "border-rose-300/30 bg-rose-400/10 text-rose-100";
+  }
+}
+
+function assetStatusClassName(status: Asset["status"]): string {
+  switch (status) {
+    case "planned":
+      return "border-cyan-300/30 bg-cyan-400/10 text-cyan-100";
+    case "generating":
+      return "border-amber-300/30 bg-amber-400/10 text-amber-100";
+    case "ready":
+      return "border-emerald-300/30 bg-emerald-400/10 text-emerald-100";
+    default:
+      return "border-rose-300/30 bg-rose-400/10 text-rose-100";
+  }
+}
+
+function formatWorkflowValue(value: string): string {
+  return value
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
 export function ProjectContentStudio({
+  assets,
   approvals,
   currentScript,
   ideas,
+  jobs,
   promptPack,
   project,
 }: ProjectContentStudioProps) {
@@ -85,6 +130,48 @@ export function ProjectContentStudio({
     canReviewScript && currentScript !== null && currentScript.status !== "approved";
   const canRejectCurrentScript =
     canReviewScript && currentScript !== null && currentScript.status !== "rejected";
+  const canQueueGeneration =
+    currentScript !== null &&
+    currentScript.status === "approved" &&
+    (project.status === "script_pending_approval" || project.status === "asset_generation");
+  const queueLockedReason =
+    currentScript === null
+      ? "Generate and approve a script first, then CreatorOS can persist narration and scene-asset jobs for the worker layer."
+      : currentScript.status !== "approved"
+        ? "Queue actions stay blocked until the current script is approved, so worker jobs always trace back to intentional script content."
+        : "Queueing is only available while the project is in script approval or asset generation.";
+  const activeAudioJob =
+    currentScript === null
+      ? null
+      : jobs.find(
+          (job) =>
+            job.script_id === currentScript.id &&
+            job.job_type === "generate_audio_browser" &&
+            (job.state === "queued" || job.state === "running" || job.state === "waiting_external"),
+        ) ?? null;
+  const activeVisualJob =
+    currentScript === null
+      ? null
+      : jobs.find(
+          (job) =>
+            job.script_id === currentScript.id &&
+            job.job_type === "generate_visuals_browser" &&
+            (job.state === "queued" || job.state === "running" || job.state === "waiting_external"),
+        ) ?? null;
+  const sortedAssets = [...assets].sort((left, right) => {
+    if (left.asset_type === "narration_audio" && right.asset_type !== "narration_audio") {
+      return -1;
+    }
+    if (right.asset_type === "narration_audio" && left.asset_type !== "narration_audio") {
+      return 1;
+    }
+
+    const leftSceneOrder =
+      currentScript?.scenes.find((scene) => scene.id === left.scene_id)?.scene_order ?? 0;
+    const rightSceneOrder =
+      currentScript?.scenes.find((scene) => scene.id === right.scene_id)?.scene_order ?? 0;
+    return leftSceneOrder - rightSceneOrder;
+  });
 
   function runAction(actionKey: string, callback: () => Promise<unknown>) {
     setError(null);
@@ -581,6 +668,205 @@ export function ProjectContentStudio({
               ) : null}
             </div>
           ) : null}
+        </section>
+
+        <section className="grid gap-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-white">3. Queue asset generation work</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                Approved scripts can now create persisted browser-job plans for narration and
+                scene visuals. This is the bridge between content approval and the real workers.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canQueueGeneration || activeAudioJob !== null || pendingAction !== null}
+                onClick={() => runAction("queue-audio", () => queueAudioGeneration(project.id))}
+                type="button"
+              >
+                {pendingAction === "queue-audio"
+                  ? "Queueing..."
+                  : activeAudioJob
+                    ? "Narration queued"
+                    : "Queue narration job"}
+              </button>
+              <button
+                className="rounded-full border border-fuchsia-300/30 bg-fuchsia-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-fuchsia-100 transition hover:border-fuchsia-200/50 hover:bg-fuchsia-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canQueueGeneration || activeVisualJob !== null || pendingAction !== null}
+                onClick={() => runAction("queue-visuals", () => queueVisualGeneration(project.id))}
+                type="button"
+              >
+                {pendingAction === "queue-visuals"
+                  ? "Queueing..."
+                  : activeVisualJob
+                    ? "Visuals queued"
+                    : "Queue visual jobs"}
+              </button>
+            </div>
+          </div>
+
+          {currentScript === null ? (
+            <div className="rounded-2xl border border-dashed border-white/10 bg-white/4 p-5 text-sm text-slate-300">
+              <p className="font-semibold text-white">No script is ready for asset planning yet.</p>
+              <p className="mt-2">{queueLockedReason}</p>
+            </div>
+          ) : (
+            <>
+              {!canQueueGeneration ? (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-white/4 p-5 text-sm text-slate-300">
+                  <p className="font-semibold text-white">Queueing is currently locked.</p>
+                  <p className="mt-2">{queueLockedReason}</p>
+                </div>
+              ) : null}
+
+              <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+              <article className="rounded-2xl border border-white/8 bg-white/4 p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-lg font-semibold text-white">Queued jobs</h4>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">
+                      Each long-running generation step is now represented as a persisted job
+                      before any browser worker starts.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-100">
+                    {jobs.length} total
+                  </span>
+                </div>
+
+                {jobs.length === 0 ? (
+                  <div className="mt-5 rounded-2xl border border-dashed border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
+                    No jobs queued yet. Queue narration or visuals to create the first worker plan.
+                  </div>
+                ) : (
+                  <div className="mt-5 grid gap-4">
+                    {jobs.map((job) => (
+                      <article
+                        className="rounded-2xl border border-white/8 bg-slate-950/40 p-4"
+                        key={job.id}
+                      >
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div className="flex flex-wrap gap-2">
+                              <span
+                                className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${jobStateClassName(job.state)}`}
+                              >
+                                {backgroundJobStateLabels[job.state]}
+                              </span>
+                              <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
+                                {backgroundJobTypeLabels[job.job_type]}
+                              </span>
+                            </div>
+                            <p className="mt-3 text-sm text-slate-200">
+                              {job.provider_name ? formatWorkflowValue(job.provider_name) : "Manual provider"}
+                            </p>
+                          </div>
+                          <div className="text-right text-xs uppercase tracking-[0.16em] text-slate-500">
+                            <p>{formatTimestamp(job.created_at)}</p>
+                            <p className="mt-2">Progress {job.progress_percent}%</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 text-sm text-slate-300">
+                          <p>Script version: {job.payload_json["script_version"] as number}</p>
+                          <p>
+                            Planned outputs:{" "}
+                            {typeof job.payload_json["scene_count"] === "number"
+                              ? `${job.payload_json["scene_count"] as number} scene units`
+                              : "Not provided"}
+                          </p>
+                        </div>
+
+                        {job.error_message ? (
+                          <p className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+                            {job.error_message}
+                          </p>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </article>
+
+              <article className="rounded-2xl border border-white/8 bg-white/4 p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-lg font-semibold text-white">Planned assets</h4>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">
+                      These placeholders keep outputs traceable before files exist on disk.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-100">
+                    {assets.length} planned
+                  </span>
+                </div>
+
+                {assets.length === 0 ? (
+                  <div className="mt-5 rounded-2xl border border-dashed border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
+                    No asset placeholders exist yet. Queue a generation job to create traceable
+                    output records.
+                  </div>
+                ) : (
+                  <div className="mt-5 grid gap-4">
+                    {sortedAssets.map((asset) => {
+                      const linkedScene =
+                        asset.scene_id === null
+                          ? null
+                          : currentScript.scenes.find((scene) => scene.id === asset.scene_id) ?? null;
+
+                      return (
+                        <article
+                          className="rounded-2xl border border-white/8 bg-slate-950/40 p-4"
+                          key={asset.id}
+                        >
+                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div>
+                              <div className="flex flex-wrap gap-2">
+                                <span
+                                  className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${assetStatusClassName(asset.status)}`}
+                                >
+                                  {assetStatusLabels[asset.status]}
+                                </span>
+                                <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
+                                  {formatWorkflowValue(asset.asset_type)}
+                                </span>
+                              </div>
+                              <p className="mt-3 text-sm text-slate-200">
+                                {linkedScene
+                                  ? `Scene ${linkedScene.scene_order}: ${linkedScene.title}`
+                                  : "Narration track"}
+                              </p>
+                            </div>
+                            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                              {formatTimestamp(asset.updated_at)}
+                            </p>
+                          </div>
+
+                          <div className="mt-4 grid gap-3 text-sm text-slate-300">
+                            <p>
+                              Provider:{" "}
+                              {asset.provider_name
+                                ? formatWorkflowValue(asset.provider_name)
+                                : "Not assigned"}
+                            </p>
+                            <p>
+                              Path: {asset.file_path ?? "Will be assigned when the worker ingests the file."}
+                            </p>
+                            {asset.duration_seconds ? (
+                              <p>Duration target: {asset.duration_seconds}s</p>
+                            ) : null}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+              </div>
+            </>
+          )}
         </section>
 
         <section className="grid gap-5">

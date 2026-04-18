@@ -54,8 +54,19 @@ export const assetTypes = [
 
 export type AssetType = (typeof assetTypes)[number];
 
+export const assetStatuses = ["planned", "generating", "ready", "failed", "rejected"] as const;
+
+export type AssetStatus = (typeof assetStatuses)[number];
+
 export const providerNames = ["elevenlabs_web", "flow_web"] as const;
 export type ProviderName = (typeof providerNames)[number];
+
+export const backgroundJobTypes = [
+  "generate_audio_browser",
+  "generate_visuals_browser",
+] as const;
+
+export type BackgroundJobType = (typeof backgroundJobTypes)[number];
 
 export const backgroundJobStates = [
   "queued",
@@ -122,6 +133,28 @@ export const approvalStageLabels: Record<ApprovalStage, string> = {
 export const approvalDecisionLabels: Record<ApprovalDecision, string> = {
   approved: "Approved",
   rejected: "Rejected",
+};
+
+export const assetStatusLabels: Record<AssetStatus, string> = {
+  planned: "Planned",
+  generating: "Generating",
+  ready: "Ready",
+  failed: "Failed",
+  rejected: "Rejected",
+};
+
+export const backgroundJobTypeLabels: Record<BackgroundJobType, string> = {
+  generate_audio_browser: "Audio Generation",
+  generate_visuals_browser: "Visual Generation",
+};
+
+export const backgroundJobStateLabels: Record<BackgroundJobState, string> = {
+  queued: "Queued",
+  running: "Running",
+  waiting_external: "Waiting External",
+  completed: "Completed",
+  failed: "Failed",
+  cancelled: "Cancelled",
 };
 
 export const projectStatusTransitions: Record<ProjectStatus, ProjectStatus[]> = {

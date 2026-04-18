@@ -8,7 +8,9 @@ import { ProjectStatusActions } from "./project-status-actions";
 import { StatusBadge } from "./status-badge";
 import { updateProject } from "../lib/api";
 import type {
+  Asset,
   ApprovalRecord,
+  BackgroundJob,
   BrandProfile,
   ContentIdea,
   Project,
@@ -18,11 +20,13 @@ import type {
 } from "../types/api";
 
 type ProjectDetailProps = {
+  assets: Asset[];
   approvals: ApprovalRecord[];
   brandProfiles: BrandProfile[];
   currentScript: ProjectScript | null;
   error: string | null;
   ideas: ContentIdea[];
+  jobs: BackgroundJob[];
   promptPack: ScriptPromptPack | null;
   project: Project | null;
 };
@@ -32,11 +36,13 @@ function formatTimestamp(value: string): string {
 }
 
 export function ProjectDetail({
+  assets,
   approvals,
   brandProfiles,
   currentScript,
   error,
   ideas,
+  jobs,
   promptPack,
   project,
 }: ProjectDetailProps) {
@@ -125,13 +131,15 @@ export function ProjectDetail({
           </section>
 
           <ProjectContentStudio
+            assets={assets}
             approvals={approvals}
             currentScript={currentScript}
             ideas={ideas}
+            jobs={jobs}
             promptPack={promptPack}
             project={project}
           />
-          <ProjectStatusActions currentScript={currentScript} project={project} />
+          <ProjectStatusActions currentScript={currentScript} jobs={jobs} project={project} />
         </>
       ) : null}
     </main>

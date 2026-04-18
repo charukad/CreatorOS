@@ -38,6 +38,55 @@ def _make_test_client() -> TestClient:
     return TestClient(app)
 
 
+def _create_brand_profile_for_tests(client: TestClient) -> str:
+    response = client.post(
+        "/api/brand-profiles",
+        json={
+            "channel_name": "Creator Lab",
+            "niche": "AI productivity",
+            "target_audience": "Solo founders",
+            "tone": "Direct",
+            "hook_style": "Question first",
+            "cta_style": "Ask for comments",
+            "visual_style": "Screen recordings",
+            "posting_preferences_json": {"platforms": ["youtube_shorts"]},
+        },
+    )
+    return response.json()["id"]
+
+
+def _create_project_for_tests(
+    client: TestClient,
+    brand_profile_id: str,
+    *,
+    title: str,
+    objective: str,
+    notes: str | None,
+) -> str:
+    response = client.post(
+        "/api/projects",
+        json={
+            "brand_profile_id": brand_profile_id,
+            "title": title,
+            "target_platform": "youtube_shorts",
+            "objective": objective,
+            "notes": notes,
+        },
+    )
+    return response.json()["id"]
+
+
+def _create_approved_script_for_tests(client: TestClient, project_id: str) -> dict[str, object]:
+    ideas_response = client.post(f"/api/projects/{project_id}/ideas/generate")
+    approved_idea_id = ideas_response.json()[0]["id"]
+    client.post(f"/api/ideas/{approved_idea_id}/approve", json={})
+
+    script_response = client.post(f"/api/projects/{project_id}/scripts/generate", json={})
+    script = script_response.json()
+    client.post(f"/api/scripts/{script['id']}/approve", json={})
+    return script
+
+
 def test_live_health() -> None:
     client = TestClient(app)
     response = client.get("/api/health/live")
@@ -600,5 +649,134 @@ def test_scene_updates_are_blocked_after_script_approval() -> None:
     )
     assert blocked_update_response.status_code == 409
     assert "draft or rejected" in blocked_update_response.json()["detail"]
+
+    app.dependency_overrides.clear()
+
+
+def test_queue_audio_generation_creates_job_and_planned_asset() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Queue narration after approval",
+        objective="Validate queued narration planning",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(
+        f"/api/projects/{project_id}/generate/audio",
+        json={"voice_label": "Warm guide"},
+    )
+
+    assert queue_response.status_code == 201
+    queued_job = queue_response.json()
+    assert queued_job["job_type"] == "generate_audio_browser"
+    assert queued_job["provider_name"] == "elevenlabs_web"
+    assert queued_job["state"] == "queued"
+    assert queued_job["script_id"] == script["id"]
+    assert queued_job["payload_json"]["voice_label"] == "Warm guide"
+
+    jobs_response = client.get(f"/api/projects/{project_id}/jobs")
+    assert jobs_response.status_code == 200
+    jobs = jobs_response.json()
+    assert len(jobs) == 1
+
+    assets_response = client.get(f"/api/projects/{project_id}/assets")
+    assert assets_response.status_code == 200
+    assets = assets_response.json()
+    assert len(assets) == 1
+    assert assets[0]["asset_type"] == "narration_audio"
+    assert assets[0]["status"] == "planned"
+    assert assets[0]["provider_name"] == "elevenlabs_web"
+    assert assets[0]["generation_attempt_id"] is not None
+    assert "/audio/" in assets[0]["file_path"]
+
+    project_response = client.get(f"/api/projects/{project_id}")
+    assert project_response.status_code == 200
+    assert project_response.json()["status"] == "asset_generation"
+
+    app.dependency_overrides.clear()
+
+
+def test_queue_visual_generation_creates_scene_assets_for_current_script() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Queue visual jobs",
+        objective="Validate queued visual planning",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/visuals", json={})
+
+    assert queue_response.status_code == 201
+    queued_job = queue_response.json()
+    assert queued_job["job_type"] == "generate_visuals_browser"
+    assert queued_job["provider_name"] == "flow_web"
+    assert queued_job["payload_json"]["scene_count"] == len(script["scenes"])
+
+    assets_response = client.get(f"/api/projects/{project_id}/assets")
+    assert assets_response.status_code == 200
+    assets = assets_response.json()
+    assert len(assets) == len(script["scenes"])
+    assert all(asset["asset_type"] == "scene_video" for asset in assets)
+    assert all(asset["status"] == "planned" for asset in assets)
+    assert all(asset["provider_name"] == "flow_web" for asset in assets)
+    assert all(asset["scene_id"] is not None for asset in assets)
+    assert all(asset["generation_attempt_id"] is not None for asset in assets)
+
+    jobs_response = client.get(f"/api/projects/{project_id}/jobs")
+    assert jobs_response.status_code == 200
+    assert len(jobs_response.json()) == 1
+
+    app.dependency_overrides.clear()
+
+
+def test_queue_generation_blocks_duplicate_active_job_for_same_script() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Prevent duplicate jobs",
+        objective="Ensure queueing stays idempotent enough for v1",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    first_queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert first_queue_response.status_code == 201
+
+    duplicate_queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert duplicate_queue_response.status_code == 409
+    assert "active audio generation job" in duplicate_queue_response.json()["detail"]
+
+    app.dependency_overrides.clear()
+
+
+def test_queue_generation_requires_approved_script() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Require approval before jobs",
+        objective="Keep generation jobs behind approval",
+        notes=None,
+    )
+
+    ideas_response = client.post(f"/api/projects/{project_id}/ideas/generate")
+    approved_idea_id = ideas_response.json()[0]["id"]
+    client.post(f"/api/ideas/{approved_idea_id}/approve", json={})
+    client.post(f"/api/projects/{project_id}/scripts/generate", json={})
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert queue_response.status_code == 409
+    assert "current script to be approved" in queue_response.json()["detail"]
 
     app.dependency_overrides.clear()

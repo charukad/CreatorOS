@@ -25,3 +25,5 @@ class Scene(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     script = relationship("ProjectScript", back_populates="scenes")
+    generation_attempts = relationship("GenerationAttempt", back_populates="scene")
+    assets = relationship("Asset", back_populates="scene")

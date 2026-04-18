@@ -1,7 +1,10 @@
 import { apiBaseUrl } from "./env";
 import type {
+  Asset,
   ApprovalDecisionPayload,
   ApprovalRecord,
+  AudioGenerationPayload,
+  BackgroundJob,
   BrandProfile,
   BrandProfilePayload,
   ContentIdea,
@@ -12,6 +15,7 @@ import type {
   SceneUpdatePayload,
   ScriptPromptPack,
   ScriptGeneratePayload,
+  VisualGenerationPayload,
 } from "../types/api";
 
 type ApiErrorShape = {
@@ -123,6 +127,14 @@ export function listProjectApprovals(projectId: string): Promise<ApprovalRecord[
   return apiRequest<ApprovalRecord[]>(`/projects/${projectId}/approvals`);
 }
 
+export function listProjectJobs(projectId: string): Promise<BackgroundJob[]> {
+  return apiRequest<BackgroundJob[]>(`/projects/${projectId}/jobs`);
+}
+
+export function listProjectAssets(projectId: string): Promise<Asset[]> {
+  return apiRequest<Asset[]>(`/projects/${projectId}/assets`);
+}
+
 export function generateProjectIdeas(projectId: string): Promise<ContentIdea[]> {
   return apiRequest<ContentIdea[]>(`/projects/${projectId}/ideas/generate`, {
     method: "POST",
@@ -155,6 +167,26 @@ export function getCurrentProjectScript(projectId: string): Promise<ProjectScrip
 
 export function getScriptPromptPack(scriptId: string): Promise<ScriptPromptPack> {
   return apiRequest<ScriptPromptPack>(`/scripts/${scriptId}/prompt-pack`);
+}
+
+export function queueAudioGeneration(
+  projectId: string,
+  payload: AudioGenerationPayload = {},
+): Promise<BackgroundJob> {
+  return apiRequest<BackgroundJob>(`/projects/${projectId}/generate/audio`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function queueVisualGeneration(
+  projectId: string,
+  payload: VisualGenerationPayload = {},
+): Promise<BackgroundJob> {
+  return apiRequest<BackgroundJob>(`/projects/${projectId}/generate/visuals`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function generateProjectScript(

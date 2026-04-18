@@ -1,9 +1,14 @@
 import type {
+  AssetStatus,
+  AssetType,
   ApprovalDecision,
   ApprovalStage,
   ApprovalTargetType,
+  BackgroundJobState,
+  BackgroundJobType,
   ContentIdeaStatus,
   ProjectStatus,
+  ProviderName,
   ScriptStatus,
 } from "@creatoros/shared";
 
@@ -166,4 +171,50 @@ export type ApprovalRecord = {
 
 export type ApprovalDecisionPayload = {
   feedback_notes?: string | null;
+};
+
+export type AudioGenerationPayload = {
+  voice_label?: string | null;
+};
+
+export type VisualGenerationPayload = {
+  scene_ids?: string[];
+};
+
+export type BackgroundJob = {
+  id: string;
+  user_id: string;
+  project_id: string;
+  script_id: string;
+  job_type: BackgroundJobType;
+  provider_name: ProviderName | null;
+  state: BackgroundJobState;
+  payload_json: Record<string, unknown>;
+  attempts: number;
+  progress_percent: number;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Asset = {
+  id: string;
+  user_id: string;
+  project_id: string;
+  script_id: string;
+  scene_id: string | null;
+  generation_attempt_id: string | null;
+  asset_type: AssetType;
+  status: AssetStatus;
+  provider_name: ProviderName | null;
+  file_path: string | null;
+  mime_type: string | null;
+  duration_seconds: number | null;
+  width: number | null;
+  height: number | null;
+  checksum: string | null;
+  created_at: string;
+  updated_at: string;
 };

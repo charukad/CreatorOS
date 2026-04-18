@@ -8,10 +8,11 @@ import {
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import { transitionProjectStatus } from "../lib/api";
-import type { Project, ProjectScript } from "../types/api";
+import type { BackgroundJob, Project, ProjectScript } from "../types/api";
 
 type ProjectStatusActionsProps = {
   currentScript: ProjectScript | null;
+  jobs: BackgroundJob[];
   project: Project;
 };
 
@@ -37,16 +38,31 @@ function buttonClassName(status: Project["status"]): string {
   }
 }
 
-export function ProjectStatusActions({ currentScript, project }: ProjectStatusActionsProps) {
+export function ProjectStatusActions({
+  currentScript,
+  jobs,
+  project,
+}: ProjectStatusActionsProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pendingTarget, setPendingTarget] = useState<Project["status"] | null>(null);
 
   const availableTransitions = getAvailableProjectStatusTransitions(project.status);
+  const hasQueuedGenerationPlan =
+    currentScript !== null &&
+    jobs.some(
+      (job) =>
+        job.script_id === currentScript.id &&
+        (job.job_type === "generate_audio_browser" || job.job_type === "generate_visuals_browser"),
+    );
 
   function getBlockedReason(targetStatus: Project["status"]): string | null {
     if (targetStatus === "asset_generation" && currentScript?.status !== "approved") {
       return "Approve the current script before starting asset generation.";
+    }
+
+    if (targetStatus === "asset_generation" && !hasQueuedGenerationPlan) {
+      return "Queue narration or visual generation from the studio before moving into asset generation.";
     }
 
     return null;

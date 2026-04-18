@@ -58,9 +58,22 @@ class AssetType(StrEnum):
     THUMBNAIL = "thumbnail"
 
 
+class AssetStatus(StrEnum):
+    PLANNED = "planned"
+    GENERATING = "generating"
+    READY = "ready"
+    FAILED = "failed"
+    REJECTED = "rejected"
+
+
 class ProviderName(StrEnum):
     ELEVENLABS_WEB = "elevenlabs_web"
     FLOW_WEB = "flow_web"
+
+
+class BackgroundJobType(StrEnum):
+    GENERATE_AUDIO_BROWSER = "generate_audio_browser"
+    GENERATE_VISUALS_BROWSER = "generate_visuals_browser"
 
 
 class BackgroundJobState(StrEnum):

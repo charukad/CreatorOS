@@ -49,3 +49,18 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    background_jobs = relationship(
+        "BackgroundJob",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    generation_attempts = relationship(
+        "GenerationAttempt",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    assets = relationship(
+        "Asset",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )

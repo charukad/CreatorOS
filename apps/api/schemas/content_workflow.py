@@ -1,9 +1,18 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from apps.api.schemas.enums import ContentIdeaStatus, ScriptStatus
+from apps.api.schemas.enums import (
+    AssetStatus,
+    AssetType,
+    BackgroundJobState,
+    BackgroundJobType,
+    ContentIdeaStatus,
+    ProviderName,
+    ScriptStatus,
+)
 
 
 class ContentIdeaResponse(BaseModel):
@@ -108,3 +117,53 @@ class ScriptPromptPackResponse(BaseModel):
     hashtags: list[str]
     title_options: list[str]
     scenes: list[ScenePromptPackResponse]
+
+
+class AudioGenerationRequest(BaseModel):
+    voice_label: str | None = Field(default=None, min_length=1, max_length=255)
+
+
+class VisualGenerationRequest(BaseModel):
+    scene_ids: list[UUID] | None = None
+
+
+class BackgroundJobResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    project_id: UUID
+    script_id: UUID
+    job_type: BackgroundJobType
+    provider_name: ProviderName | None
+    state: BackgroundJobState
+    payload_json: dict[str, Any]
+    attempts: int
+    progress_percent: int
+    error_message: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AssetResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    project_id: UUID
+    script_id: UUID
+    scene_id: UUID | None
+    generation_attempt_id: UUID | None
+    asset_type: AssetType
+    status: AssetStatus
+    provider_name: ProviderName | None
+    file_path: str | None
+    mime_type: str | None
+    duration_seconds: int | None
+    width: int | None
+    height: int | None
+    checksum: str | None
+    created_at: datetime
+    updated_at: datetime

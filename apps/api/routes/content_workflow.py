@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 from apps.api.db.session import get_db
 from apps.api.schemas.approvals import ApprovalDecisionRequest, ApprovalResponse
 from apps.api.schemas.content_workflow import (
+    AssetResponse,
+    AudioGenerationRequest,
+    BackgroundJobResponse,
     ContentIdeaResponse,
     IdeaApprovalRequest,
     ProjectScriptResponse,
@@ -14,6 +17,7 @@ from apps.api.schemas.content_workflow import (
     SceneUpdate,
     ScriptGenerateRequest,
     ScriptPromptPackResponse,
+    VisualGenerationRequest,
 )
 from apps.api.services.approvals import list_project_approvals
 from apps.api.services.content_workflow import (
@@ -31,6 +35,12 @@ from apps.api.services.content_workflow import (
     reject_content_idea,
     reject_project_script,
     update_scene,
+)
+from apps.api.services.generation_pipeline import (
+    list_project_assets,
+    list_project_background_jobs,
+    queue_audio_generation_job,
+    queue_visual_generation_job,
 )
 from apps.api.services.projects import get_owned_brand_profile, get_project
 from apps.api.services.users import get_or_create_default_user
@@ -60,6 +70,28 @@ def list_project_approvals_route(project_id: UUID, db: DbSession) -> list[Approv
 
     approvals = list_project_approvals(db, project)
     return [ApprovalResponse.model_validate(approval) for approval in approvals]
+
+
+@router.get("/projects/{project_id}/jobs", response_model=list[BackgroundJobResponse])
+def list_project_jobs_route(project_id: UUID, db: DbSession) -> list[BackgroundJobResponse]:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    jobs = list_project_background_jobs(db, project)
+    return [BackgroundJobResponse.model_validate(job) for job in jobs]
+
+
+@router.get("/projects/{project_id}/assets", response_model=list[AssetResponse])
+def list_project_assets_route(project_id: UUID, db: DbSession) -> list[AssetResponse]:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    assets = list_project_assets(db, project)
+    return [AssetResponse.model_validate(asset) for asset in assets]
 
 
 @router.post(
@@ -189,6 +221,116 @@ def get_script_prompt_pack_route(script_id: UUID, db: DbSession) -> ScriptPrompt
         approved_idea=source_idea,
         script=script,
     )
+
+
+@router.post(
+    "/projects/{project_id}/generate/audio",
+    response_model=BackgroundJobResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def queue_audio_generation_route(
+    project_id: UUID,
+    payload: AudioGenerationRequest,
+    db: DbSession,
+) -> BackgroundJobResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    current_script = get_current_script(db, project)
+    if current_script is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Generate and approve a script before queueing narration.",
+        )
+
+    brand_profile = get_owned_brand_profile(db, user, project.brand_profile_id)
+    if brand_profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brand profile not found",
+        )
+
+    source_idea = get_content_idea(db, user, current_script.content_idea_id)
+    if source_idea is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source idea not found")
+
+    prompt_pack = build_script_prompt_pack(
+        project=project,
+        brand_profile=brand_profile,
+        approved_idea=source_idea,
+        script=current_script,
+    )
+
+    try:
+        job = queue_audio_generation_job(
+            db,
+            user=user,
+            project=project,
+            script=current_script,
+            prompt_pack=prompt_pack,
+            payload=payload,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return BackgroundJobResponse.model_validate(job)
+
+
+@router.post(
+    "/projects/{project_id}/generate/visuals",
+    response_model=BackgroundJobResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def queue_visual_generation_route(
+    project_id: UUID,
+    payload: VisualGenerationRequest,
+    db: DbSession,
+) -> BackgroundJobResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    current_script = get_current_script(db, project)
+    if current_script is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Generate and approve a script before queueing visual generation.",
+        )
+
+    brand_profile = get_owned_brand_profile(db, user, project.brand_profile_id)
+    if brand_profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brand profile not found",
+        )
+
+    source_idea = get_content_idea(db, user, current_script.content_idea_id)
+    if source_idea is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source idea not found")
+
+    prompt_pack = build_script_prompt_pack(
+        project=project,
+        brand_profile=brand_profile,
+        approved_idea=source_idea,
+        script=current_script,
+    )
+
+    try:
+        job = queue_visual_generation_job(
+            db,
+            user=user,
+            project=project,
+            script=current_script,
+            prompt_pack=prompt_pack,
+            payload=payload,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return BackgroundJobResponse.model_validate(job)
 
 
 @router.post(

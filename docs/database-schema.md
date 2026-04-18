@@ -85,22 +85,29 @@ Note:
 
 ### generation_attempts
 - id
+- user_id
 - project_id
+- script_id
+- background_job_id
 - scene_id nullable
-- provider_type
 - provider_name
 - input_payload_json
 - status
+- created_at
+- updated_at
 - started_at
 - finished_at
 - error_message
 
 ### assets
 - id
+- user_id
 - project_id
+- script_id
 - scene_id nullable
 - generation_attempt_id nullable
 - asset_type
+- provider_name nullable
 - file_path
 - mime_type
 - duration_seconds nullable
@@ -109,6 +116,7 @@ Note:
 - checksum
 - status
 - created_at
+- updated_at
 
 ### approvals
 - id
@@ -158,10 +166,17 @@ Note:
 
 ### background_jobs
 - id
+- user_id
+- project_id
+- script_id
 - job_type
+- provider_name nullable
 - payload_json
 - status
 - attempts
+- progress_percent
+- created_at
+- updated_at
 - started_at
 - finished_at
 - error_message
@@ -202,6 +217,13 @@ Note:
 - subtitle_file
 - thumbnail
 
+### asset.status
+- planned
+- generating
+- ready
+- failed
+- rejected
+
 ### approval.stage
 - idea
 - script
@@ -216,3 +238,19 @@ Note:
 ### approval.target_type
 - content_idea
 - script
+
+### background_jobs.job_type
+- generate_audio_browser
+- generate_visuals_browser
+
+### background_jobs.state
+- queued
+- running
+- waiting_external
+- completed
+- failed
+- cancelled
+
+### provider_name
+- elevenlabs_web
+- flow_web

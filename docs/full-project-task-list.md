@@ -195,10 +195,13 @@ The repo now has a synchronous local script generator, scene persistence, script
 
 ## Phase 10 - Queue System, Background Jobs, and Progress Tracking
 
+Current implementation note:
+The repo now persists queued narration/visual job plans, per-attempt records, and planned asset placeholders from the project page. Redis-backed execution, retries, logs, and live progress updates are still pending.
+
 ### Build tasks
 - [ ] Choose and implement the job runner architecture backed by Redis
-- [ ] Add `background_jobs` persistence and job lifecycle tracking
-- [ ] Implement job states `queued`, `running`, `waiting_external`, `completed`, `failed`, and `cancelled`
+- [x] Add `background_jobs` persistence and job lifecycle tracking
+- [x] Implement job states `queued`, `running`, `waiting_external`, `completed`, `failed`, and `cancelled`
 - [ ] Implement retry policy per job type as defined in `docs/queue-jobs.md`
 - [ ] Add progress update hooks for long-running tasks
 - [ ] Add idempotency handling for publish scheduling and file ingestion

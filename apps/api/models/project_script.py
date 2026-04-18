@@ -50,3 +50,18 @@ class ProjectScript(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         cascade="all, delete-orphan",
         order_by="Scene.scene_order",
     )
+    background_jobs = relationship(
+        "BackgroundJob",
+        back_populates="script",
+        cascade="all, delete-orphan",
+    )
+    generation_attempts = relationship(
+        "GenerationAttempt",
+        back_populates="script",
+        cascade="all, delete-orphan",
+    )
+    assets = relationship(
+        "Asset",
+        back_populates="script",
+        cascade="all, delete-orphan",
+    )

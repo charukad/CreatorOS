@@ -11,7 +11,8 @@
 
 ## Current Workflow Note
 - the current idea and script workflow runs synchronously inside the API as a local deterministic generator
-- queue-backed job submission for generation steps is still planned, but the persisted workflow path is already live
+- asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
+- Redis-backed execution, retries, and worker progress updates are still planned
 
 ## Core Resources
 ### Brand Profiles
@@ -28,9 +29,13 @@
 - `POST /api/projects/:id/transition`
 - `GET /api/projects/:id/ideas`
 - `GET /api/projects/:id/approvals`
+- `GET /api/projects/:id/jobs`
+- `GET /api/projects/:id/assets`
 - `POST /api/projects/:id/ideas/generate`
 - `GET /api/projects/:id/scripts/current`
 - `POST /api/projects/:id/scripts/generate`
+- `POST /api/projects/:id/generate/audio`
+- `POST /api/projects/:id/generate/visuals`
 
 ### Ideas
 - `POST /api/ideas/:id/approve`
@@ -225,12 +230,73 @@ Response excerpt:
 }
 ```
 
+### `POST /api/projects/:id/generate/audio`
+```json
+{
+  "voice_label": "Warm guide"
+}
+```
+
+Response excerpt:
+```json
+{
+  "id": "uuid",
+  "project_id": "uuid",
+  "script_id": "uuid",
+  "job_type": "generate_audio_browser",
+  "provider_name": "elevenlabs_web",
+  "state": "queued",
+  "progress_percent": 0,
+  "payload_json": {
+    "script_version": 1,
+    "voice_label": "Warm guide",
+    "scene_count": 4
+  }
+}
+```
+
+Behavior note:
+- queueing narration promotes the project into `asset_generation` automatically when successful
+- the API blocks duplicate active audio jobs for the same current script
+
+### `POST /api/projects/:id/generate/visuals`
+```json
+{
+  "scene_ids": ["uuid-optional", "uuid-optional"]
+}
+```
+
+Response excerpt:
+```json
+{
+  "id": "uuid",
+  "project_id": "uuid",
+  "script_id": "uuid",
+  "job_type": "generate_visuals_browser",
+  "provider_name": "flow_web",
+  "state": "queued",
+  "payload_json": {
+    "script_version": 1,
+    "scene_count": 4,
+    "scene_ids": ["uuid", "uuid"]
+  }
+}
+```
+
+Behavior note:
+- omitting `scene_ids` queues every scene from the current approved script
+- the API blocks duplicate active visual jobs for the same current script
+
+### `GET /api/projects/:id/jobs`
+- returns persisted queued generation jobs for the project, newest first
+
+### `GET /api/projects/:id/assets`
+- returns planned and produced asset records for the project, including placeholder records created before worker execution starts
+
 ## Planned Next Endpoints
 - `POST /api/scripts/:id/regenerate`
 
 ### Generation Jobs
-- `POST /api/projects/:id/generate/audio`
-- `POST /api/projects/:id/generate/visuals`
 - `GET /api/jobs/:id`
 
 ### Assets
