@@ -17,7 +17,7 @@ class FFmpegExportProfile:
 @dataclass(frozen=True)
 class SceneVisualInput:
     path: Path
-    duration_seconds: int
+    duration_seconds: float
 
 
 def build_static_scene_video_command(
@@ -41,7 +41,7 @@ def build_static_scene_video_command(
                 "-loop",
                 "1",
                 "-t",
-                str(max(scene_visual.duration_seconds, 1)),
+                _format_duration(scene_visual.duration_seconds),
                 "-i",
                 str(scene_visual.path),
             ]
@@ -113,3 +113,7 @@ def _build_filter_complex(
 
 def _escape_filter_path(path: Path) -> str:
     return str(path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
+def _format_duration(duration_seconds: float) -> str:
+    return f"{max(duration_seconds, 0.001):.3f}".rstrip("0").rstrip(".")

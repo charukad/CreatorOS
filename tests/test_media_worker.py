@@ -1,3 +1,4 @@
+import json
 from collections.abc import Generator
 from pathlib import Path
 
@@ -161,6 +162,10 @@ def test_media_worker_composes_rough_cut_preview_after_asset_approval(
     assert subtitle_path.exists()
     assert ffmpeg_command_path.exists()
     assert f'"script_id": "{script["id"]}"' in manifest_path.read_text(encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["timing_strategy"]["source"] == "narration_audio_wav"
+    assert manifest["narration_asset"]["probed_duration_seconds"] is not None
+    assert manifest["scenes"][-1]["end_seconds"] == manifest["total_duration_seconds"]
     assert "00:00:00,000 -->" in subtitle_path.read_text(encoding="utf-8")
     assert '"ffmpeg"' in ffmpeg_command_path.read_text(encoding="utf-8")
 

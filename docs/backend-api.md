@@ -14,7 +14,7 @@
 - asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
 - the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
-- after asset approval, `compose_rough_cut` queues a media-worker job that writes a timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, and FFmpeg command-plan sidecar
+- after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, and FFmpeg command-plan sidecar
 - Redis-backed execution, retries, and worker progress updates are still planned
 
 ## Core Resources

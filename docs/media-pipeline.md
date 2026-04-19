@@ -6,7 +6,8 @@ Turn approved script + generated assets into an automatically assembled short-fo
 ## Current Implementation Note
 - after asset approval, the API can queue a `compose_rough_cut` background job
 - the media worker resolves the latest ready narration asset and one ready visual per scene
-- the worker writes a deterministic timeline manifest sidecar file
+- the media worker probes WAV narration duration and uses it as the timeline timing anchor
+- the worker writes a deterministic audio-anchored timeline manifest sidecar file
 - the first rough-cut output is an HTML preview artifact registered as a `rough_cut` asset
 - the worker also writes an SRT subtitle sidecar registered as a `subtitle_file` asset
 - the worker writes a JSON FFmpeg command-plan sidecar for the future MP4 render
@@ -56,6 +57,7 @@ Turn approved script + generated assets into an automatically assembled short-fo
 - v1 preview jobs require a ready narration asset and a ready visual asset for every scene
 - `rough_cut_ready` should only be reached after the media worker creates a rough-cut artifact
 - SRT subtitles are derived from ordered scene narration and scene duration boundaries
+- when WAV duration is available, scene durations are proportionally scaled to match narration
 
 ## Final Export Rules
 - selectable aspect ratio

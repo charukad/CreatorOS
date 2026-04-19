@@ -19,6 +19,7 @@ from apps.api.services.background_jobs import (
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
+from workers.media.audio import probe_wav_duration_seconds
 from workers.media.config import MediaWorkerSettings
 from workers.media.exporters.preview import build_rough_cut_preview_html
 from workers.media.ffmpeg import (
@@ -92,6 +93,7 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
     if narration_asset is None:
         raise ValueError("A ready narration asset is required for rough-cut composition.")
 
+    narration_duration_seconds = _probe_narration_duration(narration_asset)
     scene_assets = _select_scene_visual_assets(session, script)
     manifest = build_timeline_manifest(
         project=project,
@@ -99,6 +101,7 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
         job=job,
         narration_asset=narration_asset,
         scene_assets=scene_assets,
+        narration_duration_seconds=narration_duration_seconds,
         subtitle_asset=subtitle_asset,
     )
     mark_job_progress(session, job, 45)
@@ -122,9 +125,8 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
     subtitle_path.write_text(build_srt_from_manifest(manifest), encoding="utf-8")
     ffmpeg_command = _build_ffmpeg_command(
         settings=settings,
-        script=script,
         narration_asset=narration_asset,
-        scene_assets=scene_assets,
+        manifest=manifest,
         subtitle_path=subtitle_path,
         video_path=video_path,
     )
@@ -262,18 +264,22 @@ def _select_scene_visual_assets(
 def _build_ffmpeg_command(
     *,
     settings: MediaWorkerSettings,
-    script: ProjectScript,
     narration_asset: Asset,
-    scene_assets: dict[str, Asset],
+    manifest: dict[str, object],
     subtitle_path: Path,
     video_path: Path,
 ) -> list[str]:
+    scenes = manifest.get("scenes", [])
+    if not isinstance(scenes, list):
+        raise ValueError("Timeline manifest is missing scene data for FFmpeg command planning.")
+
     scene_visuals = [
         SceneVisualInput(
-            path=Path(str(scene_assets[str(scene.id)].file_path)),
-            duration_seconds=scene.estimated_duration_seconds,
+            path=Path(str(scene["visual_asset_path"])),
+            duration_seconds=float(scene["duration_seconds"]),
         )
-        for scene in script.scenes
+        for scene in scenes
+        if isinstance(scene, dict)
     ]
     return build_static_scene_video_command(
         ffmpeg_binary=settings.ffmpeg_binary,
@@ -283,6 +289,17 @@ def _build_ffmpeg_command(
         output_path=video_path,
         profile=FFmpegExportProfile(),
     )
+
+
+def _probe_narration_duration(narration_asset: Asset) -> float | None:
+    if narration_asset.file_path is None:
+        return None
+
+    narration_path = Path(narration_asset.file_path)
+    if narration_asset.mime_type != "audio/wav" and narration_path.suffix.lower() != ".wav":
+        return None
+
+    return probe_wav_duration_seconds(narration_path)
 
 
 def _file_sha256(path: Path) -> str:
