@@ -37,6 +37,7 @@
 - project assets should move into canonical storage after ingestion
 - browser profiles should remain outside version control
 - in local development, `BROWSER_PROVIDER_MODE=dry_run` lets the browser worker generate WAV/SVG placeholder outputs without live provider sessions
+- the media worker writes rough-cut preview and manifest files under `storage/projects/{project_id}/rough-cuts`
 
 ## Setup Steps
 1. Install system dependencies.

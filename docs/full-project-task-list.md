@@ -300,20 +300,24 @@ The worker now moves dry-run outputs into canonical project storage paths, and t
 
 ## Phase 15 - Media Composer, Timeline Builder, and Exports
 
+The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, deterministic timeline manifest generation, HTML rough-cut preview artifacts, API/UI rough-cut queueing, and smoke tests. FFmpeg video rendering, subtitles, final exports, and real sample QA are still pending.
+
 ### Build tasks
-- [ ] Create the media worker entrypoint and job execution pipeline
-- [ ] Implement project manifest loading for rough-cut assembly
-- [ ] Resolve approved assets per scene
-- [ ] Use narration audio as the primary timing anchor
-- [ ] Build timeline assembly logic from ordered scenes and target durations
+- [x] Create the media worker entrypoint and job execution pipeline
+- [x] Implement first-pass timeline manifest generation for rough-cut assembly
+- [x] Resolve approved assets per scene
+- [ ] Use narration audio as the primary timing anchor with real audio-duration inspection
+- [x] Build timeline assembly logic from ordered scenes and target durations
 - [ ] Add trim/loop/fallback behavior for scene duration mismatches
 - [ ] Add subtitle generation pipeline
 - [ ] Add overlay and transition support
 - [ ] Implement FFmpeg helper modules for concat, audio overlay, subtitle burn-in, and export
-- [ ] Export rough cut and final cut artifacts
-- [ ] Persist timeline manifests for every export attempt
-- [ ] Add rough cut preview and final export views in the UI
-- [ ] Add tests for timeline manifest validation and sample export behavior
+- [x] Export first-pass rough cut preview artifacts
+- [ ] Export final cut artifacts
+- [x] Persist timeline manifests for every rough-cut attempt
+- [x] Add rough cut preview views in the UI
+- [ ] Add final export views in the UI
+- [x] Add media worker smoke tests for rough-cut manifest and preview generation
 
 ### Manual checks
 - [ ] Manual check: rough cuts stay in sync with narration and scene order

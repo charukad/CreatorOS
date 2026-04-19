@@ -26,7 +26,11 @@ from apps.api.schemas.enums import (
     ScriptStatus,
 )
 from apps.api.services.approvals import create_approval_record
-from apps.api.services.assets import can_enter_asset_review, has_approved_asset_review
+from apps.api.services.assets import (
+    can_enter_asset_review,
+    has_approved_asset_review,
+    has_ready_rough_cut,
+)
 
 
 def list_project_ideas(db: Session, project: Project) -> list[ContentIdea]:
@@ -474,6 +478,11 @@ def validate_project_transition_prerequisites(
             raise ValueError(
                 "Project cannot transition to 'rough_cut_ready' until the current asset set "
                 "has been explicitly approved."
+            )
+        if not has_ready_rough_cut(db, current_script):
+            raise ValueError(
+                "Project cannot transition to 'rough_cut_ready' until the media worker has "
+                "created a rough-cut artifact for the current script."
             )
 
 

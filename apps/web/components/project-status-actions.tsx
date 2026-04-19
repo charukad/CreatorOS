@@ -71,6 +71,9 @@ export function ProjectStatusActions({
       asset.status === "ready" &&
       (asset.asset_type === "scene_image" || asset.asset_type === "scene_video"),
   );
+  const hasReadyRoughCutAsset = currentScriptAssets.some(
+    (asset) => asset.status === "ready" && asset.asset_type === "rough_cut",
+  );
   const latestAssetApproval =
     currentScript === null
       ? null
@@ -99,6 +102,10 @@ export function ProjectStatusActions({
       latestAssetApproval?.decision !== "approved"
     ) {
       return "Approve the current asset set before moving beyond asset review.";
+    }
+
+    if (targetStatus === "rough_cut_ready" && !hasReadyRoughCutAsset) {
+      return "Queue and run the rough-cut media worker before marking the rough cut ready.";
     }
 
     return null;

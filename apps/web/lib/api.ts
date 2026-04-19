@@ -193,6 +193,12 @@ export function queueVisualGeneration(
   });
 }
 
+export function queueRoughCut(projectId: string): Promise<BackgroundJob> {
+  return apiRequest<BackgroundJob>(`/projects/${projectId}/compose/rough-cut`, {
+    method: "POST",
+  });
+}
+
 export function approveProjectAssets(
   projectId: string,
   payload: ApprovalDecisionPayload = {},

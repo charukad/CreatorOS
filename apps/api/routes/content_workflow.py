@@ -50,6 +50,7 @@ from apps.api.services.generation_pipeline import (
     queue_audio_generation_job,
     queue_visual_generation_job,
 )
+from apps.api.services.media_pipeline import queue_rough_cut_job
 from apps.api.services.projects import get_owned_brand_profile, get_project
 from apps.api.services.users import get_or_create_default_user
 
@@ -415,6 +416,34 @@ def reject_project_assets_route(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return ApprovalResponse.model_validate(approval)
+
+
+@router.post(
+    "/projects/{project_id}/compose/rough-cut",
+    response_model=BackgroundJobResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def queue_rough_cut_route(project_id: UUID, db: DbSession) -> BackgroundJobResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    current_script = get_current_script(db, project)
+    if current_script is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
+
+    try:
+        job = queue_rough_cut_job(
+            db,
+            user=user,
+            project=project,
+            script=current_script,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return BackgroundJobResponse.model_validate(job)
 
 
 @router.post(

@@ -217,12 +217,14 @@ def test_asset_review_routes_update_status_and_approval_history(
         for approval in approvals
     )
 
-    allowed_transition_response = client.post(
+    blocked_until_media_response = client.post(
         f"/api/projects/{project_id}/transition",
         json={"target_status": "rough_cut_ready"},
     )
-    assert allowed_transition_response.status_code == 200
-    assert allowed_transition_response.json()["status"] == "rough_cut_ready"
+    assert blocked_until_media_response.status_code == 409
+    assert "media worker has created a rough-cut artifact" in blocked_until_media_response.json()[
+        "detail"
+    ]
 
     app.dependency_overrides.clear()
 

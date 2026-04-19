@@ -4,6 +4,8 @@
 - `generate_audio_browser` and `generate_visuals_browser` can now be queued through the API
 - queue submission persists `background_jobs`, `generation_attempts`, and planned `assets`
 - the browser worker can now execute those queued jobs in local `dry_run` mode and materialize WAV/SVG development artifacts
+- `compose_rough_cut` can now be queued after asset approval and consumed by the media worker
+- the media worker currently writes a deterministic timeline manifest plus an HTML rough-cut preview artifact
 - actual Redis-backed execution, retries, and worker progress updates are still pending
 
 ## Principles
@@ -77,13 +79,21 @@ Output:
 ### `compose_rough_cut`
 Input:
 - project_id
-- audio asset id
-- approved scene assets
-- subtitle mode
+- current approved script id
+- latest ready narration asset
+- ready scene visual asset for every scene
+- output rough-cut asset id
 
 Output:
-- rough cut asset
-- timeline manifest
+- rough cut preview asset
+- timeline manifest sidecar file
+
+Persisted queue payload includes:
+- script version
+- scene count
+- planned preview path
+- planned manifest path
+- rough-cut output asset id
 
 ### `final_export`
 Input:

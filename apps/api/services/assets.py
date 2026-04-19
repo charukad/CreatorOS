@@ -139,6 +139,15 @@ def has_approved_asset_review(db: Session, project: Project, script: ProjectScri
     return latest_approval is not None and latest_approval.decision == ApprovalDecision.APPROVED
 
 
+def has_ready_rough_cut(db: Session, script: ProjectScript) -> bool:
+    statement = select(Asset).where(
+        Asset.script_id == script.id,
+        Asset.asset_type == AssetType.ROUGH_CUT,
+        Asset.status == AssetStatus.READY,
+    )
+    return db.scalar(statement) is not None
+
+
 def can_enter_asset_review(db: Session, project: Project, script: ProjectScript) -> bool:
     ready_assets = _get_ready_assets_for_script(db, script)
     if not _has_required_asset_mix(ready_assets):

@@ -14,6 +14,7 @@
 - asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
 - the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
+- after asset approval, `compose_rough_cut` queues a media-worker job that writes a timeline manifest and rough-cut preview artifact
 - Redis-backed execution, retries, and worker progress updates are still planned
 
 ## Core Resources
@@ -35,6 +36,7 @@
 - `GET /api/projects/:id/assets`
 - `POST /api/projects/:id/assets/approve`
 - `POST /api/projects/:id/assets/reject`
+- `POST /api/projects/:id/compose/rough-cut`
 - `POST /api/projects/:id/ideas/generate`
 - `GET /api/projects/:id/scripts/current`
 - `POST /api/projects/:id/scripts/generate`
@@ -327,6 +329,31 @@ Behavior note:
 - streams the stored asset file for preview
 - access is limited to files inside the configured storage root
 
+### `POST /api/projects/:id/compose/rough-cut`
+Response excerpt:
+```json
+{
+  "id": "uuid",
+  "project_id": "uuid",
+  "script_id": "uuid",
+  "job_type": "compose_rough_cut",
+  "provider_name": "local_media",
+  "state": "queued",
+  "payload_json": {
+    "script_version": 1,
+    "scene_count": 4,
+    "output_asset_id": "uuid",
+    "preview_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234.html",
+    "manifest_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234-manifest.json"
+  }
+}
+```
+
+Behavior note:
+- the route requires the current asset set to have an approved `assets` review
+- every scene must have a ready visual asset and the script must have a ready narration asset
+- the media worker marks the rough-cut asset ready and promotes the project to `rough_cut_ready`
+
 ## Planned Next Endpoints
 - `POST /api/scripts/:id/regenerate`
 
@@ -340,7 +367,6 @@ Behavior note:
 - `POST /api/assets/:id/regenerate`
 
 ### Rough Cut / Final Video
-- `POST /api/projects/:id/compose/rough-cut`
 - `POST /api/projects/:id/finalize`
 - `GET /api/projects/:id/exports`
 
@@ -365,6 +391,7 @@ Behavior note:
 - moving into `script_pending_approval` requires a generated script to exist
 - moving into `asset_generation` now requires the current script version to be explicitly approved
 - scene edits are only allowed while the current script is in `draft` or `rejected` state during script approval
+- moving into `rough_cut_ready` requires an approved asset set and a ready rough-cut artifact
 - archived projects cannot transition further in the current implementation
 
 ## Error Model

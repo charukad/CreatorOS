@@ -58,12 +58,13 @@ export const assetStatuses = ["planned", "generating", "ready", "failed", "rejec
 
 export type AssetStatus = (typeof assetStatuses)[number];
 
-export const providerNames = ["elevenlabs_web", "flow_web"] as const;
+export const providerNames = ["elevenlabs_web", "flow_web", "local_media"] as const;
 export type ProviderName = (typeof providerNames)[number];
 
 export const backgroundJobTypes = [
   "generate_audio_browser",
   "generate_visuals_browser",
+  "compose_rough_cut",
 ] as const;
 
 export type BackgroundJobType = (typeof backgroundJobTypes)[number];
@@ -146,6 +147,7 @@ export const assetStatusLabels: Record<AssetStatus, string> = {
 export const backgroundJobTypeLabels: Record<BackgroundJobType, string> = {
   generate_audio_browser: "Audio Generation",
   generate_visuals_browser: "Visual Generation",
+  compose_rough_cut: "Rough Cut Composition",
 };
 
 export const backgroundJobStateLabels: Record<BackgroundJobState, string> = {

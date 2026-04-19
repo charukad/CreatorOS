@@ -20,6 +20,7 @@ import {
   generateProjectIdeas,
   getAssetContentUrl,
   generateProjectScript,
+  queueRoughCut,
   rejectProjectAssets,
   rejectIdea,
   rejectScript,
@@ -92,6 +93,20 @@ function assetStatusClassName(status: Asset["status"]): string {
       return "border-emerald-300/30 bg-emerald-400/10 text-emerald-100";
     default:
       return "border-rose-300/30 bg-rose-400/10 text-rose-100";
+  }
+}
+
+function assetSortPriority(assetType: Asset["asset_type"]): number {
+  switch (assetType) {
+    case "narration_audio":
+      return 0;
+    case "scene_image":
+    case "scene_video":
+      return 1;
+    case "rough_cut":
+      return 2;
+    default:
+      return 3;
   }
 }
 
@@ -169,7 +184,17 @@ export function ProjectContentStudio({
             job.job_type === "generate_visuals_browser" &&
             (job.state === "queued" || job.state === "running" || job.state === "waiting_external"),
         ) ?? null;
+  const activeRoughCutJob =
+    currentScript === null
+      ? null
+      : currentScriptJobs.find(
+          (job) =>
+            job.script_id === currentScript.id &&
+            job.job_type === "compose_rough_cut" &&
+            (job.state === "queued" || job.state === "running" || job.state === "waiting_external"),
+        ) ?? null;
   const readyAssets = currentScriptAssets.filter((asset) => asset.status === "ready");
+  const readyRoughCutAssets = readyAssets.filter((asset) => asset.asset_type === "rough_cut");
   const rejectedAssets = currentScriptAssets.filter((asset) => asset.status === "rejected");
   const latestAssetReview =
     currentScript === null
@@ -177,12 +202,16 @@ export function ProjectContentStudio({
       : approvals.find(
           (approval) => approval.stage === "assets" && approval.target_id === currentScript.id,
         ) ?? null;
+  const canQueueRoughCut =
+    currentScript !== null &&
+    project.status === "asset_pending_approval" &&
+    latestAssetReview?.decision === "approved" &&
+    activeRoughCutJob === null &&
+    readyRoughCutAssets.length === 0;
   const sortedAssets = [...currentScriptAssets].sort((left, right) => {
-    if (left.asset_type === "narration_audio" && right.asset_type !== "narration_audio") {
-      return -1;
-    }
-    if (right.asset_type === "narration_audio" && left.asset_type !== "narration_audio") {
-      return 1;
+    const priorityDelta = assetSortPriority(left.asset_type) - assetSortPriority(right.asset_type);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
     }
 
     const leftSceneOrder =
@@ -868,6 +897,36 @@ export function ProjectContentStudio({
                     </div>
                   ) : null}
 
+                  {latestAssetReview?.decision === "approved" ? (
+                    <div className="mt-5 rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-white">
+                            Asset set approved for rough-cut composition.
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-cyan-50/80">
+                            Queue the media worker to build a deterministic rough-cut preview and
+                            timeline manifest from these approved assets.
+                          </p>
+                        </div>
+                        <button
+                          className="rounded-full border border-cyan-200/40 bg-cyan-300/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-50 transition hover:border-cyan-100/70 hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={!canQueueRoughCut || pendingAction !== null}
+                          onClick={() => runAction("queue-rough-cut", () => queueRoughCut(project.id))}
+                          type="button"
+                        >
+                          {pendingAction === "queue-rough-cut"
+                            ? "Queueing..."
+                            : activeRoughCutJob
+                              ? "Rough cut queued"
+                              : readyRoughCutAssets.length > 0
+                                ? "Rough cut ready"
+                                : "Compose rough cut"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
                   {currentScriptAssets.length === 0 ? (
                     <div className="mt-5 rounded-2xl border border-dashed border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
                       No assets exist yet for this script. Queue and run generation jobs first.
@@ -880,6 +939,14 @@ export function ProjectContentStudio({
                             ? null
                             : currentScript.scenes.find((scene) => scene.id === asset.scene_id) ??
                               null;
+                        const assetLabel =
+                          asset.asset_type === "rough_cut"
+                            ? "Rough cut preview"
+                            : linkedScene
+                              ? `Scene ${linkedScene.scene_order}: ${linkedScene.title}`
+                              : asset.asset_type === "narration_audio"
+                                ? "Narration track"
+                                : "Project-level asset";
 
                         return (
                           <article
@@ -899,9 +966,7 @@ export function ProjectContentStudio({
                                   </span>
                                 </div>
                                 <p className="mt-3 text-sm text-slate-200">
-                                  {linkedScene
-                                    ? `Scene ${linkedScene.scene_order}: ${linkedScene.title}`
-                                    : "Narration track"}
+                                  {assetLabel}
                                 </p>
                               </div>
                               <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
@@ -924,6 +989,12 @@ export function ProjectContentStudio({
                                     alt={linkedScene ? linkedScene.title : "Generated asset"}
                                     className="h-auto w-full object-cover"
                                     src={getAssetContentUrl(asset.id)}
+                                  />
+                                ) : asset.mime_type === "text/html" ? (
+                                  <iframe
+                                    className="h-[520px] w-full bg-slate-950"
+                                    src={getAssetContentUrl(asset.id)}
+                                    title={assetLabel}
                                   />
                                 ) : null}
                               </div>

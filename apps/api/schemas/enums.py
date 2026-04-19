@@ -69,11 +69,13 @@ class AssetStatus(StrEnum):
 class ProviderName(StrEnum):
     ELEVENLABS_WEB = "elevenlabs_web"
     FLOW_WEB = "flow_web"
+    LOCAL_MEDIA = "local_media"
 
 
 class BackgroundJobType(StrEnum):
     GENERATE_AUDIO_BROWSER = "generate_audio_browser"
     GENERATE_VISUALS_BROWSER = "generate_visuals_browser"
+    COMPOSE_ROUGH_CUT = "compose_rough_cut"
 
 
 class BackgroundJobState(StrEnum):
