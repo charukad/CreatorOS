@@ -196,7 +196,7 @@ The repo now has a synchronous local script generator, scene persistence, script
 ## Phase 10 - Queue System, Background Jobs, and Progress Tracking
 
 Current implementation note:
-The repo now persists queued narration/visual job plans, per-attempt records, and planned asset placeholders from the project page. The browser worker can execute those jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, retries, logs, and live progress updates are still pending.
+The repo now persists queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, and safe cancel/retry operations from the project page. The browser worker can execute queued browser jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, automated retry policy, logs, and live progress updates are still pending.
 
 ### Build tasks
 - [ ] Choose and implement the job runner architecture backed by Redis
@@ -206,13 +206,18 @@ The repo now persists queued narration/visual job plans, per-attempt records, an
 - [ ] Add progress update hooks for long-running tasks
 - [ ] Add idempotency handling for publish scheduling and file ingestion
 - [ ] Add job logs and per-attempt error capture
-- [ ] Add job detail API and UI screens
-- [ ] Add cancel/retry controls where safe
-- [ ] Add tests for retry, resume, and failure state behavior
+- [x] Add job detail API with generation attempt and related asset visibility
+- [x] Add project-page job operation controls for the current script queue
+- [x] Add safe queued/waiting-external job cancellation
+- [x] Add failed/cancelled job retry without duplicate asset placeholders
+- [x] Add tests for job detail, cancel, retry, failed recovery, and invalid state guards
+- [ ] Add dedicated job detail UI screens beyond the project-page job cards
+- [ ] Add worker-aware resume support for interrupted running jobs
 
 ### Manual checks
 - [ ] Manual check: long-running jobs visibly update progress in the UI
 - [ ] Manual check: retrying a failed job does not duplicate assets or corrupt state
+- [ ] Manual check: cancelling or retrying a real browser/media job is clear from the project page
 
 ## Phase 11 - Browser Worker Foundation
 
@@ -308,10 +313,10 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 - [x] Resolve approved assets per scene
 - [x] Use narration audio as the primary timing anchor with real audio-duration inspection
 - [x] Build timeline assembly logic from ordered scenes and target durations
-- [ ] Add trim/loop/fallback behavior for scene duration mismatches
+- [x] Add trim/loop/fallback command planning for scene duration mismatches
 - [x] Add first-pass SRT subtitle generation pipeline
 - [x] Add overlay text support to FFmpeg command planning
-- [ ] Add transition support
+- [x] Add first-pass fade transition support to FFmpeg command planning
 - [x] Implement FFmpeg helper modules for concat, audio overlay, subtitle burn-in, and export command planning
 - [x] Add optional FFmpeg MP4 render execution behind a feature flag
 - [x] Export first-pass rough cut preview artifacts

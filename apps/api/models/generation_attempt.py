@@ -74,3 +74,9 @@ class GenerationAttempt(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="generation_attempt",
         cascade="all, delete-orphan",
     )
+    job_logs = relationship(
+        "JobLog",
+        back_populates="generation_attempt",
+        cascade="all, delete-orphan",
+        order_by="JobLog.created_at",
+    )

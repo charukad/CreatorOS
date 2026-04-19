@@ -23,5 +23,6 @@ class User(UUIDPrimaryKeyMixin, Base):
     brand_profiles = relationship("BrandProfile", back_populates="user")
     content_ideas = relationship("ContentIdea", back_populates="user")
     generation_attempts = relationship("GenerationAttempt", back_populates="user")
+    job_logs = relationship("JobLog", back_populates="user")
     projects = relationship("Project", back_populates="user")
     scripts = relationship("ProjectScript", back_populates="user")

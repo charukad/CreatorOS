@@ -7,6 +7,7 @@ class FFmpegExportProfile:
     width: int = 1080
     height: int = 1920
     fps: int = 30
+    transition_seconds: float = 0.25
     video_codec: str = "libx264"
     audio_codec: str = "aac"
     pixel_format: str = "yuv420p"
@@ -19,6 +20,7 @@ class SceneVisualInput:
     path: Path
     duration_seconds: float
     overlay_text: str | None = None
+    visual_asset_type: str | None = None
 
 
 def build_static_scene_video_command(
@@ -37,16 +39,7 @@ def build_static_scene_video_command(
     command = [ffmpeg_binary, "-y"]
 
     for scene_visual in scene_visuals:
-        command.extend(
-            [
-                "-loop",
-                "1",
-                "-t",
-                _format_duration(scene_visual.duration_seconds),
-                "-i",
-                str(scene_visual.path),
-            ]
-        )
+        command.extend(_build_input_args(scene_visual))
 
     audio_input_index = len(scene_visuals)
     command.extend(["-i", str(narration_path)])
@@ -120,16 +113,50 @@ def _build_scene_filter(
         f"setsar=1,fps={profile.fps},format={profile.pixel_format}"
     )
     overlay_text = (scene_visual.overlay_text or "").strip()
-    if not overlay_text:
-        return f"{base_filter}[v{index}]"
+    working_label = f"base{index}"
+    filters = [f"{base_filter}[{working_label}]"]
 
-    return (
-        f"{base_filter}[base{index}];"
-        f"[base{index}]drawtext=text='{_escape_drawtext_text(overlay_text)}':"
-        "fontcolor=white:fontsize=56:box=1:boxcolor=black@0.58:boxborderw=28:"
-        "x=(w-text_w)/2:y=h-(text_h*3)[v"
-        f"{index}]"
+    if overlay_text:
+        overlay_label = f"overlay{index}"
+        filters.append(
+            f"[{working_label}]drawtext=text='{_escape_drawtext_text(overlay_text)}':"
+            "fontcolor=white:fontsize=56:box=1:boxcolor=black@0.58:boxborderw=28:"
+            f"x=(w-text_w)/2:y=h-(text_h*3)[{overlay_label}]"
+        )
+        working_label = overlay_label
+
+    transition_seconds = min(
+        max(profile.transition_seconds, 0),
+        max(scene_visual.duration_seconds / 2, 0),
     )
+    if transition_seconds <= 0:
+        filters.append(f"[{working_label}]copy[v{index}]")
+        return ";".join(filters)
+
+    fade_out_start = max(scene_visual.duration_seconds - transition_seconds, 0)
+    filters.append(
+        f"[{working_label}]fade=t=in:st=0:d={_format_duration(transition_seconds)},"
+        f"fade=t=out:st={_format_duration(fade_out_start)}:"
+        f"d={_format_duration(transition_seconds)}[v{index}]"
+    )
+    return ";".join(filters)
+
+
+def _build_input_args(scene_visual: SceneVisualInput) -> list[str]:
+    duration = _format_duration(scene_visual.duration_seconds)
+    if _is_static_visual(scene_visual):
+        return ["-loop", "1", "-t", duration, "-i", str(scene_visual.path)]
+
+    return ["-stream_loop", "-1", "-t", duration, "-i", str(scene_visual.path)]
+
+
+def _is_static_visual(scene_visual: SceneVisualInput) -> bool:
+    if scene_visual.visual_asset_type == "scene_image":
+        return True
+    if scene_visual.visual_asset_type == "scene_video":
+        return False
+
+    return scene_visual.path.suffix.lower() in {".avif", ".jpeg", ".jpg", ".png", ".svg", ".webp"}
 
 
 def _escape_filter_path(path: Path) -> str:

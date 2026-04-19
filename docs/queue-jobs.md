@@ -5,8 +5,9 @@
 - queue submission persists `background_jobs`, `generation_attempts`, and planned `assets`
 - the browser worker can now execute those queued jobs in local `dry_run` mode and materialize WAV/SVG development artifacts
 - `compose_rough_cut` can now be queued after asset approval and consumed by the media worker
-- the media worker currently probes WAV narration duration, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, an FFmpeg command-plan sidecar with scene overlay text, and optionally renders/registers a `video/mp4` rough cut when `MEDIA_ENABLE_FFMPEG_RENDER=true`
-- actual Redis-backed execution, retries, and worker progress updates are still pending
+- the media worker currently probes WAV narration duration, validates contiguous timeline data, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, an FFmpeg command-plan sidecar with scene overlay text, trim/loop handling, and fade transitions, and optionally renders/registers a `video/mp4` rough cut when `MEDIA_ENABLE_FFMPEG_RENDER=true`
+- job detail, safe cancel, and safe retry operations are available through the API and project page
+- actual Redis-backed execution, automated retry policy, and live worker progress updates are still pending
 
 ## Principles
 - Every long-running operation is a queued job.
@@ -127,6 +128,19 @@ Output:
 - browser jobs: up to 3 retries with screenshots and logs
 - media jobs: up to 2 retries for transient FFmpeg failures
 - publish jobs: 1 retry only, then manual review required
+
+Current manual retry behavior:
+- `POST /api/jobs/{job_id}/retry` is allowed only for `failed` or `cancelled` jobs
+- retry resets the existing job to `queued`, clears the job error, and reuses the existing generation attempts and planned assets instead of creating duplicate placeholders
+- retry resets related non-rejected assets to `planned` and clears stale checksums
+- retry is blocked when another active job of the same type already exists for the same script
+- completed jobs cannot be retried from the API
+
+Current manual cancel behavior:
+- `POST /api/jobs/{job_id}/cancel` is allowed only for `queued` or `waiting_external` jobs
+- cancellation marks the job and unfinished generation attempts as `cancelled`
+- unfinished related assets are marked `failed` because the asset model does not yet have a dedicated `cancelled` state
+- actively `running` jobs are not cancelled by the API until worker-aware interruption exists
 
 ## Job State Model
 `queued -> running -> waiting_external -> completed | failed | cancelled`

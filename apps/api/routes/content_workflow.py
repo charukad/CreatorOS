@@ -11,9 +11,13 @@ from apps.api.schemas.approvals import ApprovalDecisionRequest, ApprovalResponse
 from apps.api.schemas.content_workflow import (
     AssetResponse,
     AudioGenerationRequest,
+    BackgroundJobDetailResponse,
     BackgroundJobResponse,
     ContentIdeaResponse,
+    GenerationAttemptResponse,
     IdeaApprovalRequest,
+    JobLogResponse,
+    ProjectActivityResponse,
     ProjectScriptResponse,
     SceneResponse,
     SceneUpdate,
@@ -27,6 +31,14 @@ from apps.api.services.assets import (
     get_asset,
     reject_current_script_assets,
     resolve_asset_file_path,
+)
+from apps.api.services.background_jobs import (
+    cancel_background_job,
+    get_owned_background_job,
+    list_job_logs,
+    list_job_related_assets,
+    list_project_job_logs,
+    retry_background_job,
 )
 from apps.api.services.content_workflow import (
     approve_content_idea,
@@ -81,6 +93,59 @@ def list_project_approvals_route(project_id: UUID, db: DbSession) -> list[Approv
     return [ApprovalResponse.model_validate(approval) for approval in approvals]
 
 
+@router.get("/projects/{project_id}/activity", response_model=list[ProjectActivityResponse])
+def list_project_activity_route(project_id: UUID, db: DbSession) -> list[ProjectActivityResponse]:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    approval_entries = [
+        ProjectActivityResponse(
+            source_id=approval.id,
+            source_type="approval",
+            activity_type=f"approval_{approval.decision.value}",
+            title=(
+                f"{_format_activity_label(approval.stage.value)} "
+                f"{_format_activity_label(approval.decision.value)}"
+            ),
+            description=approval.feedback_notes,
+            level="warning" if approval.decision.value == "rejected" else "info",
+            metadata_json={
+                "stage": approval.stage.value,
+                "target_id": str(approval.target_id),
+                "target_type": approval.target_type.value,
+            },
+            created_at=approval.created_at,
+        )
+        for approval in list_project_approvals(db, project)
+    ]
+    job_log_entries = [
+        ProjectActivityResponse(
+            source_id=job_log.id,
+            source_type="job_log",
+            activity_type=job_log.event_type,
+            title=_format_activity_label(job_log.event_type),
+            description=job_log.message,
+            level=job_log.level,
+            metadata_json={
+                **job_log.metadata_json,
+                "background_job_id": str(job_log.background_job_id),
+                "generation_attempt_id": (
+                    str(job_log.generation_attempt_id)
+                    if job_log.generation_attempt_id is not None
+                    else None
+                ),
+            },
+            created_at=job_log.created_at,
+        )
+        for job_log in list_project_job_logs(db, project)
+    ]
+
+    activity = [*approval_entries, *job_log_entries]
+    return sorted(activity, key=lambda entry: entry.created_at, reverse=True)[:80]
+
+
 @router.get("/projects/{project_id}/jobs", response_model=list[BackgroundJobResponse])
 def list_project_jobs_route(project_id: UUID, db: DbSession) -> list[BackgroundJobResponse]:
     user = get_or_create_default_user(db)
@@ -90,6 +155,46 @@ def list_project_jobs_route(project_id: UUID, db: DbSession) -> list[BackgroundJ
 
     jobs = list_project_background_jobs(db, project)
     return [BackgroundJobResponse.model_validate(job) for job in jobs]
+
+
+@router.get("/jobs/{job_id}", response_model=BackgroundJobDetailResponse)
+def get_job_route(job_id: UUID, db: DbSession) -> BackgroundJobDetailResponse:
+    user = get_or_create_default_user(db)
+    job = get_owned_background_job(db, user, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    return _job_detail_response(db, job)
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=BackgroundJobDetailResponse)
+def cancel_job_route(job_id: UUID, db: DbSession) -> BackgroundJobDetailResponse:
+    user = get_or_create_default_user(db)
+    job = get_owned_background_job(db, user, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    try:
+        cancelled_job = cancel_background_job(db, job)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return _job_detail_response(db, cancelled_job)
+
+
+@router.post("/jobs/{job_id}/retry", response_model=BackgroundJobDetailResponse)
+def retry_job_route(job_id: UUID, db: DbSession) -> BackgroundJobDetailResponse:
+    user = get_or_create_default_user(db)
+    job = get_owned_background_job(db, user, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    try:
+        retried_job = retry_background_job(db, job)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return _job_detail_response(db, retried_job)
 
 
 @router.get("/projects/{project_id}/assets", response_model=list[AssetResponse])
@@ -560,3 +665,22 @@ def update_scene_route(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return SceneResponse.model_validate(updated_scene)
+
+
+def _job_detail_response(db: Session, job) -> BackgroundJobDetailResponse:
+    return BackgroundJobDetailResponse(
+        job=BackgroundJobResponse.model_validate(job),
+        generation_attempts=[
+            GenerationAttemptResponse.model_validate(attempt)
+            for attempt in job.generation_attempts
+        ],
+        related_assets=[
+            AssetResponse.model_validate(asset)
+            for asset in list_job_related_assets(db, job)
+        ],
+        job_logs=[JobLogResponse.model_validate(job_log) for job_log in list_job_logs(db, job)],
+    )
+
+
+def _format_activity_label(value: str) -> str:
+    return value.replace("_", " ").replace("-", " ").title()

@@ -15,6 +15,7 @@ from apps.api.schemas.enums import (
     ProviderName,
 )
 from apps.api.services.assets import has_approved_asset_review
+from apps.api.services.background_jobs import create_job_log
 from apps.api.services.storage_paths import build_project_storage_path
 
 ACTIVE_JOB_STATES = {
@@ -54,6 +55,16 @@ def queue_rough_cut_job(
     )
     db.add(job)
     db.flush()
+    create_job_log(
+        db,
+        job,
+        event_type="job_queued",
+        message="Rough-cut media composition job was queued.",
+        metadata={
+            "duration_seconds": duration_seconds,
+            "scene_count": len(script.scenes),
+        },
+    )
 
     short_job_id = str(job.id).split("-")[0]
     preview_path = build_project_storage_path(

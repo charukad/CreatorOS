@@ -147,6 +147,25 @@ class BackgroundJobResponse(BaseModel):
     updated_at: datetime
 
 
+class GenerationAttemptResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    project_id: UUID
+    script_id: UUID
+    background_job_id: UUID
+    scene_id: UUID | None
+    provider_name: ProviderName
+    state: BackgroundJobState
+    input_payload_json: dict[str, Any]
+    error_message: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class AssetResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -167,3 +186,38 @@ class AssetResponse(BaseModel):
     checksum: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class JobLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    project_id: UUID
+    script_id: UUID
+    background_job_id: UUID
+    generation_attempt_id: UUID | None
+    level: str
+    event_type: str
+    message: str
+    metadata_json: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+class BackgroundJobDetailResponse(BaseModel):
+    job: BackgroundJobResponse
+    generation_attempts: list[GenerationAttemptResponse]
+    related_assets: list[AssetResponse]
+    job_logs: list[JobLogResponse]
+
+
+class ProjectActivityResponse(BaseModel):
+    source_id: UUID
+    source_type: str
+    activity_type: str
+    title: str
+    description: str | None
+    level: str
+    metadata_json: dict[str, Any]
+    created_at: datetime

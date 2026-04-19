@@ -64,3 +64,8 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    job_logs = relationship(
+        "JobLog",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )

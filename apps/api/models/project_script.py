@@ -65,3 +65,8 @@ class ProjectScript(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="script",
         cascade="all, delete-orphan",
     )
+    job_logs = relationship(
+        "JobLog",
+        back_populates="script",
+        cascade="all, delete-orphan",
+    )

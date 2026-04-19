@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import {
   approveProjectAssets,
+  cancelJob,
   queueAudioGeneration,
   queueVisualGeneration,
   approveIdea,
@@ -24,6 +25,7 @@ import {
   rejectProjectAssets,
   rejectIdea,
   rejectScript,
+  retryJob,
   updateScene,
 } from "../lib/api";
 import { SceneEditorCard } from "./scene-editor-card";
@@ -81,6 +83,14 @@ function jobStateClassName(state: BackgroundJob["state"]): string {
     default:
       return "border-rose-300/30 bg-rose-400/10 text-rose-100";
   }
+}
+
+function canCancelJobState(state: BackgroundJob["state"]): boolean {
+  return state === "queued" || state === "waiting_external";
+}
+
+function canRetryJobState(state: BackgroundJob["state"]): boolean {
+  return state === "failed" || state === "cancelled";
 }
 
 function assetStatusClassName(status: Asset["status"]): string {
@@ -792,52 +802,89 @@ export function ProjectContentStudio({
                     </div>
                   ) : (
                     <div className="mt-5 grid gap-4">
-                      {currentScriptJobs.map((job) => (
-                        <article
-                          className="rounded-2xl border border-white/8 bg-slate-950/40 p-4"
-                          key={job.id}
-                        >
-                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                            <div>
-                              <div className="flex flex-wrap gap-2">
-                                <span
-                                  className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${jobStateClassName(job.state)}`}
-                                >
-                                  {backgroundJobStateLabels[job.state]}
-                                </span>
-                                <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
-                                  {backgroundJobTypeLabels[job.job_type]}
-                                </span>
+                      {currentScriptJobs.map((job) => {
+                        const canCancelThisJob = canCancelJobState(job.state);
+                        const canRetryThisJob = canRetryJobState(job.state);
+
+                        return (
+                          <article
+                            className="rounded-2xl border border-white/8 bg-slate-950/40 p-4"
+                            key={job.id}
+                          >
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                              <div>
+                                <div className="flex flex-wrap gap-2">
+                                  <span
+                                    className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${jobStateClassName(job.state)}`}
+                                  >
+                                    {backgroundJobStateLabels[job.state]}
+                                  </span>
+                                  <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
+                                    {backgroundJobTypeLabels[job.job_type]}
+                                  </span>
+                                </div>
+                                <p className="mt-3 text-sm text-slate-200">
+                                  {job.provider_name
+                                    ? formatWorkflowValue(job.provider_name)
+                                    : "Manual provider"}
+                                </p>
                               </div>
-                              <p className="mt-3 text-sm text-slate-200">
-                                {job.provider_name
-                                  ? formatWorkflowValue(job.provider_name)
-                                  : "Manual provider"}
+                              <div className="text-right text-xs uppercase tracking-[0.16em] text-slate-500">
+                                <p>{formatTimestamp(job.created_at)}</p>
+                                <p className="mt-2">Progress {job.progress_percent}%</p>
+                              </div>
+                            </div>
+
+                            <div className="mt-4 grid gap-3 text-sm text-slate-300">
+                              <p>Script version: {job.payload_json["script_version"] as number}</p>
+                              <p>
+                                Planned outputs:{" "}
+                                {typeof job.payload_json["scene_count"] === "number"
+                                  ? `${job.payload_json["scene_count"] as number} scene units`
+                                  : "Not provided"}
                               </p>
                             </div>
-                            <div className="text-right text-xs uppercase tracking-[0.16em] text-slate-500">
-                              <p>{formatTimestamp(job.created_at)}</p>
-                              <p className="mt-2">Progress {job.progress_percent}%</p>
+
+                            {job.error_message ? (
+                              <p className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+                                {job.error_message}
+                              </p>
+                            ) : null}
+
+                            <div className="mt-4 flex flex-wrap gap-3">
+                              <button
+                                className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-100 transition hover:border-amber-200/50 hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                disabled={!canCancelThisJob || pendingAction !== null}
+                                onClick={() =>
+                                  runAction(`cancel-job-${job.id}`, () => cancelJob(job.id))
+                                }
+                                type="button"
+                              >
+                                {pendingAction === `cancel-job-${job.id}`
+                                  ? "Cancelling..."
+                                  : "Cancel job"}
+                              </button>
+                              <button
+                                className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                disabled={!canRetryThisJob || pendingAction !== null}
+                                onClick={() =>
+                                  runAction(`retry-job-${job.id}`, () => retryJob(job.id))
+                                }
+                                type="button"
+                              >
+                                {pendingAction === `retry-job-${job.id}`
+                                  ? "Retrying..."
+                                  : "Retry job"}
+                              </button>
+                              {!canCancelThisJob && !canRetryThisJob ? (
+                                <span className="rounded-full border border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                  No safe manual action
+                                </span>
+                              ) : null}
                             </div>
-                          </div>
-
-                          <div className="mt-4 grid gap-3 text-sm text-slate-300">
-                            <p>Script version: {job.payload_json["script_version"] as number}</p>
-                            <p>
-                              Planned outputs:{" "}
-                              {typeof job.payload_json["scene_count"] === "number"
-                                ? `${job.payload_json["scene_count"] as number} scene units`
-                                : "Not provided"}
-                            </p>
-                          </div>
-
-                          {job.error_message ? (
-                            <p className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-                              {job.error_message}
-                            </p>
-                          ) : null}
-                        </article>
-                      ))}
+                          </article>
+                        );
+                      })}
                     </div>
                   )}
                 </article>

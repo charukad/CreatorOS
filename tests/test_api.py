@@ -1,9 +1,11 @@
 from collections.abc import Generator
+from uuid import UUID
 
 import apps.api.models  # noqa: F401
 from apps.api.db.base import Base
 from apps.api.db.session import get_db
 from apps.api.main import app
+from apps.api.services.background_jobs import get_background_job, mark_job_failed
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -31,6 +33,15 @@ def _override_get_db(test_session_factory: sessionmaker[Session]) -> Generator[S
 def _make_test_client() -> TestClient:
     test_session_factory = _create_test_session()
 
+    return _make_test_client_for_session(test_session_factory)
+
+
+def _make_test_client_with_session() -> tuple[TestClient, sessionmaker[Session]]:
+    test_session_factory = _create_test_session()
+    return _make_test_client_for_session(test_session_factory), test_session_factory
+
+
+def _make_test_client_for_session(test_session_factory: sessionmaker[Session]) -> TestClient:
     def override_get_db() -> Generator[Session, None, None]:
         yield from _override_get_db(test_session_factory)
 
@@ -779,5 +790,191 @@ def test_queue_generation_requires_approved_script() -> None:
     queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
     assert queue_response.status_code == 409
     assert "current script to be approved" in queue_response.json()["detail"]
+
+    app.dependency_overrides.clear()
+
+
+def test_job_detail_includes_attempts_and_related_assets() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Inspect queued job",
+        objective="Expose attempts and assets for operator visibility",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    detail_response = client.get(f"/api/jobs/{job_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["job"]["id"] == job_id
+    assert detail["job"]["state"] == "queued"
+    assert len(detail["generation_attempts"]) == 1
+    assert detail["generation_attempts"][0]["background_job_id"] == job_id
+    assert len(detail["related_assets"]) == 1
+    assert detail["related_assets"][0]["asset_type"] == "narration_audio"
+    assert detail["related_assets"][0]["status"] == "planned"
+
+    app.dependency_overrides.clear()
+
+
+def test_cancel_queued_generation_job_marks_attempts_and_assets_failed() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Cancel queued job",
+        objective="Stop queued work before a worker claims it",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
+    assert cancel_response.status_code == 200
+    detail = cancel_response.json()
+    assert detail["job"]["state"] == "cancelled"
+    assert detail["job"]["error_message"] == "Cancelled by user."
+    assert detail["generation_attempts"][0]["state"] == "cancelled"
+    assert detail["related_assets"][0]["status"] == "failed"
+
+    jobs_response = client.get(f"/api/projects/{project_id}/jobs")
+    assert jobs_response.status_code == 200
+    assert jobs_response.json()[0]["state"] == "cancelled"
+
+    app.dependency_overrides.clear()
+
+
+def test_retry_cancelled_job_reuses_existing_attempts_and_assets() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Retry cancelled job",
+        objective="Reuse existing queue records without duplicate assets",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/visuals", json={})
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    initial_detail_response = client.get(f"/api/jobs/{job_id}")
+    initial_detail = initial_detail_response.json()
+    initial_attempt_ids = {
+        attempt["id"] for attempt in initial_detail["generation_attempts"]
+    }
+    initial_asset_ids = {asset["id"] for asset in initial_detail["related_assets"]}
+
+    cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
+    assert cancel_response.status_code == 200
+
+    retry_response = client.post(f"/api/jobs/{job_id}/retry")
+    assert retry_response.status_code == 200
+    retried_detail = retry_response.json()
+    assert retried_detail["job"]["state"] == "queued"
+    assert retried_detail["job"]["progress_percent"] == 0
+    assert retried_detail["job"]["error_message"] is None
+    retried_attempt_ids = {
+        attempt["id"] for attempt in retried_detail["generation_attempts"]
+    }
+    assert retried_attempt_ids == initial_attempt_ids
+    assert {asset["id"] for asset in retried_detail["related_assets"]} == initial_asset_ids
+    assert all(attempt["state"] == "queued" for attempt in retried_detail["generation_attempts"])
+    assert all(asset["status"] == "planned" for asset in retried_detail["related_assets"])
+
+    assets_response = client.get(f"/api/projects/{project_id}/assets")
+    assert assets_response.status_code == 200
+    assert {asset["id"] for asset in assets_response.json()} == initial_asset_ids
+
+    app.dependency_overrides.clear()
+
+
+def test_retry_failed_job_resets_error_without_duplicate_assets() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Retry failed job",
+        objective="Recover from worker failure safely",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    initial_detail_response = client.get(f"/api/jobs/{job_id}")
+    initial_asset_ids = {asset["id"] for asset in initial_detail_response.json()["related_assets"]}
+
+    with session_factory() as session:
+        job = get_background_job(session, UUID(job_id))
+        assert job is not None
+        mark_job_failed(session, job, "Provider timed out.")
+
+    failed_detail_response = client.get(f"/api/jobs/{job_id}")
+    assert failed_detail_response.status_code == 200
+    failed_detail = failed_detail_response.json()
+    assert failed_detail["job"]["state"] == "failed"
+    assert failed_detail["related_assets"][0]["status"] == "failed"
+
+    retry_response = client.post(f"/api/jobs/{job_id}/retry")
+    assert retry_response.status_code == 200
+    retried_detail = retry_response.json()
+    assert retried_detail["job"]["state"] == "queued"
+    assert retried_detail["job"]["error_message"] is None
+    assert {asset["id"] for asset in retried_detail["related_assets"]} == initial_asset_ids
+    assert all(asset["status"] == "planned" for asset in retried_detail["related_assets"])
+
+    app.dependency_overrides.clear()
+
+
+def test_job_controls_block_invalid_states() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Block invalid job operations",
+        objective="Keep retry and cancel state-safe",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    retry_queued_response = client.post(f"/api/jobs/{job_id}/retry")
+    assert retry_queued_response.status_code == 409
+    assert "failed or cancelled" in retry_queued_response.json()["detail"]
+
+    cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
+    assert cancel_response.status_code == 200
+
+    second_cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
+    assert second_cancel_response.status_code == 409
+    assert "queued or waiting-external" in second_cancel_response.json()["detail"]
+
+    replacement_queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert replacement_queue_response.status_code == 201
+
+    blocked_retry_response = client.post(f"/api/jobs/{job_id}/retry")
+    assert blocked_retry_response.status_code == 409
+    assert "another active job" in blocked_retry_response.json()["detail"]
 
     app.dependency_overrides.clear()

@@ -67,3 +67,9 @@ class BackgroundJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="background_job",
         cascade="all, delete-orphan",
     )
+    job_logs = relationship(
+        "JobLog",
+        back_populates="background_job",
+        cascade="all, delete-orphan",
+        order_by="JobLog.created_at",
+    )

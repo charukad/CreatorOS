@@ -5,11 +5,13 @@ import type {
   ApprovalRecord,
   AudioGenerationPayload,
   BackgroundJob,
+  BackgroundJobDetail,
   BrandProfile,
   BrandProfilePayload,
   ContentIdea,
   IdeaApprovalPayload,
   Project,
+  ProjectActivity,
   ProjectPayload,
   ProjectScript,
   SceneUpdatePayload,
@@ -127,8 +129,28 @@ export function listProjectApprovals(projectId: string): Promise<ApprovalRecord[
   return apiRequest<ApprovalRecord[]>(`/projects/${projectId}/approvals`);
 }
 
+export function listProjectActivity(projectId: string): Promise<ProjectActivity[]> {
+  return apiRequest<ProjectActivity[]>(`/projects/${projectId}/activity`);
+}
+
 export function listProjectJobs(projectId: string): Promise<BackgroundJob[]> {
   return apiRequest<BackgroundJob[]>(`/projects/${projectId}/jobs`);
+}
+
+export function getJob(jobId: string): Promise<BackgroundJobDetail> {
+  return apiRequest<BackgroundJobDetail>(`/jobs/${jobId}`);
+}
+
+export function cancelJob(jobId: string): Promise<BackgroundJobDetail> {
+  return apiRequest<BackgroundJobDetail>(`/jobs/${jobId}/cancel`, {
+    method: "POST",
+  });
+}
+
+export function retryJob(jobId: string): Promise<BackgroundJobDetail> {
+  return apiRequest<BackgroundJobDetail>(`/jobs/${jobId}/retry`, {
+    method: "POST",
+  });
 }
 
 export function listProjectAssets(projectId: string): Promise<Asset[]> {

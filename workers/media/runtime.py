@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+from dataclasses import asdict
 from pathlib import Path
 from uuid import UUID
 
@@ -30,6 +31,7 @@ from workers.media.ffmpeg import (
 )
 from workers.media.subtitles.srt import build_srt_from_manifest
 from workers.media.timeline.manifest import build_timeline_manifest
+from workers.media.timeline.validation import validate_timeline_manifest
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +107,7 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
         narration_duration_seconds=narration_duration_seconds,
         subtitle_asset=subtitle_asset,
     )
+    validate_timeline_manifest(manifest)
     mark_job_progress(session, job, 45)
 
     manifest_path = Path(str(job.payload_json["manifest_path"]))
@@ -124,10 +127,12 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
     )
     preview_path.write_text(build_rough_cut_preview_html(manifest), encoding="utf-8")
     subtitle_path.write_text(build_srt_from_manifest(manifest), encoding="utf-8")
+    export_profile = FFmpegExportProfile()
     ffmpeg_command = _build_ffmpeg_command(
         settings=settings,
         narration_asset=narration_asset,
         manifest=manifest,
+        profile=export_profile,
         subtitle_path=subtitle_path,
         video_path=video_path,
     )
@@ -136,10 +141,16 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
             {
                 "command": ffmpeg_command,
                 "enabled": settings.media_enable_ffmpeg_render,
+                "export_profile": asdict(export_profile),
+                "inputs": _build_ffmpeg_plan_inputs(manifest),
                 "note": (
                     "MP4 rendering is disabled by default until FFmpeg is installed and "
                     "MEDIA_ENABLE_FFMPEG_RENDER is true."
                 ),
+                "outputs": {
+                    "video_path": str(video_path),
+                    "subtitle_path": str(subtitle_path),
+                },
             },
             indent=2,
             sort_keys=True,
@@ -280,6 +291,7 @@ def _build_ffmpeg_command(
     settings: MediaWorkerSettings,
     narration_asset: Asset,
     manifest: dict[str, object],
+    profile: FFmpegExportProfile,
     subtitle_path: Path,
     video_path: Path,
 ) -> list[str]:
@@ -292,6 +304,7 @@ def _build_ffmpeg_command(
             path=Path(str(scene["visual_asset_path"])),
             duration_seconds=float(scene["duration_seconds"]),
             overlay_text=str(scene.get("overlay_text", "")),
+            visual_asset_type=str(scene.get("visual_asset_type", "")),
         )
         for scene in scenes
         if isinstance(scene, dict)
@@ -302,8 +315,28 @@ def _build_ffmpeg_command(
         narration_path=Path(str(narration_asset.file_path)),
         subtitle_path=subtitle_path,
         output_path=video_path,
-        profile=FFmpegExportProfile(),
+        profile=profile,
     )
+
+
+def _build_ffmpeg_plan_inputs(manifest: dict[str, object]) -> dict[str, object]:
+    scenes = manifest.get("scenes", [])
+    narration_asset = manifest.get("narration_asset", {})
+    return {
+        "narration_asset": narration_asset if isinstance(narration_asset, dict) else {},
+        "scenes": [
+            {
+                "duration_seconds": scene.get("duration_seconds"),
+                "overlay_text": scene.get("overlay_text"),
+                "scene_id": scene.get("scene_id"),
+                "scene_order": scene.get("scene_order"),
+                "visual_asset_path": scene.get("visual_asset_path"),
+                "visual_asset_type": scene.get("visual_asset_type"),
+            }
+            for scene in scenes
+            if isinstance(scene, dict)
+        ],
+    }
 
 
 def _render_mp4_if_enabled(

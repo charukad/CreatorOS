@@ -199,6 +199,23 @@ export type BackgroundJob = {
   updated_at: string;
 };
 
+export type GenerationAttempt = {
+  id: string;
+  user_id: string;
+  project_id: string;
+  script_id: string;
+  background_job_id: string;
+  scene_id: string | null;
+  provider_name: ProviderName;
+  state: BackgroundJobState;
+  input_payload_json: Record<string, unknown>;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Asset = {
   id: string;
   user_id: string;
@@ -217,4 +234,37 @@ export type Asset = {
   checksum: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type JobLog = {
+  id: string;
+  user_id: string;
+  project_id: string;
+  script_id: string;
+  background_job_id: string;
+  generation_attempt_id: string | null;
+  level: string;
+  event_type: string;
+  message: string;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BackgroundJobDetail = {
+  job: BackgroundJob;
+  generation_attempts: GenerationAttempt[];
+  related_assets: Asset[];
+  job_logs: JobLog[];
+};
+
+export type ProjectActivity = {
+  source_id: string;
+  source_type: string;
+  activity_type: string;
+  title: string;
+  description: string | null;
+  level: string;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
 };

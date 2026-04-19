@@ -25,6 +25,7 @@ from apps.api.schemas.enums import (
     ProviderName,
     ScriptStatus,
 )
+from apps.api.services.background_jobs import create_job_log
 from apps.api.services.storage_paths import build_project_storage_path
 
 ACTIVE_JOB_STATES = {
@@ -94,6 +95,16 @@ def queue_audio_generation_job(
     )
     db.add(job)
     db.flush()
+    create_job_log(
+        db,
+        job,
+        event_type="job_queued",
+        message="Narration browser generation job was queued.",
+        metadata={
+            "scene_count": len(narration_segments),
+            "voice_label": payload.voice_label,
+        },
+    )
 
     attempt = GenerationAttempt(
         user_id=user.id,
@@ -182,6 +193,16 @@ def queue_visual_generation_job(
     )
     db.add(job)
     db.flush()
+    create_job_log(
+        db,
+        job,
+        event_type="job_queued",
+        message="Visual browser generation job was queued.",
+        metadata={
+            "scene_count": len(selected_scenes),
+            "scene_ids": [str(scene.scene_id) for scene in selected_scenes],
+        },
+    )
 
     for scene in selected_scenes:
         attempt = GenerationAttempt(

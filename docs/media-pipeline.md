@@ -59,6 +59,7 @@ Turn approved script + generated assets into an automatically assembled short-fo
 - `rough_cut_ready` should only be reached after the media worker creates a rough-cut artifact
 - SRT subtitles are derived from ordered scene narration and scene duration boundaries
 - when WAV duration is available, scene durations are proportionally scaled to match narration
+- timeline manifests are validated for contiguous scene timing and valid visual paths before artifacts are marked ready
 
 ## Final Export Rules
 - selectable aspect ratio
@@ -77,6 +78,7 @@ Turn approved script + generated assets into an automatically assembled short-fo
 ## Current FFmpeg Command Plan
 - command builders live under `workers/media/ffmpeg`
 - rough-cut jobs write an auditable command plan beside the manifest
-- the planned command loops each scene visual for its timeline duration, draws scene overlay text, concats the video streams, maps the narration audio, and applies the generated SRT subtitle file
+- the planned command loops static images, trims/loops video clips to the timeline duration, draws scene overlay text, applies first-pass fade in/out transitions, concats the video streams, maps the narration audio, and applies the generated SRT subtitle file
+- command-plan sidecars include export profile settings, inputs, outputs, and the full FFmpeg argv list for audit/debugging
 - actual execution remains disabled until FFmpeg is installed and `MEDIA_ENABLE_FFMPEG_RENDER=true`
 - when execution succeeds, the worker registers a separate `video/mp4` rough-cut asset

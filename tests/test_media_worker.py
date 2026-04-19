@@ -167,7 +167,10 @@ def test_media_worker_composes_rough_cut_preview_after_asset_approval(
     assert manifest["narration_asset"]["probed_duration_seconds"] is not None
     assert manifest["scenes"][-1]["end_seconds"] == manifest["total_duration_seconds"]
     assert "00:00:00,000 -->" in subtitle_path.read_text(encoding="utf-8")
-    assert '"ffmpeg"' in ffmpeg_command_path.read_text(encoding="utf-8")
+    command_plan = json.loads(ffmpeg_command_path.read_text(encoding="utf-8"))
+    assert command_plan["command"][0] == "ffmpeg"
+    assert command_plan["export_profile"]["transition_seconds"] == 0.25
+    assert command_plan["inputs"]["scenes"][0]["overlay_text"]
 
     assets_response = client.get(f"/api/projects/{project_id}/assets")
     assert assets_response.status_code == 200

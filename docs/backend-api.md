@@ -15,7 +15,8 @@
 - the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
 - after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, FFmpeg command-plan sidecar, and optionally a `video/mp4` rough-cut asset when FFmpeg rendering is enabled
-- Redis-backed execution, retries, and worker progress updates are still planned
+- job detail, safe cancel, and safe retry endpoints are implemented for operator recovery
+- Redis-backed execution, automated retry policy, and live worker progress updates are still planned
 
 ## Core Resources
 ### Brand Profiles
@@ -58,6 +59,11 @@
 
 ### Asset Files
 - `GET /api/assets/:id/content`
+
+### Jobs
+- `GET /api/jobs/:id`
+- `POST /api/jobs/:id/cancel`
+- `POST /api/jobs/:id/retry`
 
 ## Implemented Payloads
 ### `POST /api/brand-profiles`
@@ -299,6 +305,59 @@ Behavior note:
 ### `GET /api/projects/:id/jobs`
 - returns persisted queued generation jobs for the project, newest first
 
+### `GET /api/jobs/:id`
+Response excerpt:
+```json
+{
+  "job": {
+    "id": "uuid",
+    "project_id": "uuid",
+    "script_id": "uuid",
+    "job_type": "generate_audio_browser",
+    "state": "failed",
+    "progress_percent": 25,
+    "error_message": "Provider timed out."
+  },
+  "generation_attempts": [
+    {
+      "id": "uuid",
+      "background_job_id": "uuid",
+      "scene_id": null,
+      "state": "failed",
+      "provider_name": "elevenlabs_web"
+    }
+  ],
+  "related_assets": [
+    {
+      "id": "uuid",
+      "asset_type": "narration_audio",
+      "status": "failed",
+      "generation_attempt_id": "uuid"
+    }
+  ]
+}
+```
+
+Behavior note:
+- the route returns the job plus its generation attempts and related assets
+- browser jobs resolve related assets through their generation attempts
+- media jobs also resolve planned output assets from the job payload ids
+
+### `POST /api/jobs/:id/cancel`
+Behavior note:
+- only `queued` and `waiting_external` jobs can be cancelled safely
+- unfinished attempts move to `cancelled`
+- unfinished related assets move to `failed`
+- `running`, `completed`, `failed`, and already `cancelled` jobs return `409 Conflict`
+
+### `POST /api/jobs/:id/retry`
+Behavior note:
+- only `failed` and `cancelled` jobs can be retried
+- retry reuses the existing job, attempts, and related asset records
+- retry resets job state to `queued`, clears job errors, clears stale timestamps, and resets related assets to `planned`
+- retry is blocked if another active job of the same type already exists for the same script
+- completed jobs cannot be retried
+
 ### `GET /api/projects/:id/assets`
 - returns planned and produced asset records for the project, including placeholder records created before worker execution starts
 
@@ -362,9 +421,6 @@ Behavior note:
 
 ## Planned Next Endpoints
 - `POST /api/scripts/:id/regenerate`
-
-### Generation Jobs
-- `GET /api/jobs/:id`
 
 ### Assets
 - `GET /api/projects/:id/assets`
