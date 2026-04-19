@@ -26,6 +26,11 @@ from apps.api.schemas.enums import (
     ScriptStatus,
 )
 from apps.api.services.approvals import create_approval_record
+from apps.api.services.assets import (
+    can_enter_asset_review,
+    has_approved_asset_review,
+    has_ready_rough_cut,
+)
 
 
 def list_project_ideas(db: Session, project: Project) -> list[ContentIdea]:
@@ -451,6 +456,33 @@ def validate_project_transition_prerequisites(
             raise ValueError(
                 "Project cannot transition to 'asset_generation' until the current script "
                 "is approved."
+            )
+
+    if target_status == ProjectStatus.ASSET_PENDING_APPROVAL:
+        if current_script is None:
+            raise ValueError(
+                f"Project cannot transition to '{target_status.value}' without a generated script."
+            )
+        if not can_enter_asset_review(db, project, current_script):
+            raise ValueError(
+                "Project cannot transition to 'asset_pending_approval' until narration and "
+                "scene assets are ready and no generation jobs are still active."
+            )
+
+    if target_status == ProjectStatus.ROUGH_CUT_READY:
+        if current_script is None:
+            raise ValueError(
+                f"Project cannot transition to '{target_status.value}' without a generated script."
+            )
+        if not has_approved_asset_review(db, project, current_script):
+            raise ValueError(
+                "Project cannot transition to 'rough_cut_ready' until the current asset set "
+                "has been explicitly approved."
+            )
+        if not has_ready_rough_cut(db, current_script):
+            raise ValueError(
+                "Project cannot transition to 'rough_cut_ready' until the media worker has "
+                "created a rough-cut artifact for the current script."
             )
 
 

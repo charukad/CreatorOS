@@ -13,6 +13,8 @@
 - the current idea and script workflow runs synchronously inside the API as a local deterministic generator
 - asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
 - the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
+- when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
+- after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, and FFmpeg command-plan sidecar
 - Redis-backed execution, retries, and worker progress updates are still planned
 
 ## Core Resources
@@ -32,6 +34,9 @@
 - `GET /api/projects/:id/approvals`
 - `GET /api/projects/:id/jobs`
 - `GET /api/projects/:id/assets`
+- `POST /api/projects/:id/assets/approve`
+- `POST /api/projects/:id/assets/reject`
+- `POST /api/projects/:id/compose/rough-cut`
 - `POST /api/projects/:id/ideas/generate`
 - `GET /api/projects/:id/scripts/current`
 - `POST /api/projects/:id/scripts/generate`
@@ -50,6 +55,9 @@
 
 ### Scenes
 - `PATCH /api/scenes/:id`
+
+### Asset Files
+- `GET /api/assets/:id/content`
 
 ## Implemented Payloads
 ### `POST /api/brand-profiles`
@@ -294,6 +302,62 @@ Behavior note:
 ### `GET /api/projects/:id/assets`
 - returns planned and produced asset records for the project, including placeholder records created before worker execution starts
 
+### `POST /api/projects/:id/assets/approve`
+```json
+{
+  "feedback_notes": "These are good enough to move into the next stage."
+}
+```
+
+Behavior note:
+- this records an `assets`-stage approval for the current script
+- the route requires the project to already be in `asset_pending_approval`
+
+### `POST /api/projects/:id/assets/reject`
+```json
+{
+  "feedback_notes": "The visuals need a clearer direction."
+}
+```
+
+Behavior note:
+- this records an `assets`-stage rejection for the current script
+- ready assets from the current script are marked `rejected`
+- the project moves back into `asset_generation` so you can queue another pass
+
+### `GET /api/assets/:id/content`
+- streams the stored asset file for preview
+- access is limited to files inside the configured storage root
+
+### `POST /api/projects/:id/compose/rough-cut`
+Response excerpt:
+```json
+{
+  "id": "uuid",
+  "project_id": "uuid",
+  "script_id": "uuid",
+  "job_type": "compose_rough_cut",
+  "provider_name": "local_media",
+  "state": "queued",
+  "payload_json": {
+    "script_version": 1,
+    "scene_count": 4,
+    "output_asset_id": "uuid",
+    "subtitle_asset_id": "uuid",
+    "preview_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234.html",
+    "manifest_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234-manifest.json",
+    "subtitle_path": "storage/projects/{project_id}/subtitles/script-v1-rough-cut-abcd1234.srt",
+    "video_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234.mp4",
+    "ffmpeg_command_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234-ffmpeg-command.json"
+  }
+}
+```
+
+Behavior note:
+- the route requires the current asset set to have an approved `assets` review
+- every scene must have a ready visual asset and the script must have a ready narration asset
+- the media worker marks the rough-cut and subtitle assets ready, then promotes the project to `rough_cut_ready`
+
 ## Planned Next Endpoints
 - `POST /api/scripts/:id/regenerate`
 
@@ -307,7 +371,6 @@ Behavior note:
 - `POST /api/assets/:id/regenerate`
 
 ### Rough Cut / Final Video
-- `POST /api/projects/:id/compose/rough-cut`
 - `POST /api/projects/:id/finalize`
 - `GET /api/projects/:id/exports`
 
@@ -332,6 +395,7 @@ Behavior note:
 - moving into `script_pending_approval` requires a generated script to exist
 - moving into `asset_generation` now requires the current script version to be explicitly approved
 - scene edits are only allowed while the current script is in `draft` or `rejected` state during script approval
+- moving into `rough_cut_ready` requires an approved asset set and a ready rough-cut artifact
 - archived projects cannot transition further in the current implementation
 
 ## Error Model

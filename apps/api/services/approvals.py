@@ -18,6 +18,25 @@ def list_project_approvals(db: Session, project: Project) -> list[Approval]:
     return list(db.scalars(statement))
 
 
+def get_latest_stage_approval(
+    db: Session,
+    project: Project,
+    *,
+    stage: ApprovalStage,
+    target_id: UUID,
+) -> Approval | None:
+    statement = (
+        select(Approval)
+        .where(
+            Approval.project_id == project.id,
+            Approval.stage == stage,
+            Approval.target_id == target_id,
+        )
+        .order_by(desc(Approval.created_at))
+    )
+    return db.scalar(statement)
+
+
 def create_approval_record(
     db: Session,
     *,

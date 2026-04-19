@@ -12,12 +12,16 @@ import {
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import {
+  approveProjectAssets,
   queueAudioGeneration,
   queueVisualGeneration,
   approveIdea,
   approveScript,
   generateProjectIdeas,
+  getAssetContentUrl,
   generateProjectScript,
+  queueRoughCut,
+  rejectProjectAssets,
   rejectIdea,
   rejectScript,
   updateScene,
@@ -92,6 +96,22 @@ function assetStatusClassName(status: Asset["status"]): string {
   }
 }
 
+function assetSortPriority(assetType: Asset["asset_type"]): number {
+  switch (assetType) {
+    case "narration_audio":
+      return 0;
+    case "scene_image":
+    case "scene_video":
+      return 1;
+    case "rough_cut":
+      return 2;
+    case "subtitle_file":
+      return 3;
+    default:
+      return 4;
+  }
+}
+
 function formatWorkflowValue(value: string): string {
   return value
     .replaceAll("_", " ")
@@ -130,10 +150,18 @@ export function ProjectContentStudio({
     canReviewScript && currentScript !== null && currentScript.status !== "approved";
   const canRejectCurrentScript =
     canReviewScript && currentScript !== null && currentScript.status !== "rejected";
+  const currentScriptAssets =
+    currentScript === null
+      ? []
+      : assets.filter((asset) => asset.script_id === currentScript.id);
+  const currentScriptJobs =
+    currentScript === null ? [] : jobs.filter((job) => job.script_id === currentScript.id);
   const canQueueGeneration =
     currentScript !== null &&
     currentScript.status === "approved" &&
     (project.status === "script_pending_approval" || project.status === "asset_generation");
+  const canReviewAssets =
+    currentScript !== null && project.status === "asset_pending_approval";
   const queueLockedReason =
     currentScript === null
       ? "Generate and approve a script first, then CreatorOS can persist narration and scene-asset jobs for the worker layer."
@@ -143,7 +171,7 @@ export function ProjectContentStudio({
   const activeAudioJob =
     currentScript === null
       ? null
-      : jobs.find(
+      : currentScriptJobs.find(
           (job) =>
             job.script_id === currentScript.id &&
             job.job_type === "generate_audio_browser" &&
@@ -152,18 +180,40 @@ export function ProjectContentStudio({
   const activeVisualJob =
     currentScript === null
       ? null
-      : jobs.find(
+      : currentScriptJobs.find(
           (job) =>
             job.script_id === currentScript.id &&
             job.job_type === "generate_visuals_browser" &&
             (job.state === "queued" || job.state === "running" || job.state === "waiting_external"),
         ) ?? null;
-  const sortedAssets = [...assets].sort((left, right) => {
-    if (left.asset_type === "narration_audio" && right.asset_type !== "narration_audio") {
-      return -1;
-    }
-    if (right.asset_type === "narration_audio" && left.asset_type !== "narration_audio") {
-      return 1;
+  const activeRoughCutJob =
+    currentScript === null
+      ? null
+      : currentScriptJobs.find(
+          (job) =>
+            job.script_id === currentScript.id &&
+            job.job_type === "compose_rough_cut" &&
+            (job.state === "queued" || job.state === "running" || job.state === "waiting_external"),
+        ) ?? null;
+  const readyAssets = currentScriptAssets.filter((asset) => asset.status === "ready");
+  const readyRoughCutAssets = readyAssets.filter((asset) => asset.asset_type === "rough_cut");
+  const rejectedAssets = currentScriptAssets.filter((asset) => asset.status === "rejected");
+  const latestAssetReview =
+    currentScript === null
+      ? null
+      : approvals.find(
+          (approval) => approval.stage === "assets" && approval.target_id === currentScript.id,
+        ) ?? null;
+  const canQueueRoughCut =
+    currentScript !== null &&
+    project.status === "asset_pending_approval" &&
+    latestAssetReview?.decision === "approved" &&
+    activeRoughCutJob === null &&
+    readyRoughCutAssets.length === 0;
+  const sortedAssets = [...currentScriptAssets].sort((left, right) => {
+    const priorityDelta = assetSortPriority(left.asset_type) - assetSortPriority(right.asset_type);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
     }
 
     const leftSceneOrder =
@@ -722,148 +772,274 @@ export function ProjectContentStudio({
               ) : null}
 
               <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-              <article className="rounded-2xl border border-white/8 bg-white/4 p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h4 className="text-lg font-semibold text-white">Queued jobs</h4>
-                    <p className="mt-2 text-sm leading-6 text-slate-300">
-                      Each long-running generation step is now represented as a persisted job
-                      before any browser worker starts.
-                    </p>
+                <article className="rounded-2xl border border-white/8 bg-white/4 p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-lg font-semibold text-white">Queued jobs</h4>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">
+                        Each long-running generation step is now represented as a persisted job
+                        before any browser worker starts.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-100">
+                      {currentScriptJobs.length} current
+                    </span>
                   </div>
-                  <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-100">
-                    {jobs.length} total
-                  </span>
-                </div>
 
-                {jobs.length === 0 ? (
-                  <div className="mt-5 rounded-2xl border border-dashed border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
-                    No jobs queued yet. Queue narration or visuals to create the first worker plan.
-                  </div>
-                ) : (
-                  <div className="mt-5 grid gap-4">
-                    {jobs.map((job) => (
-                      <article
-                        className="rounded-2xl border border-white/8 bg-slate-950/40 p-4"
-                        key={job.id}
-                      >
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div>
-                            <div className="flex flex-wrap gap-2">
-                              <span
-                                className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${jobStateClassName(job.state)}`}
-                              >
-                                {backgroundJobStateLabels[job.state]}
-                              </span>
-                              <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
-                                {backgroundJobTypeLabels[job.job_type]}
-                              </span>
-                            </div>
-                            <p className="mt-3 text-sm text-slate-200">
-                              {job.provider_name ? formatWorkflowValue(job.provider_name) : "Manual provider"}
-                            </p>
-                          </div>
-                          <div className="text-right text-xs uppercase tracking-[0.16em] text-slate-500">
-                            <p>{formatTimestamp(job.created_at)}</p>
-                            <p className="mt-2">Progress {job.progress_percent}%</p>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 grid gap-3 text-sm text-slate-300">
-                          <p>Script version: {job.payload_json["script_version"] as number}</p>
-                          <p>
-                            Planned outputs:{" "}
-                            {typeof job.payload_json["scene_count"] === "number"
-                              ? `${job.payload_json["scene_count"] as number} scene units`
-                              : "Not provided"}
-                          </p>
-                        </div>
-
-                        {job.error_message ? (
-                          <p className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-                            {job.error_message}
-                          </p>
-                        ) : null}
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </article>
-
-              <article className="rounded-2xl border border-white/8 bg-white/4 p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h4 className="text-lg font-semibold text-white">Planned assets</h4>
-                    <p className="mt-2 text-sm leading-6 text-slate-300">
-                      These placeholders keep outputs traceable before files exist on disk.
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-100">
-                    {assets.length} planned
-                  </span>
-                </div>
-
-                {assets.length === 0 ? (
-                  <div className="mt-5 rounded-2xl border border-dashed border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
-                    No asset placeholders exist yet. Queue a generation job to create traceable
-                    output records.
-                  </div>
-                ) : (
-                  <div className="mt-5 grid gap-4">
-                    {sortedAssets.map((asset) => {
-                      const linkedScene =
-                        asset.scene_id === null
-                          ? null
-                          : currentScript.scenes.find((scene) => scene.id === asset.scene_id) ?? null;
-
-                      return (
+                  {currentScriptJobs.length === 0 ? (
+                    <div className="mt-5 rounded-2xl border border-dashed border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
+                      No jobs queued yet. Queue narration or visuals to create the first worker plan.
+                    </div>
+                  ) : (
+                    <div className="mt-5 grid gap-4">
+                      {currentScriptJobs.map((job) => (
                         <article
                           className="rounded-2xl border border-white/8 bg-slate-950/40 p-4"
-                          key={asset.id}
+                          key={job.id}
                         >
                           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                             <div>
                               <div className="flex flex-wrap gap-2">
                                 <span
-                                  className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${assetStatusClassName(asset.status)}`}
+                                  className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${jobStateClassName(job.state)}`}
                                 >
-                                  {assetStatusLabels[asset.status]}
+                                  {backgroundJobStateLabels[job.state]}
                                 </span>
                                 <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
-                                  {formatWorkflowValue(asset.asset_type)}
+                                  {backgroundJobTypeLabels[job.job_type]}
                                 </span>
                               </div>
                               <p className="mt-3 text-sm text-slate-200">
-                                {linkedScene
-                                  ? `Scene ${linkedScene.scene_order}: ${linkedScene.title}`
-                                  : "Narration track"}
+                                {job.provider_name
+                                  ? formatWorkflowValue(job.provider_name)
+                                  : "Manual provider"}
                               </p>
                             </div>
-                            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                              {formatTimestamp(asset.updated_at)}
-                            </p>
+                            <div className="text-right text-xs uppercase tracking-[0.16em] text-slate-500">
+                              <p>{formatTimestamp(job.created_at)}</p>
+                              <p className="mt-2">Progress {job.progress_percent}%</p>
+                            </div>
                           </div>
 
                           <div className="mt-4 grid gap-3 text-sm text-slate-300">
+                            <p>Script version: {job.payload_json["script_version"] as number}</p>
                             <p>
-                              Provider:{" "}
-                              {asset.provider_name
-                                ? formatWorkflowValue(asset.provider_name)
-                                : "Not assigned"}
+                              Planned outputs:{" "}
+                              {typeof job.payload_json["scene_count"] === "number"
+                                ? `${job.payload_json["scene_count"] as number} scene units`
+                                : "Not provided"}
                             </p>
-                            <p>
-                              Path: {asset.file_path ?? "Will be assigned when the worker ingests the file."}
-                            </p>
-                            {asset.duration_seconds ? (
-                              <p>Duration target: {asset.duration_seconds}s</p>
-                            ) : null}
                           </div>
+
+                          {job.error_message ? (
+                            <p className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+                              {job.error_message}
+                            </p>
+                          ) : null}
                         </article>
-                      );
-                    })}
+                      ))}
+                    </div>
+                  )}
+                </article>
+
+                <article className="rounded-2xl border border-white/8 bg-white/4 p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-lg font-semibold text-white">Generated assets</h4>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">
+                        Once the worker finishes, you can preview the artifacts here and explicitly
+                        approve or reject the current asset set.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-100">
+                      {currentScriptAssets.length} current
+                    </span>
                   </div>
-                )}
-              </article>
+
+                  {latestAssetReview ? (
+                    <div className="mt-5 rounded-2xl border border-white/8 bg-slate-950/40 px-4 py-3 text-sm text-slate-200">
+                      <p className="font-medium text-white">
+                        Latest asset review: {approvalDecisionLabels[latestAssetReview.decision]}
+                      </p>
+                      <p className="mt-2 text-slate-300">
+                        {formatTimestamp(latestAssetReview.created_at)}
+                      </p>
+                      {latestAssetReview.feedback_notes ? (
+                        <p className="mt-2 text-slate-300">{latestAssetReview.feedback_notes}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {canReviewAssets && readyAssets.length > 0 ? (
+                    <div className="mt-5 flex flex-wrap gap-3">
+                      <button
+                        className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={pendingAction !== null}
+                        onClick={() =>
+                          runAction("approve-assets", () => approveProjectAssets(project.id))
+                        }
+                        type="button"
+                      >
+                        {pendingAction === "approve-assets"
+                          ? "Approving..."
+                          : "Approve asset set"}
+                      </button>
+                      <button
+                        className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={pendingAction !== null}
+                        onClick={() =>
+                          runAction("reject-assets", () => rejectProjectAssets(project.id))
+                        }
+                        type="button"
+                      >
+                        {pendingAction === "reject-assets"
+                          ? "Rejecting..."
+                          : "Reject current assets"}
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {latestAssetReview?.decision === "approved" ? (
+                    <div className="mt-5 rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-white">
+                            Asset set approved for rough-cut composition.
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-cyan-50/80">
+                            Queue the media worker to build a deterministic rough-cut preview and
+                            timeline manifest from these approved assets.
+                          </p>
+                        </div>
+                        <button
+                          className="rounded-full border border-cyan-200/40 bg-cyan-300/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-50 transition hover:border-cyan-100/70 hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={!canQueueRoughCut || pendingAction !== null}
+                          onClick={() => runAction("queue-rough-cut", () => queueRoughCut(project.id))}
+                          type="button"
+                        >
+                          {pendingAction === "queue-rough-cut"
+                            ? "Queueing..."
+                            : activeRoughCutJob
+                              ? "Rough cut queued"
+                              : readyRoughCutAssets.length > 0
+                                ? "Rough cut ready"
+                                : "Compose rough cut"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {currentScriptAssets.length === 0 ? (
+                    <div className="mt-5 rounded-2xl border border-dashed border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
+                      No assets exist yet for this script. Queue and run generation jobs first.
+                    </div>
+                  ) : (
+                    <div className="mt-5 grid gap-4">
+                      {sortedAssets.map((asset) => {
+                        const linkedScene =
+                          asset.scene_id === null
+                            ? null
+                            : currentScript.scenes.find((scene) => scene.id === asset.scene_id) ??
+                              null;
+                        const assetLabel =
+                          asset.asset_type === "rough_cut"
+                            ? "Rough cut preview"
+                            : linkedScene
+                              ? `Scene ${linkedScene.scene_order}: ${linkedScene.title}`
+                              : asset.asset_type === "narration_audio"
+                                ? "Narration track"
+                                : asset.asset_type === "subtitle_file"
+                                  ? "Subtitle sidecar"
+                                  : "Project-level asset";
+
+                        return (
+                          <article
+                            className="rounded-2xl border border-white/8 bg-slate-950/40 p-4"
+                            key={asset.id}
+                          >
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                              <div>
+                                <div className="flex flex-wrap gap-2">
+                                  <span
+                                    className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${assetStatusClassName(asset.status)}`}
+                                  >
+                                    {assetStatusLabels[asset.status]}
+                                  </span>
+                                  <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
+                                    {formatWorkflowValue(asset.asset_type)}
+                                  </span>
+                                </div>
+                                <p className="mt-3 text-sm text-slate-200">
+                                  {assetLabel}
+                                </p>
+                              </div>
+                              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                                {formatTimestamp(asset.updated_at)}
+                              </p>
+                            </div>
+
+                            {asset.file_path ? (
+                              <div className="mt-4 overflow-hidden rounded-2xl border border-white/8 bg-white/4">
+                                {asset.mime_type?.startsWith("audio/") ? (
+                                  <audio
+                                    className="w-full"
+                                    controls
+                                    preload="metadata"
+                                    src={getAssetContentUrl(asset.id)}
+                                  />
+                                ) : asset.mime_type?.startsWith("image/") ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    alt={linkedScene ? linkedScene.title : "Generated asset"}
+                                    className="h-auto w-full object-cover"
+                                    src={getAssetContentUrl(asset.id)}
+                                  />
+                                ) : asset.mime_type === "text/html" ? (
+                                  <iframe
+                                    className="h-[520px] w-full bg-slate-950"
+                                    src={getAssetContentUrl(asset.id)}
+                                    title={assetLabel}
+                                  />
+                                ) : asset.mime_type === "application/x-subrip" ||
+                                  asset.mime_type?.startsWith("text/") ? (
+                                  <iframe
+                                    className="h-64 w-full bg-slate-950"
+                                    src={getAssetContentUrl(asset.id)}
+                                    title={assetLabel}
+                                  />
+                                ) : null}
+                              </div>
+                            ) : null}
+
+                            <div className="mt-4 grid gap-3 text-sm text-slate-300">
+                              <p>
+                                Provider:{" "}
+                                {asset.provider_name
+                                  ? formatWorkflowValue(asset.provider_name)
+                                  : "Not assigned"}
+                              </p>
+                              <p>
+                                Path:{" "}
+                                {asset.file_path ??
+                                  "Will be assigned when the worker ingests the file."}
+                              </p>
+                              {asset.duration_seconds ? (
+                                <p>Duration target: {asset.duration_seconds}s</p>
+                              ) : null}
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {rejectedAssets.length > 0 ? (
+                    <p className="mt-4 text-sm text-slate-400">
+                      {rejectedAssets.length} asset{rejectedAssets.length === 1 ? "" : "s"} from
+                      the current script are currently rejected and can be regenerated.
+                    </p>
+                  ) : null}
+                </article>
               </div>
             </>
           )}
@@ -904,9 +1080,11 @@ export function ProjectContentStudio({
                         </span>
                       </div>
                       <p className="mt-3 text-sm text-slate-200">
-                        {approval.target_type === "content_idea"
+                        {approval.stage === "idea"
                           ? "Content idea review"
-                          : "Script review"}
+                          : approval.stage === "assets"
+                            ? "Asset review"
+                            : "Script review"}
                       </p>
                     </div>
                     <p className="text-xs uppercase tracking-[0.16em] text-slate-500">

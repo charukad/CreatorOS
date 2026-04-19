@@ -20,6 +20,7 @@ depends_on = None
 provider_name_enum = sa.Enum(
     "elevenlabs_web",
     "flow_web",
+    "local_media",
     name="provider_name",
     native_enum=False,
 )
@@ -27,6 +28,7 @@ provider_name_enum = sa.Enum(
 background_job_type_enum = sa.Enum(
     "generate_audio_browser",
     "generate_visuals_browser",
+    "compose_rough_cut",
     name="background_job_type",
     native_enum=False,
 )

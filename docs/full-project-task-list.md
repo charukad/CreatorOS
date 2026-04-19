@@ -280,15 +280,18 @@ There is now a dry-run Flow-style provider that produces local SVG scene artifac
 
 ## Phase 14 - Download Manager and Asset Registry
 
+Current implementation note:
+The worker now moves dry-run outputs into canonical project storage paths, and the project page can preview and approve or reject the current asset set. File hashing, quarantine handling, and asset-level regeneration are still pending.
+
 ### Build tasks
 - [ ] Implement download watcher or explicit ingest flow for browser outputs
 - [ ] Add file hash calculation and duplicate detection
-- [ ] Add canonical storage path generation under `storage/projects/{project_id}`
-- [ ] Move files from temporary download folders into permanent storage
+- [x] Add canonical storage path generation under `storage/projects/{project_id}`
+- [x] Move files from temporary download folders into permanent storage
 - [ ] Register assets with metadata including file path, mime type, duration, resolution, checksum, scene link, and attempt link
 - [ ] Add quarantine path for unknown or mismatched downloads
 - [ ] Add asset approval/rejection/regeneration APIs
-- [ ] Add asset gallery and preview UI
+- [x] Add asset gallery and preview UI
 - [ ] Add tests for download ingestion mapping and duplicate handling
 
 ### Manual checks
@@ -297,20 +300,24 @@ There is now a dry-run Flow-style provider that produces local SVG scene artifac
 
 ## Phase 15 - Media Composer, Timeline Builder, and Exports
 
+The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, WAV narration duration probing, deterministic audio-anchored timeline manifest generation, HTML rough-cut preview artifacts, SRT subtitle sidecar generation, FFmpeg command-plan sidecars, API/UI rough-cut queueing, and smoke tests. Actual FFmpeg video rendering, final exports, and real sample QA are still pending.
+
 ### Build tasks
-- [ ] Create the media worker entrypoint and job execution pipeline
-- [ ] Implement project manifest loading for rough-cut assembly
-- [ ] Resolve approved assets per scene
-- [ ] Use narration audio as the primary timing anchor
-- [ ] Build timeline assembly logic from ordered scenes and target durations
+- [x] Create the media worker entrypoint and job execution pipeline
+- [x] Implement first-pass timeline manifest generation for rough-cut assembly
+- [x] Resolve approved assets per scene
+- [x] Use narration audio as the primary timing anchor with real audio-duration inspection
+- [x] Build timeline assembly logic from ordered scenes and target durations
 - [ ] Add trim/loop/fallback behavior for scene duration mismatches
-- [ ] Add subtitle generation pipeline
+- [x] Add first-pass SRT subtitle generation pipeline
 - [ ] Add overlay and transition support
-- [ ] Implement FFmpeg helper modules for concat, audio overlay, subtitle burn-in, and export
-- [ ] Export rough cut and final cut artifacts
-- [ ] Persist timeline manifests for every export attempt
-- [ ] Add rough cut preview and final export views in the UI
-- [ ] Add tests for timeline manifest validation and sample export behavior
+- [x] Implement FFmpeg helper modules for concat, audio overlay, subtitle burn-in, and export command planning
+- [x] Export first-pass rough cut preview artifacts
+- [ ] Export final cut artifacts
+- [x] Persist timeline manifests for every rough-cut attempt
+- [x] Add rough cut preview views in the UI
+- [ ] Add final export views in the UI
+- [x] Add media worker smoke tests for rough-cut manifest and preview generation
 
 ### Manual checks
 - [ ] Manual check: rough cuts stay in sync with narration and scene order

@@ -135,6 +135,10 @@ export function listProjectAssets(projectId: string): Promise<Asset[]> {
   return apiRequest<Asset[]>(`/projects/${projectId}/assets`);
 }
 
+export function getAssetContentUrl(assetId: string): string {
+  return `${apiBaseUrl}/api/assets/${assetId}/content`;
+}
+
 export function generateProjectIdeas(projectId: string): Promise<ContentIdea[]> {
   return apiRequest<ContentIdea[]>(`/projects/${projectId}/ideas/generate`, {
     method: "POST",
@@ -184,6 +188,32 @@ export function queueVisualGeneration(
   payload: VisualGenerationPayload = {},
 ): Promise<BackgroundJob> {
   return apiRequest<BackgroundJob>(`/projects/${projectId}/generate/visuals`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function queueRoughCut(projectId: string): Promise<BackgroundJob> {
+  return apiRequest<BackgroundJob>(`/projects/${projectId}/compose/rough-cut`, {
+    method: "POST",
+  });
+}
+
+export function approveProjectAssets(
+  projectId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<ApprovalRecord> {
+  return apiRequest<ApprovalRecord>(`/projects/${projectId}/assets/approve`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function rejectProjectAssets(
+  projectId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<ApprovalRecord> {
+  return apiRequest<ApprovalRecord>(`/projects/${projectId}/assets/reject`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

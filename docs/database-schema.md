@@ -242,6 +242,7 @@ Note:
 ### background_jobs.job_type
 - generate_audio_browser
 - generate_visuals_browser
+- compose_rough_cut
 
 ### background_jobs.state
 - queued
@@ -254,3 +255,4 @@ Note:
 ### provider_name
 - elevenlabs_web
 - flow_web
+- local_media

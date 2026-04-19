@@ -3,6 +3,16 @@
 ## Goal
 Turn approved script + generated assets into an automatically assembled short-form video.
 
+## Current Implementation Note
+- after asset approval, the API can queue a `compose_rough_cut` background job
+- the media worker resolves the latest ready narration asset and one ready visual per scene
+- the media worker probes WAV narration duration and uses it as the timeline timing anchor
+- the worker writes a deterministic audio-anchored timeline manifest sidecar file
+- the first rough-cut output is an HTML preview artifact registered as a `rough_cut` asset
+- the worker also writes an SRT subtitle sidecar registered as a `subtitle_file` asset
+- the worker writes a JSON FFmpeg command-plan sidecar for the future MP4 render
+- FFmpeg-based MP4 rendering, subtitle burn-in, transitions, and final export are still pending
+
 ## Inputs
 - approved script
 - ordered scene records
@@ -44,6 +54,10 @@ Turn approved script + generated assets into an automatically assembled short-fo
 - trim/loop scene visuals if duration mismatch occurs
 - preserve audio as primary timing anchor
 - render a preview quickly before final export
+- v1 preview jobs require a ready narration asset and a ready visual asset for every scene
+- `rough_cut_ready` should only be reached after the media worker creates a rough-cut artifact
+- SRT subtitles are derived from ordered scene narration and scene duration boundaries
+- when WAV duration is available, scene durations are proportionally scaled to match narration
 
 ## Final Export Rules
 - selectable aspect ratio
@@ -57,3 +71,9 @@ Turn approved script + generated assets into an automatically assembled short-fo
 - burn subtitles when requested
 - normalize audio levels if needed
 - export preview/final deliverables
+
+## Current FFmpeg Command Plan
+- command builders live under `workers/media/ffmpeg`
+- rough-cut jobs write an auditable command plan beside the manifest
+- the planned command loops each scene visual for its timeline duration, concats the video streams, maps the narration audio, and applies the generated SRT subtitle file
+- actual execution remains disabled until FFmpeg is installed and MP4 rendering is explicitly enabled
