@@ -14,7 +14,7 @@
 - asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
 - the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
-- after asset approval, `compose_rough_cut` queues a media-worker job that writes a timeline manifest and rough-cut preview artifact
+- after asset approval, `compose_rough_cut` queues a media-worker job that writes a timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, and FFmpeg command-plan sidecar
 - Redis-backed execution, retries, and worker progress updates are still planned
 
 ## Core Resources
@@ -343,8 +343,12 @@ Response excerpt:
     "script_version": 1,
     "scene_count": 4,
     "output_asset_id": "uuid",
+    "subtitle_asset_id": "uuid",
     "preview_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234.html",
-    "manifest_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234-manifest.json"
+    "manifest_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234-manifest.json",
+    "subtitle_path": "storage/projects/{project_id}/subtitles/script-v1-rough-cut-abcd1234.srt",
+    "video_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234.mp4",
+    "ffmpeg_command_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234-ffmpeg-command.json"
   }
 }
 ```
@@ -352,7 +356,7 @@ Response excerpt:
 Behavior note:
 - the route requires the current asset set to have an approved `assets` review
 - every scene must have a ready visual asset and the script must have a ready narration asset
-- the media worker marks the rough-cut asset ready and promotes the project to `rough_cut_ready`
+- the media worker marks the rough-cut and subtitle assets ready, then promotes the project to `rough_cut_ready`
 
 ## Planned Next Endpoints
 - `POST /api/scripts/:id/regenerate`

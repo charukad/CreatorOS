@@ -66,6 +66,21 @@ def queue_rough_cut_job(
         "rough-cuts",
         f"script-v{script.version_number}-rough-cut-{short_job_id}-manifest.json",
     )
+    subtitle_path = build_project_storage_path(
+        project.id,
+        "subtitles",
+        f"script-v{script.version_number}-rough-cut-{short_job_id}.srt",
+    )
+    video_path = build_project_storage_path(
+        project.id,
+        "rough-cuts",
+        f"script-v{script.version_number}-rough-cut-{short_job_id}.mp4",
+    )
+    ffmpeg_command_path = build_project_storage_path(
+        project.id,
+        "rough-cuts",
+        f"script-v{script.version_number}-rough-cut-{short_job_id}-ffmpeg-command.json",
+    )
 
     output_asset = Asset(
         user_id=user.id,
@@ -85,11 +100,31 @@ def queue_rough_cut_job(
     db.add(output_asset)
     db.flush()
 
+    subtitle_asset = Asset(
+        user_id=user.id,
+        project_id=project.id,
+        script_id=script.id,
+        scene_id=None,
+        generation_attempt_id=None,
+        asset_type=AssetType.SUBTITLE_FILE,
+        status=AssetStatus.PLANNED,
+        provider_name=ProviderName.LOCAL_MEDIA,
+        file_path=subtitle_path,
+        mime_type="application/x-subrip",
+        duration_seconds=duration_seconds,
+    )
+    db.add(subtitle_asset)
+    db.flush()
+
     job.payload_json = {
         **job.payload_json,
         "output_asset_id": str(output_asset.id),
+        "subtitle_asset_id": str(subtitle_asset.id),
         "preview_path": preview_path,
         "manifest_path": manifest_path,
+        "subtitle_path": subtitle_path,
+        "video_path": video_path,
+        "ffmpeg_command_path": ffmpeg_command_path,
     }
     db.add(job)
     db.commit()

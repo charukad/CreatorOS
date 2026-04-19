@@ -155,19 +155,33 @@ def test_media_worker_composes_rough_cut_preview_after_asset_approval(
     assert rough_cut_job["progress_percent"] == 100
 
     manifest_path = tmp_path / rough_cut_job["payload_json"]["manifest_path"]
+    subtitle_path = tmp_path / rough_cut_job["payload_json"]["subtitle_path"]
+    ffmpeg_command_path = tmp_path / rough_cut_job["payload_json"]["ffmpeg_command_path"]
     assert manifest_path.exists()
+    assert subtitle_path.exists()
+    assert ffmpeg_command_path.exists()
     assert f'"script_id": "{script["id"]}"' in manifest_path.read_text(encoding="utf-8")
+    assert "00:00:00,000 -->" in subtitle_path.read_text(encoding="utf-8")
+    assert '"ffmpeg"' in ffmpeg_command_path.read_text(encoding="utf-8")
 
     assets_response = client.get(f"/api/projects/{project_id}/assets")
     assert assets_response.status_code == 200
     rough_cut_assets = [
         asset for asset in assets_response.json() if asset["asset_type"] == "rough_cut"
     ]
+    subtitle_assets = [
+        asset for asset in assets_response.json() if asset["asset_type"] == "subtitle_file"
+    ]
     assert len(rough_cut_assets) == 1
+    assert len(subtitle_assets) == 1
     rough_cut_asset = rough_cut_assets[0]
+    subtitle_asset = subtitle_assets[0]
     assert rough_cut_asset["status"] == "ready"
     assert rough_cut_asset["mime_type"] == "text/html"
     assert rough_cut_asset["checksum"] is not None
+    assert subtitle_asset["status"] == "ready"
+    assert subtitle_asset["mime_type"] == "application/x-subrip"
+    assert subtitle_asset["checksum"] is not None
 
     preview_path = tmp_path / rough_cut_asset["file_path"]
     assert preview_path.exists()
@@ -177,6 +191,11 @@ def test_media_worker_composes_rough_cut_preview_after_asset_approval(
     assert content_response.status_code == 200
     assert content_response.headers["content-type"].startswith("text/html")
     assert "CreatorOS Rough Cut Preview" in content_response.text
+
+    subtitle_response = client.get(f"/api/assets/{subtitle_asset['id']}/content")
+    assert subtitle_response.status_code == 200
+    assert subtitle_response.headers["content-type"].startswith("application/x-subrip")
+    assert "00:00:00,000 -->" in subtitle_response.text
 
     project_response = client.get(f"/api/projects/{project_id}")
     assert project_response.status_code == 200

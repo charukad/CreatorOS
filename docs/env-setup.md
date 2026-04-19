@@ -29,6 +29,10 @@
 - `ELEVENLABS_PROFILE_NAME`
 - `FLOW_PROFILE_NAME`
 
+### Media Worker
+- `FFMPEG_BINARY`
+- `MEDIA_ENABLE_FFMPEG_RENDER`
+
 ### Frontend
 - `NEXT_PUBLIC_API_BASE_URL`
 
@@ -38,6 +42,9 @@
 - browser profiles should remain outside version control
 - in local development, `BROWSER_PROVIDER_MODE=dry_run` lets the browser worker generate WAV/SVG placeholder outputs without live provider sessions
 - the media worker writes rough-cut preview and manifest files under `storage/projects/{project_id}/rough-cuts`
+- the media worker writes subtitle sidecars under `storage/projects/{project_id}/subtitles`
+- the media worker writes an FFmpeg command-plan JSON file beside rough-cut previews
+- MP4 rendering requires FFmpeg to be installed and `MEDIA_ENABLE_FFMPEG_RENDER=true`
 
 ## Setup Steps
 1. Install system dependencies.

@@ -13,6 +13,7 @@ def build_timeline_manifest(
     job: BackgroundJob,
     narration_asset: Asset,
     scene_assets: dict[str, Asset],
+    subtitle_asset: Asset | None = None,
 ) -> dict[str, object]:
     cursor_seconds = 0
     timeline_scenes: list[dict[str, object]] = []
@@ -40,7 +41,7 @@ def build_timeline_manifest(
             }
         )
 
-    return {
+    manifest: dict[str, object] = {
         "manifest_version": 1,
         "generated_at": datetime.now(UTC).isoformat(),
         "job_id": str(job.id),
@@ -58,3 +59,12 @@ def build_timeline_manifest(
         },
         "scenes": timeline_scenes,
     }
+
+    if subtitle_asset is not None:
+        manifest["subtitle_asset"] = {
+            "asset_id": str(subtitle_asset.id),
+            "file_path": subtitle_asset.file_path,
+            "mime_type": subtitle_asset.mime_type,
+        }
+
+    return manifest

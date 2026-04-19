@@ -105,8 +105,10 @@ function assetSortPriority(assetType: Asset["asset_type"]): number {
       return 1;
     case "rough_cut":
       return 2;
-    default:
+    case "subtitle_file":
       return 3;
+    default:
+      return 4;
   }
 }
 
@@ -946,7 +948,9 @@ export function ProjectContentStudio({
                               ? `Scene ${linkedScene.scene_order}: ${linkedScene.title}`
                               : asset.asset_type === "narration_audio"
                                 ? "Narration track"
-                                : "Project-level asset";
+                                : asset.asset_type === "subtitle_file"
+                                  ? "Subtitle sidecar"
+                                  : "Project-level asset";
 
                         return (
                           <article
@@ -993,6 +997,13 @@ export function ProjectContentStudio({
                                 ) : asset.mime_type === "text/html" ? (
                                   <iframe
                                     className="h-[520px] w-full bg-slate-950"
+                                    src={getAssetContentUrl(asset.id)}
+                                    title={assetLabel}
+                                  />
+                                ) : asset.mime_type === "application/x-subrip" ||
+                                  asset.mime_type?.startsWith("text/") ? (
+                                  <iframe
+                                    className="h-64 w-full bg-slate-950"
                                     src={getAssetContentUrl(asset.id)}
                                     title={assetLabel}
                                   />

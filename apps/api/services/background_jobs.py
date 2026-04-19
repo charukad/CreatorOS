@@ -109,9 +109,14 @@ def mark_job_failed(db: Session, job: BackgroundJob, error_message: str) -> None
     db.add(job)
 
     if job.job_type == BackgroundJobType.COMPOSE_ROUGH_CUT:
-        output_asset_id = job.payload_json.get("output_asset_id")
-        if output_asset_id is not None:
-            asset = db.get(Asset, UUID(str(output_asset_id)))
+        media_asset_ids = [
+            job.payload_json.get("output_asset_id"),
+            job.payload_json.get("subtitle_asset_id"),
+        ]
+        for media_asset_id in media_asset_ids:
+            if media_asset_id is None:
+                continue
+            asset = db.get(Asset, UUID(str(media_asset_id)))
             if asset is not None and asset.status != AssetStatus.READY:
                 asset.status = AssetStatus.FAILED
                 db.add(asset)

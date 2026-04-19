@@ -300,7 +300,7 @@ The worker now moves dry-run outputs into canonical project storage paths, and t
 
 ## Phase 15 - Media Composer, Timeline Builder, and Exports
 
-The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, deterministic timeline manifest generation, HTML rough-cut preview artifacts, API/UI rough-cut queueing, and smoke tests. FFmpeg video rendering, subtitles, final exports, and real sample QA are still pending.
+The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, deterministic timeline manifest generation, HTML rough-cut preview artifacts, SRT subtitle sidecar generation, FFmpeg command-plan sidecars, API/UI rough-cut queueing, and smoke tests. Actual FFmpeg video rendering, final exports, and real sample QA are still pending.
 
 ### Build tasks
 - [x] Create the media worker entrypoint and job execution pipeline
@@ -309,9 +309,9 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, d
 - [ ] Use narration audio as the primary timing anchor with real audio-duration inspection
 - [x] Build timeline assembly logic from ordered scenes and target durations
 - [ ] Add trim/loop/fallback behavior for scene duration mismatches
-- [ ] Add subtitle generation pipeline
+- [x] Add first-pass SRT subtitle generation pipeline
 - [ ] Add overlay and transition support
-- [ ] Implement FFmpeg helper modules for concat, audio overlay, subtitle burn-in, and export
+- [x] Implement FFmpeg helper modules for concat, audio overlay, subtitle burn-in, and export command planning
 - [x] Export first-pass rough cut preview artifacts
 - [ ] Export final cut artifacts
 - [x] Persist timeline manifests for every rough-cut attempt
