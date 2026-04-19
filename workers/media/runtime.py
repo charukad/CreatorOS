@@ -9,7 +9,7 @@ from apps.api.models.asset import Asset
 from apps.api.models.background_job import BackgroundJob
 from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
-from apps.api.schemas.enums import AssetStatus, AssetType, BackgroundJobType
+from apps.api.schemas.enums import AssetStatus, AssetType, BackgroundJobType, ProviderName
 from apps.api.services.background_jobs import (
     claim_next_media_job,
     mark_job_completed,
@@ -26,6 +26,7 @@ from workers.media.ffmpeg import (
     FFmpegExportProfile,
     SceneVisualInput,
     build_static_scene_video_command,
+    run_ffmpeg_command,
 )
 from workers.media.subtitles.srt import build_srt_from_manifest
 from workers.media.timeline.manifest import build_timeline_manifest
@@ -147,6 +148,15 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
     )
     mark_job_progress(session, job, 80)
 
+    video_asset = _render_mp4_if_enabled(
+        session=session,
+        settings=settings,
+        job=job,
+        ffmpeg_command=ffmpeg_command,
+        video_path=video_path,
+        manifest=manifest,
+    )
+
     output_asset.status = AssetStatus.READY
     output_asset.file_path = str(preview_path)
     output_asset.mime_type = "text/html"
@@ -170,10 +180,14 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
         "ffmpeg_command_path": str(ffmpeg_command_path),
         "output_asset_id": str(output_asset.id),
         "subtitle_asset_id": str(subtitle_asset.id),
+        "video_asset_id": str(video_asset.id) if video_asset is not None else None,
+        "ffmpeg_rendered": video_asset is not None,
         "total_duration_seconds": manifest["total_duration_seconds"],
     }
     session.add(output_asset)
     session.add(subtitle_asset)
+    if video_asset is not None:
+        session.add(video_asset)
     session.add(job)
     session.commit()
     session.refresh(job)
@@ -277,6 +291,7 @@ def _build_ffmpeg_command(
         SceneVisualInput(
             path=Path(str(scene["visual_asset_path"])),
             duration_seconds=float(scene["duration_seconds"]),
+            overlay_text=str(scene.get("overlay_text", "")),
         )
         for scene in scenes
         if isinstance(scene, dict)
@@ -291,6 +306,60 @@ def _build_ffmpeg_command(
     )
 
 
+def _render_mp4_if_enabled(
+    *,
+    session: Session,
+    settings: MediaWorkerSettings,
+    job: BackgroundJob,
+    ffmpeg_command: list[str],
+    video_path: Path,
+    manifest: dict[str, object],
+) -> Asset | None:
+    if not settings.media_enable_ffmpeg_render:
+        return None
+
+    video_asset = Asset(
+        user_id=job.user_id,
+        project_id=job.project_id,
+        script_id=job.script_id,
+        scene_id=None,
+        generation_attempt_id=None,
+        asset_type=AssetType.ROUGH_CUT,
+        status=AssetStatus.GENERATING,
+        provider_name=ProviderName.LOCAL_MEDIA,
+        file_path=str(video_path),
+        mime_type="video/mp4",
+        duration_seconds=_manifest_duration_seconds(manifest),
+        width=1080,
+        height=1920,
+    )
+    session.add(video_asset)
+    session.flush()
+
+    job.payload_json = {
+        **job.payload_json,
+        "video_asset_id": str(video_asset.id),
+        "ffmpeg_rendered": False,
+    }
+    session.add(job)
+    session.commit()
+
+    run_ffmpeg_command(ffmpeg_command)
+    if not video_path.exists():
+        raise ValueError(f"FFmpeg finished but did not create the expected file: {video_path}")
+
+    video_asset.status = AssetStatus.READY
+    video_asset.checksum = _file_sha256(video_path)
+    job.payload_json = {
+        **job.payload_json,
+        "video_asset_id": str(video_asset.id),
+        "ffmpeg_rendered": True,
+    }
+    session.add(video_asset)
+    session.add(job)
+    return video_asset
+
+
 def _probe_narration_duration(narration_asset: Asset) -> float | None:
     if narration_asset.file_path is None:
         return None
@@ -300,6 +369,10 @@ def _probe_narration_duration(narration_asset: Asset) -> float | None:
         return None
 
     return probe_wav_duration_seconds(narration_path)
+
+
+def _manifest_duration_seconds(manifest: dict[str, object]) -> int:
+    return max(1, round(float(manifest["total_duration_seconds"])))
 
 
 def _file_sha256(path: Path) -> str:

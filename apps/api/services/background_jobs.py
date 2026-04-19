@@ -112,6 +112,7 @@ def mark_job_failed(db: Session, job: BackgroundJob, error_message: str) -> None
         media_asset_ids = [
             job.payload_json.get("output_asset_id"),
             job.payload_json.get("subtitle_asset_id"),
+            job.payload_json.get("video_asset_id"),
         ]
         for media_asset_id in media_asset_ids:
             if media_asset_id is None:

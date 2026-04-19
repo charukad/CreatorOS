@@ -942,7 +942,9 @@ export function ProjectContentStudio({
                             : currentScript.scenes.find((scene) => scene.id === asset.scene_id) ??
                               null;
                         const assetLabel =
-                          asset.asset_type === "rough_cut"
+                          asset.asset_type === "rough_cut" && asset.mime_type?.startsWith("video/")
+                            ? "Rough cut video"
+                            : asset.asset_type === "rough_cut"
                             ? "Rough cut preview"
                             : linkedScene
                               ? `Scene ${linkedScene.scene_order}: ${linkedScene.title}`
@@ -999,6 +1001,13 @@ export function ProjectContentStudio({
                                     className="h-[520px] w-full bg-slate-950"
                                     src={getAssetContentUrl(asset.id)}
                                     title={assetLabel}
+                                  />
+                                ) : asset.mime_type?.startsWith("video/") ? (
+                                  <video
+                                    className="w-full bg-slate-950"
+                                    controls
+                                    preload="metadata"
+                                    src={getAssetContentUrl(asset.id)}
                                   />
                                 ) : asset.mime_type === "application/x-subrip" ||
                                   asset.mime_type?.startsWith("text/") ? (

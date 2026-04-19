@@ -11,7 +11,8 @@ Turn approved script + generated assets into an automatically assembled short-fo
 - the first rough-cut output is an HTML preview artifact registered as a `rough_cut` asset
 - the worker also writes an SRT subtitle sidecar registered as a `subtitle_file` asset
 - the worker writes a JSON FFmpeg command-plan sidecar for the future MP4 render
-- FFmpeg-based MP4 rendering, subtitle burn-in, transitions, and final export are still pending
+- optional FFmpeg-based MP4 rendering is available behind `MEDIA_ENABLE_FFMPEG_RENDER=true`
+- real local FFmpeg install/manual MP4 QA, transitions, and final export are still pending
 
 ## Inputs
 - approved script
@@ -68,6 +69,7 @@ Turn approved script + generated assets into an automatically assembled short-fo
 ## FFmpeg Responsibilities
 - concat scene media
 - overlay narration
+- draw scene overlay text into each visual segment
 - burn subtitles when requested
 - normalize audio levels if needed
 - export preview/final deliverables
@@ -75,5 +77,6 @@ Turn approved script + generated assets into an automatically assembled short-fo
 ## Current FFmpeg Command Plan
 - command builders live under `workers/media/ffmpeg`
 - rough-cut jobs write an auditable command plan beside the manifest
-- the planned command loops each scene visual for its timeline duration, concats the video streams, maps the narration audio, and applies the generated SRT subtitle file
-- actual execution remains disabled until FFmpeg is installed and MP4 rendering is explicitly enabled
+- the planned command loops each scene visual for its timeline duration, draws scene overlay text, concats the video streams, maps the narration audio, and applies the generated SRT subtitle file
+- actual execution remains disabled until FFmpeg is installed and `MEDIA_ENABLE_FFMPEG_RENDER=true`
+- when execution succeeds, the worker registers a separate `video/mp4` rough-cut asset

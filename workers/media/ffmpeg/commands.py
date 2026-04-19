@@ -18,6 +18,7 @@ class FFmpegExportProfile:
 class SceneVisualInput:
     path: Path
     duration_seconds: float
+    overlay_text: str | None = None
 
 
 def build_static_scene_video_command(
@@ -51,7 +52,7 @@ def build_static_scene_video_command(
     command.extend(["-i", str(narration_path)])
 
     filter_complex = _build_filter_complex(
-        scene_count=len(scene_visuals),
+        scene_visuals=scene_visuals,
         subtitle_path=subtitle_path,
         profile=export_profile,
     )
@@ -88,21 +89,16 @@ def build_static_scene_video_command(
 
 def _build_filter_complex(
     *,
-    scene_count: int,
+    scene_visuals: list[SceneVisualInput],
     subtitle_path: Path | None,
     profile: FFmpegExportProfile,
 ) -> str:
     scene_filters = [
-        (
-            f"[{index}:v]scale={profile.width}:{profile.height}:"
-            f"force_original_aspect_ratio=increase,"
-            f"crop={profile.width}:{profile.height},"
-            f"setsar=1,fps={profile.fps},format={profile.pixel_format}[v{index}]"
-        )
-        for index in range(scene_count)
+        _build_scene_filter(index=index, scene_visual=scene_visual, profile=profile)
+        for index, scene_visual in enumerate(scene_visuals)
     ]
-    concat_inputs = "".join(f"[v{index}]" for index in range(scene_count))
-    concat_filter = f"{concat_inputs}concat=n={scene_count}:v=1:a=0[v]"
+    concat_inputs = "".join(f"[v{index}]" for index in range(len(scene_visuals)))
+    concat_filter = f"{concat_inputs}concat=n={len(scene_visuals)}:v=1:a=0[v]"
     filters = [*scene_filters, concat_filter]
 
     if subtitle_path is not None:
@@ -111,8 +107,43 @@ def _build_filter_complex(
     return ";".join(filters)
 
 
+def _build_scene_filter(
+    *,
+    index: int,
+    scene_visual: SceneVisualInput,
+    profile: FFmpegExportProfile,
+) -> str:
+    base_filter = (
+        f"[{index}:v]scale={profile.width}:{profile.height}:"
+        f"force_original_aspect_ratio=increase,"
+        f"crop={profile.width}:{profile.height},"
+        f"setsar=1,fps={profile.fps},format={profile.pixel_format}"
+    )
+    overlay_text = (scene_visual.overlay_text or "").strip()
+    if not overlay_text:
+        return f"{base_filter}[v{index}]"
+
+    return (
+        f"{base_filter}[base{index}];"
+        f"[base{index}]drawtext=text='{_escape_drawtext_text(overlay_text)}':"
+        "fontcolor=white:fontsize=56:box=1:boxcolor=black@0.58:boxborderw=28:"
+        "x=(w-text_w)/2:y=h-(text_h*3)[v"
+        f"{index}]"
+    )
+
+
 def _escape_filter_path(path: Path) -> str:
     return str(path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
+def _escape_drawtext_text(value: str) -> str:
+    normalized = " ".join(value.split())
+    return (
+        normalized.replace("\\", "\\\\")
+        .replace(":", "\\:")
+        .replace("'", "\\'")
+        .replace("%", "\\%")
+    )
 
 
 def _format_duration(duration_seconds: float) -> str:

@@ -233,3 +233,73 @@ def test_rough_cut_queue_requires_asset_approval(
     assert "Approve the current asset set" in queue_response.json()["detail"]
 
     app.dependency_overrides.clear()
+
+
+def test_media_worker_registers_mp4_asset_when_ffmpeg_render_is_enabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run_ffmpeg_command(command: list[str]) -> None:
+        Path(command[-1]).write_bytes(b"fake mp4")
+
+    monkeypatch.setattr("workers.media.runtime.run_ffmpeg_command", fake_run_ffmpeg_command)
+
+    session_factory = _create_test_session()
+    client = _make_test_client(session_factory)
+
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(client, brand_profile_id)
+    _create_approved_script_for_tests(client, project_id)
+    _queue_and_finish_asset_jobs(
+        client=client,
+        project_id=project_id,
+        tmp_path=tmp_path,
+        session_factory=session_factory,
+    )
+
+    approve_assets_response = client.post(f"/api/projects/{project_id}/assets/approve", json={})
+    assert approve_assets_response.status_code == 200
+
+    queue_response = client.post(f"/api/projects/{project_id}/compose/rough-cut")
+    assert queue_response.status_code == 201
+
+    processed_media_jobs = run_media_jobs(
+        settings=MediaWorkerSettings(
+            storage_root=tmp_path / "storage",
+            downloads_root=tmp_path / "downloads",
+            media_enable_ffmpeg_render=True,
+        ),
+        session_factory=session_factory,
+    )
+    assert processed_media_jobs == 1
+
+    jobs_response = client.get(f"/api/projects/{project_id}/jobs")
+    rough_cut_job = next(
+        job for job in jobs_response.json() if job["job_type"] == "compose_rough_cut"
+    )
+    assert rough_cut_job["state"] == "completed"
+    assert rough_cut_job["payload_json"]["ffmpeg_rendered"] is True
+    assert rough_cut_job["payload_json"]["video_asset_id"] is not None
+
+    command_plan_path = tmp_path / rough_cut_job["payload_json"]["ffmpeg_command_path"]
+    command_plan = json.loads(command_plan_path.read_text(encoding="utf-8"))
+    assert command_plan["enabled"] is True
+
+    assets_response = client.get(f"/api/projects/{project_id}/assets")
+    video_assets = [
+        asset for asset in assets_response.json() if asset["mime_type"] == "video/mp4"
+    ]
+    assert len(video_assets) == 1
+    video_asset = video_assets[0]
+    assert video_asset["asset_type"] == "rough_cut"
+    assert video_asset["status"] == "ready"
+    assert video_asset["checksum"] is not None
+    assert (tmp_path / video_asset["file_path"]).read_bytes() == b"fake mp4"
+
+    content_response = client.get(f"/api/assets/{video_asset['id']}/content")
+    assert content_response.status_code == 200
+    assert content_response.headers["content-type"].startswith("video/mp4")
+
+    app.dependency_overrides.clear()

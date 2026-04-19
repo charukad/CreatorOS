@@ -16,6 +16,7 @@ class MediaWorkerSettings(BaseSettings):
         env_file=("workers/media/.env", ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
 

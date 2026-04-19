@@ -300,7 +300,7 @@ The worker now moves dry-run outputs into canonical project storage paths, and t
 
 ## Phase 15 - Media Composer, Timeline Builder, and Exports
 
-The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, WAV narration duration probing, deterministic audio-anchored timeline manifest generation, HTML rough-cut preview artifacts, SRT subtitle sidecar generation, FFmpeg command-plan sidecars, API/UI rough-cut queueing, and smoke tests. Actual FFmpeg video rendering, final exports, and real sample QA are still pending.
+The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, WAV narration duration probing, deterministic audio-anchored timeline manifest generation, HTML rough-cut preview artifacts, SRT subtitle sidecar generation, FFmpeg command-plan sidecars, optional FFmpeg MP4 rendering behind `MEDIA_ENABLE_FFMPEG_RENDER`, API/UI rough-cut queueing, and smoke tests. Real local FFmpeg install/manual MP4 QA, final exports, and real sample QA are still pending.
 
 ### Build tasks
 - [x] Create the media worker entrypoint and job execution pipeline
@@ -310,9 +310,12 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 - [x] Build timeline assembly logic from ordered scenes and target durations
 - [ ] Add trim/loop/fallback behavior for scene duration mismatches
 - [x] Add first-pass SRT subtitle generation pipeline
-- [ ] Add overlay and transition support
+- [x] Add overlay text support to FFmpeg command planning
+- [ ] Add transition support
 - [x] Implement FFmpeg helper modules for concat, audio overlay, subtitle burn-in, and export command planning
+- [x] Add optional FFmpeg MP4 render execution behind a feature flag
 - [x] Export first-pass rough cut preview artifacts
+- [ ] Manually verify MP4 rough-cut rendering with FFmpeg installed
 - [ ] Export final cut artifacts
 - [x] Persist timeline manifests for every rough-cut attempt
 - [x] Add rough cut preview views in the UI

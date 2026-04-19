@@ -5,7 +5,7 @@
 - queue submission persists `background_jobs`, `generation_attempts`, and planned `assets`
 - the browser worker can now execute those queued jobs in local `dry_run` mode and materialize WAV/SVG development artifacts
 - `compose_rough_cut` can now be queued after asset approval and consumed by the media worker
-- the media worker currently probes WAV narration duration, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, and an FFmpeg command-plan sidecar
+- the media worker currently probes WAV narration duration, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, an FFmpeg command-plan sidecar with scene overlay text, and optionally renders/registers a `video/mp4` rough cut when `MEDIA_ENABLE_FFMPEG_RENDER=true`
 - actual Redis-backed execution, retries, and worker progress updates are still pending
 
 ## Principles
@@ -97,6 +97,7 @@ Persisted queue payload includes:
 - rough-cut output asset id
 - subtitle output asset id and path
 - planned MP4 path and FFmpeg command-plan path
+- video output asset id when FFmpeg rendering is enabled and succeeds
 
 ### `final_export`
 Input:
