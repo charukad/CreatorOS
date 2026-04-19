@@ -14,6 +14,10 @@ import type {
   ProjectActivity,
   ProjectPayload,
   ProjectScript,
+  ManualPublishCompletePayload,
+  PublishJob,
+  PublishJobPreparePayload,
+  PublishJobSchedulePayload,
   SceneUpdatePayload,
   ScriptPromptPack,
   ScriptGeneratePayload,
@@ -157,6 +161,10 @@ export function listProjectAssets(projectId: string): Promise<Asset[]> {
   return apiRequest<Asset[]>(`/projects/${projectId}/assets`);
 }
 
+export function listProjectPublishJobs(projectId: string): Promise<PublishJob[]> {
+  return apiRequest<PublishJob[]>(`/projects/${projectId}/publish-jobs`);
+}
+
 export function getAssetContentUrl(assetId: string): string {
   return `${apiBaseUrl}/api/assets/${assetId}/content`;
 }
@@ -218,6 +226,66 @@ export function queueVisualGeneration(
 export function queueRoughCut(projectId: string): Promise<BackgroundJob> {
   return apiRequest<BackgroundJob>(`/projects/${projectId}/compose/rough-cut`, {
     method: "POST",
+  });
+}
+
+export function approveFinalVideo(
+  projectId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<ApprovalRecord> {
+  return apiRequest<ApprovalRecord>(`/projects/${projectId}/final-video/approve`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function rejectFinalVideo(
+  projectId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<ApprovalRecord> {
+  return apiRequest<ApprovalRecord>(`/projects/${projectId}/final-video/reject`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function preparePublishJob(
+  projectId: string,
+  payload: PublishJobPreparePayload,
+): Promise<PublishJob> {
+  return apiRequest<PublishJob>(`/projects/${projectId}/publish-jobs/prepare`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function approvePublishJob(
+  publishJobId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<PublishJob> {
+  return apiRequest<PublishJob>(`/publish-jobs/${publishJobId}/approve`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function schedulePublishJob(
+  publishJobId: string,
+  payload: PublishJobSchedulePayload,
+): Promise<PublishJob> {
+  return apiRequest<PublishJob>(`/publish-jobs/${publishJobId}/schedule`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function markPublishJobPublished(
+  publishJobId: string,
+  payload: ManualPublishCompletePayload,
+): Promise<PublishJob> {
+  return apiRequest<PublishJob>(`/publish-jobs/${publishJobId}/mark-published`, {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 

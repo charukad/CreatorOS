@@ -5,6 +5,10 @@ import apps.api.models  # noqa: F401
 from apps.api.db.base import Base
 from apps.api.db.session import get_db
 from apps.api.main import app
+from apps.api.models.asset import Asset
+from apps.api.models.project import Project
+from apps.api.models.project_script import ProjectScript
+from apps.api.schemas.enums import AssetStatus, AssetType, ProjectStatus, ProviderName
 from apps.api.services.background_jobs import get_background_job, mark_job_failed
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -96,6 +100,41 @@ def _create_approved_script_for_tests(client: TestClient, project_id: str) -> di
     script = script_response.json()
     client.post(f"/api/scripts/{script['id']}/approve", json={})
     return script
+
+
+def _move_project_to_final_review_for_tests(
+    session_factory: sessionmaker[Session],
+    *,
+    project_id: str,
+    script_id: str,
+) -> str:
+    with session_factory() as session:
+        project = session.get(Project, UUID(project_id))
+        script = session.get(ProjectScript, UUID(script_id))
+        assert project is not None
+        assert script is not None
+
+        rough_cut = Asset(
+            user_id=project.user_id,
+            project_id=project.id,
+            script_id=script.id,
+            scene_id=None,
+            generation_attempt_id=None,
+            asset_type=AssetType.ROUGH_CUT,
+            status=AssetStatus.READY,
+            provider_name=ProviderName.LOCAL_MEDIA,
+            file_path=f"storage/projects/{project.id}/rough-cuts/test-final.html",
+            mime_type="text/html",
+            duration_seconds=script.estimated_duration_seconds,
+            width=1080,
+            height=1920,
+            checksum="test-checksum",
+        )
+        project.status = ProjectStatus.FINAL_PENDING_APPROVAL
+        session.add(rough_cut)
+        session.add(project)
+        session.commit()
+        return str(rough_cut.id)
 
 
 def test_live_health() -> None:
@@ -820,6 +859,13 @@ def test_job_detail_includes_attempts_and_related_assets() -> None:
     assert len(detail["related_assets"]) == 1
     assert detail["related_assets"][0]["asset_type"] == "narration_audio"
     assert detail["related_assets"][0]["status"] == "planned"
+    assert len(detail["job_logs"]) == 1
+    assert detail["job_logs"][0]["event_type"] == "job_queued"
+
+    activity_response = client.get(f"/api/projects/{project_id}/activity")
+    assert activity_response.status_code == 200
+    activity = activity_response.json()
+    assert any(entry["activity_type"] == "job_queued" for entry in activity)
 
     app.dependency_overrides.clear()
 
@@ -847,6 +893,7 @@ def test_cancel_queued_generation_job_marks_attempts_and_assets_failed() -> None
     assert detail["job"]["error_message"] == "Cancelled by user."
     assert detail["generation_attempts"][0]["state"] == "cancelled"
     assert detail["related_assets"][0]["status"] == "failed"
+    assert any(log["event_type"] == "job_cancelled" for log in detail["job_logs"])
 
     jobs_response = client.get(f"/api/projects/{project_id}/jobs")
     assert jobs_response.status_code == 200
@@ -894,6 +941,7 @@ def test_retry_cancelled_job_reuses_existing_attempts_and_assets() -> None:
     assert {asset["id"] for asset in retried_detail["related_assets"]} == initial_asset_ids
     assert all(attempt["state"] == "queued" for attempt in retried_detail["generation_attempts"])
     assert all(asset["status"] == "planned" for asset in retried_detail["related_assets"])
+    assert any(log["event_type"] == "job_retried" for log in retried_detail["job_logs"])
 
     assets_response = client.get(f"/api/projects/{project_id}/assets")
     assert assets_response.status_code == 200
@@ -931,6 +979,7 @@ def test_retry_failed_job_resets_error_without_duplicate_assets() -> None:
     failed_detail = failed_detail_response.json()
     assert failed_detail["job"]["state"] == "failed"
     assert failed_detail["related_assets"][0]["status"] == "failed"
+    assert any(log["event_type"] == "job_failed" for log in failed_detail["job_logs"])
 
     retry_response = client.post(f"/api/jobs/{job_id}/retry")
     assert retry_response.status_code == 200
@@ -939,6 +988,7 @@ def test_retry_failed_job_resets_error_without_duplicate_assets() -> None:
     assert retried_detail["job"]["error_message"] is None
     assert {asset["id"] for asset in retried_detail["related_assets"]} == initial_asset_ids
     assert all(asset["status"] == "planned" for asset in retried_detail["related_assets"])
+    assert any(log["event_type"] == "job_retried" for log in retried_detail["job_logs"])
 
     app.dependency_overrides.clear()
 
@@ -976,5 +1026,201 @@ def test_job_controls_block_invalid_states() -> None:
     blocked_retry_response = client.post(f"/api/jobs/{job_id}/retry")
     assert blocked_retry_response.status_code == 409
     assert "another active job" in blocked_retry_response.json()["detail"]
+
+    app.dependency_overrides.clear()
+
+
+def test_final_video_approval_unblocks_publish_prep_with_idempotency() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Approve final video",
+        objective="Move a completed rough cut into publish prep",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    rough_cut_asset_id = _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+
+    blocked_prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Ready too early",
+            "description": "This should not prepare before final approval.",
+            "hashtags": ["#CreatorOS"],
+        },
+    )
+    assert blocked_prepare_response.status_code == 409
+    assert "final video approval" in blocked_prepare_response.json()["detail"].lower()
+
+    approval_response = client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+    assert approval_response.status_code == 200
+    approval = approval_response.json()
+    assert approval["stage"] == "final_video"
+    assert approval["decision"] == "approved"
+    assert approval["target_type"] == "asset"
+    assert approval["target_id"] == rough_cut_asset_id
+
+    project_response = client.get(f"/api/projects/{project_id}")
+    assert project_response.status_code == 200
+    assert project_response.json()["status"] == "ready_to_publish"
+
+    prepare_payload = {
+        "platform": "youtube_shorts",
+        "title": "Final publish title",
+        "description": "Approved metadata for publishing.",
+        "hashtags": ["#CreatorOS", "#Workflow"],
+        "idempotency_key": "publish-prep-1",
+    }
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json=prepare_payload,
+    )
+    assert prepare_response.status_code == 201
+    publish_job = prepare_response.json()
+    assert publish_job["status"] == "pending_approval"
+    assert publish_job["final_asset_id"] == rough_cut_asset_id
+    assert publish_job["hashtags_json"] == ["#CreatorOS", "#Workflow"]
+
+    idempotent_prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json=prepare_payload,
+    )
+    assert idempotent_prepare_response.status_code == 201
+    assert idempotent_prepare_response.json()["id"] == publish_job["id"]
+
+    list_response = client.get(f"/api/projects/{project_id}/publish-jobs")
+    assert list_response.status_code == 200
+    assert [job["id"] for job in list_response.json()] == [publish_job["id"]]
+
+    app.dependency_overrides.clear()
+
+
+def test_publish_job_approval_schedule_and_manual_publish_flow() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Publish center",
+        objective="Validate explicit publish approval and manual completion",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+    client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Publish this video",
+            "description": "Metadata that needs approval.",
+            "hashtags": ["#AI", "#CreatorOS"],
+        },
+    )
+    assert prepare_response.status_code == 201
+    publish_job_id = prepare_response.json()["id"]
+
+    blocked_schedule_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/schedule",
+        json={"scheduled_for": "2030-01-01T00:00:00+00:00"},
+    )
+    assert blocked_schedule_response.status_code == 409
+    assert "approved publish jobs" in blocked_schedule_response.json()["detail"]
+
+    approve_response = client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    assert approve_response.status_code == 200
+    assert approve_response.json()["status"] == "approved"
+
+    approvals_response = client.get(f"/api/projects/{project_id}/approvals")
+    assert approvals_response.status_code == 200
+    assert any(
+        approval["stage"] == "publish" and approval["target_id"] == publish_job_id
+        for approval in approvals_response.json()
+    )
+
+    schedule_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/schedule",
+        json={"scheduled_for": "2030-01-01T00:00:00+00:00"},
+    )
+    assert schedule_response.status_code == 200
+    assert schedule_response.json()["status"] == "scheduled"
+
+    project_response = client.get(f"/api/projects/{project_id}")
+    assert project_response.status_code == 200
+    assert project_response.json()["status"] == "scheduled"
+
+    published_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/mark-published",
+        json={
+            "external_post_id": "yt-short-123",
+            "manual_publish_notes": "Published manually after final approval.",
+        },
+    )
+    assert published_response.status_code == 200
+    assert published_response.json()["status"] == "published"
+    assert published_response.json()["external_post_id"] == "yt-short-123"
+
+    final_project_response = client.get(f"/api/projects/{project_id}")
+    assert final_project_response.status_code == 200
+    assert final_project_response.json()["status"] == "published"
+
+    app.dependency_overrides.clear()
+
+
+def test_project_publish_transitions_require_publish_job_state() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Guard publish transitions",
+        objective="Block manual status jumps without publish job state",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+    client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+
+    blocked_scheduled_response = client.post(
+        f"/api/projects/{project_id}/transition",
+        json={"target_status": "scheduled"},
+    )
+    assert blocked_scheduled_response.status_code == 409
+    assert "publish job" in blocked_scheduled_response.json()["detail"]
+
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Needs publish state",
+            "description": "Prepared but not yet approved or scheduled.",
+            "hashtags": [],
+        },
+    )
+    publish_job_id = prepare_response.json()["id"]
+    client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+
+    blocked_published_response = client.post(
+        f"/api/projects/{project_id}/transition",
+        json={"target_status": "published"},
+    )
+    assert blocked_published_response.status_code == 409
+    assert "marked as published" in blocked_published_response.json()["detail"]
 
     app.dependency_overrides.clear()

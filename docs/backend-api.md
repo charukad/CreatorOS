@@ -15,7 +15,8 @@
 - the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
 - after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, FFmpeg command-plan sidecar, and optionally a `video/mp4` rough-cut asset when FFmpeg rendering is enabled
-- job detail, safe cancel, and safe retry endpoints are implemented for operator recovery
+- job detail, project activity, job timeline logs, safe cancel, and safe retry endpoints are implemented for operator recovery
+- final-video approval and publish-job preparation are implemented with explicit publish approval before scheduling or manual published completion
 - Redis-backed execution, automated retry policy, and live worker progress updates are still planned
 
 ## Core Resources
@@ -32,12 +33,17 @@
 - `GET /api/projects`
 - `POST /api/projects/:id/transition`
 - `GET /api/projects/:id/ideas`
+- `GET /api/projects/:id/activity`
 - `GET /api/projects/:id/approvals`
 - `GET /api/projects/:id/jobs`
 - `GET /api/projects/:id/assets`
+- `GET /api/projects/:id/publish-jobs`
 - `POST /api/projects/:id/assets/approve`
 - `POST /api/projects/:id/assets/reject`
 - `POST /api/projects/:id/compose/rough-cut`
+- `POST /api/projects/:id/final-video/approve`
+- `POST /api/projects/:id/final-video/reject`
+- `POST /api/projects/:id/publish-jobs/prepare`
 - `POST /api/projects/:id/ideas/generate`
 - `GET /api/projects/:id/scripts/current`
 - `POST /api/projects/:id/scripts/generate`
@@ -64,6 +70,11 @@
 - `GET /api/jobs/:id`
 - `POST /api/jobs/:id/cancel`
 - `POST /api/jobs/:id/retry`
+
+### Publish Jobs
+- `POST /api/publish-jobs/:id/approve`
+- `POST /api/publish-jobs/:id/schedule`
+- `POST /api/publish-jobs/:id/mark-published`
 
 ## Implemented Payloads
 ### `POST /api/brand-profiles`
@@ -305,6 +316,30 @@ Behavior note:
 ### `GET /api/projects/:id/jobs`
 - returns persisted queued generation jobs for the project, newest first
 
+### `GET /api/projects/:id/activity`
+Response excerpt:
+```json
+[
+  {
+    "source_id": "uuid",
+    "source_type": "job_log",
+    "activity_type": "job_failed",
+    "title": "Job Failed",
+    "description": "Provider timed out.",
+    "level": "error",
+    "metadata_json": {
+      "background_job_id": "uuid",
+      "generation_attempt_id": "uuid"
+    },
+    "created_at": "2026-04-19T06:00:00Z"
+  }
+]
+```
+
+Behavior note:
+- returns the newest approval and job-log activity for the project
+- job-log entries include a `background_job_id` in metadata so the web app can link to the job detail screen
+
 ### `GET /api/jobs/:id`
 Response excerpt:
 ```json
@@ -333,6 +368,15 @@ Response excerpt:
       "asset_type": "narration_audio",
       "status": "failed",
       "generation_attempt_id": "uuid"
+    }
+  ],
+  "job_logs": [
+    {
+      "id": "uuid",
+      "event_type": "job_failed",
+      "level": "error",
+      "message": "Provider timed out.",
+      "metadata_json": {}
     }
   ]
 }
@@ -419,6 +463,71 @@ Behavior note:
 - every scene must have a ready visual asset and the script must have a ready narration asset
 - the media worker marks the rough-cut and subtitle assets ready, then promotes the project to `rough_cut_ready`
 
+### `POST /api/projects/:id/final-video/approve`
+Behavior note:
+- requires the project to be in `final_pending_approval`
+- uses the ready rough-cut artifact as the v1 final-review asset until final exports are implemented
+- records a `final_video` approval against the asset
+- moves the project to `ready_to_publish`
+
+### `POST /api/projects/:id/final-video/reject`
+Behavior note:
+- requires the project to be in `final_pending_approval`
+- records a `final_video` rejection against the review asset
+- moves the project back to `rough_cut_ready`
+
+### `POST /api/projects/:id/publish-jobs/prepare`
+```json
+{
+  "platform": "youtube_shorts",
+  "title": "Final publish title",
+  "description": "Approved metadata for publishing.",
+  "hashtags": ["#CreatorOS", "#Workflow"],
+  "scheduled_for": null,
+  "idempotency_key": "project-script-publish-prep"
+}
+```
+
+Behavior note:
+- requires `ready_to_publish` and an approved final-video review
+- creates a `pending_approval` publish job linked to the final-review asset
+- blocks duplicate active publish jobs for the current script
+- returns the existing publish job when the same idempotency key is reused
+
+### `GET /api/projects/:id/publish-jobs`
+- returns publish jobs for the project, newest first
+
+### `POST /api/publish-jobs/:id/approve`
+Behavior note:
+- records a `publish` approval against the publish job
+- moves the publish job from `pending_approval` to `approved`
+- does not publish or schedule content by itself
+
+### `POST /api/publish-jobs/:id/schedule`
+```json
+{
+  "scheduled_for": "2030-01-01T00:00:00+00:00"
+}
+```
+
+Behavior note:
+- requires an approved publish job
+- moves the publish job to `scheduled`
+- moves the project to `scheduled`
+
+### `POST /api/publish-jobs/:id/mark-published`
+```json
+{
+  "external_post_id": "yt-short-123",
+  "manual_publish_notes": "Published manually after final approval."
+}
+```
+
+Behavior note:
+- records manual publish completion after explicit publish approval
+- moves the publish job to `published`
+- moves the project to `published`
+
 ## Planned Next Endpoints
 - `POST /api/scripts/:id/regenerate`
 
@@ -431,13 +540,6 @@ Behavior note:
 ### Rough Cut / Final Video
 - `POST /api/projects/:id/finalize`
 - `GET /api/projects/:id/exports`
-
-### Publishing
-- `POST /api/projects/:id/publish/prepare`
-- `POST /api/publish-jobs/:id/approve`
-- `POST /api/publish-jobs/:id/schedule`
-- `POST /api/publish-jobs/:id/publish-now`
-- `GET /api/publish-jobs/:id`
 
 ### Analytics
 - `POST /api/publish-jobs/:id/sync-analytics`

@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ProjectActivityPanel } from "./project-activity-panel";
 import { ProjectContentStudio } from "./project-content-studio";
 import { ProjectForm } from "./project-form";
+import { ProjectPublishCenter } from "./project-publish-center";
 import { ProjectStatusActions } from "./project-status-actions";
 import { StatusBadge } from "./status-badge";
 import { updateProject } from "../lib/api";
@@ -14,12 +16,15 @@ import type {
   BrandProfile,
   ContentIdea,
   Project,
+  ProjectActivity,
   ProjectPayload,
   ProjectScript,
+  PublishJob,
   ScriptPromptPack,
 } from "../types/api";
 
 type ProjectDetailProps = {
+  activity: ProjectActivity[];
   assets: Asset[];
   approvals: ApprovalRecord[];
   brandProfiles: BrandProfile[];
@@ -29,6 +34,7 @@ type ProjectDetailProps = {
   jobs: BackgroundJob[];
   promptPack: ScriptPromptPack | null;
   project: Project | null;
+  publishJobs: PublishJob[];
 };
 
 function formatTimestamp(value: string): string {
@@ -36,6 +42,7 @@ function formatTimestamp(value: string): string {
 }
 
 export function ProjectDetail({
+  activity,
   assets,
   approvals,
   brandProfiles,
@@ -45,6 +52,7 @@ export function ProjectDetail({
   jobs,
   promptPack,
   project,
+  publishJobs,
 }: ProjectDetailProps) {
   const router = useRouter();
 
@@ -139,12 +147,21 @@ export function ProjectDetail({
             promptPack={promptPack}
             project={project}
           />
+          <ProjectPublishCenter
+            approvals={approvals}
+            assets={assets}
+            currentScript={currentScript}
+            project={project}
+            publishJobs={publishJobs}
+          />
+          <ProjectActivityPanel activity={activity} />
           <ProjectStatusActions
             approvals={approvals}
             assets={assets}
             currentScript={currentScript}
             jobs={jobs}
             project={project}
+            publishJobs={publishJobs}
           />
         </>
       ) : null}

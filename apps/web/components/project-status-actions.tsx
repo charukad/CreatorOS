@@ -8,7 +8,14 @@ import {
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import { transitionProjectStatus } from "../lib/api";
-import type { ApprovalRecord, Asset, BackgroundJob, Project, ProjectScript } from "../types/api";
+import type {
+  ApprovalRecord,
+  Asset,
+  BackgroundJob,
+  Project,
+  ProjectScript,
+  PublishJob,
+} from "../types/api";
 
 type ProjectStatusActionsProps = {
   approvals: ApprovalRecord[];
@@ -16,6 +23,7 @@ type ProjectStatusActionsProps = {
   currentScript: ProjectScript | null;
   jobs: BackgroundJob[];
   project: Project;
+  publishJobs: PublishJob[];
 };
 
 function buttonClassName(status: Project["status"]): string {
@@ -46,6 +54,7 @@ export function ProjectStatusActions({
   currentScript,
   jobs,
   project,
+  publishJobs,
 }: ProjectStatusActionsProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -74,12 +83,22 @@ export function ProjectStatusActions({
   const hasReadyRoughCutAsset = currentScriptAssets.some(
     (asset) => asset.status === "ready" && asset.asset_type === "rough_cut",
   );
+  const readyRoughCutAssetIds = currentScriptAssets
+    .filter((asset) => asset.status === "ready" && asset.asset_type === "rough_cut")
+    .map((asset) => asset.id);
   const latestAssetApproval =
     currentScript === null
       ? null
       : approvals.find(
           (approval) => approval.stage === "assets" && approval.target_id === currentScript.id,
         ) ?? null;
+  const latestFinalApproval =
+    approvals.find(
+      (approval) =>
+        approval.stage === "final_video" && readyRoughCutAssetIds.includes(approval.target_id),
+    ) ?? null;
+  const hasScheduledPublishJob = publishJobs.some((job) => job.status === "scheduled");
+  const hasPublishedPublishJob = publishJobs.some((job) => job.status === "published");
 
   function getBlockedReason(targetStatus: Project["status"]): string | null {
     if (targetStatus === "asset_generation" && currentScript?.status !== "approved") {
@@ -106,6 +125,25 @@ export function ProjectStatusActions({
 
     if (targetStatus === "rough_cut_ready" && !hasReadyRoughCutAsset) {
       return "Queue and run the rough-cut media worker before marking the rough cut ready.";
+    }
+
+    if (targetStatus === "final_pending_approval" && !hasReadyRoughCutAsset) {
+      return "Create a ready rough cut before starting final approval.";
+    }
+
+    if (
+      targetStatus === "ready_to_publish" &&
+      latestFinalApproval?.decision !== "approved"
+    ) {
+      return "Approve the final video before moving into publish readiness.";
+    }
+
+    if (targetStatus === "scheduled" && !hasScheduledPublishJob) {
+      return "Schedule an approved publish job before marking the project scheduled.";
+    }
+
+    if (targetStatus === "published" && !hasPublishedPublishJob) {
+      return "Mark a publish job as published before moving the project to published.";
     }
 
     return null;

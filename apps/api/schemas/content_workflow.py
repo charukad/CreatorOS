@@ -11,6 +11,7 @@ from apps.api.schemas.enums import (
     BackgroundJobType,
     ContentIdeaStatus,
     ProviderName,
+    PublishJobStatus,
     ScriptStatus,
 )
 
@@ -127,6 +128,24 @@ class VisualGenerationRequest(BaseModel):
     scene_ids: list[UUID] | None = None
 
 
+class PublishJobPrepareRequest(BaseModel):
+    platform: str = Field(min_length=1, max_length=100)
+    title: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1)
+    hashtags: list[str] = Field(default_factory=list)
+    scheduled_for: datetime | None = None
+    idempotency_key: str | None = Field(default=None, max_length=128)
+
+
+class PublishJobScheduleRequest(BaseModel):
+    scheduled_for: datetime
+
+
+class ManualPublishCompleteRequest(BaseModel):
+    external_post_id: str | None = Field(default=None, max_length=255)
+    manual_publish_notes: str | None = Field(default=None, max_length=5000)
+
+
 class BackgroundJobResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -184,6 +203,29 @@ class AssetResponse(BaseModel):
     width: int | None
     height: int | None
     checksum: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PublishJobResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    project_id: UUID
+    script_id: UUID
+    final_asset_id: UUID
+    platform: str
+    title: str
+    description: str
+    hashtags_json: list[str]
+    scheduled_for: datetime | None
+    status: PublishJobStatus
+    idempotency_key: str | None
+    external_post_id: str | None
+    manual_publish_notes: str | None
+    error_message: str | None
+    metadata_json: dict[str, Any]
     created_at: datetime
     updated_at: datetime
 

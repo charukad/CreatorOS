@@ -6,7 +6,7 @@
 - the browser worker can now execute those queued jobs in local `dry_run` mode and materialize WAV/SVG development artifacts
 - `compose_rough_cut` can now be queued after asset approval and consumed by the media worker
 - the media worker currently probes WAV narration duration, validates contiguous timeline data, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, an FFmpeg command-plan sidecar with scene overlay text, trim/loop handling, and fade transitions, and optionally renders/registers a `video/mp4` rough cut when `MEDIA_ENABLE_FFMPEG_RENDER=true`
-- job detail, safe cancel, and safe retry operations are available through the API and project page
+- job detail, job timeline logs, safe cancel, and safe retry operations are available through the API, dedicated job detail screen, and project page
 - actual Redis-backed execution, automated retry policy, and live worker progress updates are still pending
 
 ## Principles
@@ -144,3 +144,21 @@ Current manual cancel behavior:
 
 ## Job State Model
 `queued -> running -> waiting_external -> completed | failed | cancelled`
+
+## Persisted Job Logs
+The `job_logs` table records operator-facing lifecycle events. Current event types include:
+- `job_queued`
+- `job_claimed`
+- `job_progress_updated`
+- `attempt_started`
+- `attempt_completed`
+- `job_completed`
+- `job_failed`
+- `job_cancelled`
+- `job_retried`
+
+Logs include:
+- `level` for UI severity
+- `message` for human-readable diagnosis
+- `metadata_json` for structured details such as progress, worker type, scene id, or previous state
+- project, script, background job, and optional generation attempt identifiers

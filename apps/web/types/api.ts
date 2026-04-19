@@ -8,6 +8,7 @@ import type {
   BackgroundJobType,
   ContentIdeaStatus,
   ProjectStatus,
+  PublishJobStatus,
   ProviderName,
   ScriptStatus,
 } from "@creatoros/shared";
@@ -181,6 +182,24 @@ export type VisualGenerationPayload = {
   scene_ids?: string[];
 };
 
+export type PublishJobPreparePayload = {
+  platform: string;
+  title: string;
+  description: string;
+  hashtags: string[];
+  scheduled_for?: string | null;
+  idempotency_key?: string | null;
+};
+
+export type PublishJobSchedulePayload = {
+  scheduled_for: string;
+};
+
+export type ManualPublishCompletePayload = {
+  external_post_id?: string | null;
+  manual_publish_notes?: string | null;
+};
+
 export type BackgroundJob = {
   id: string;
   user_id: string;
@@ -195,6 +214,27 @@ export type BackgroundJob = {
   error_message: string | null;
   started_at: string | null;
   finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PublishJob = {
+  id: string;
+  user_id: string;
+  project_id: string;
+  script_id: string;
+  final_asset_id: string;
+  platform: string;
+  title: string;
+  description: string;
+  hashtags_json: string[];
+  scheduled_for: string | null;
+  status: PublishJobStatus;
+  idempotency_key: string | null;
+  external_post_id: string | null;
+  manual_publish_notes: string | null;
+  error_message: string | null;
+  metadata_json: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 };

@@ -17,8 +17,12 @@ from apps.api.schemas.content_workflow import (
     GenerationAttemptResponse,
     IdeaApprovalRequest,
     JobLogResponse,
+    ManualPublishCompleteRequest,
     ProjectActivityResponse,
     ProjectScriptResponse,
+    PublishJobPrepareRequest,
+    PublishJobResponse,
+    PublishJobScheduleRequest,
     SceneResponse,
     SceneUpdate,
     ScriptGenerateRequest,
@@ -64,6 +68,16 @@ from apps.api.services.generation_pipeline import (
 )
 from apps.api.services.media_pipeline import queue_rough_cut_job
 from apps.api.services.projects import get_owned_brand_profile, get_project
+from apps.api.services.publishing import (
+    approve_final_video,
+    approve_publish_job,
+    get_owned_publish_job,
+    list_project_publish_jobs,
+    mark_publish_job_published,
+    prepare_publish_job,
+    reject_final_video,
+    schedule_publish_job,
+)
 from apps.api.services.users import get_or_create_default_user
 
 router = APIRouter(tags=["content-workflow"])
@@ -208,6 +222,20 @@ def list_project_assets_route(project_id: UUID, db: DbSession) -> list[AssetResp
     return [AssetResponse.model_validate(asset) for asset in assets]
 
 
+@router.get("/projects/{project_id}/publish-jobs", response_model=list[PublishJobResponse])
+def list_project_publish_jobs_route(
+    project_id: UUID,
+    db: DbSession,
+) -> list[PublishJobResponse]:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    publish_jobs = list_project_publish_jobs(db, project)
+    return [PublishJobResponse.model_validate(publish_job) for publish_job in publish_jobs]
+
+
 @router.get("/assets/{asset_id}/content")
 def get_asset_content_route(asset_id: UUID, db: DbSession):
     user = get_or_create_default_user(db)
@@ -224,6 +252,64 @@ def get_asset_content_route(asset_id: UUID, db: DbSession):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return FileResponse(asset_path, media_type=asset.mime_type)
+
+
+@router.post("/projects/{project_id}/final-video/approve", response_model=ApprovalResponse)
+def approve_final_video_route(
+    project_id: UUID,
+    payload: ApprovalDecisionRequest,
+    db: DbSession,
+) -> ApprovalResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    current_script = get_current_script(db, project)
+    if current_script is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
+
+    try:
+        approval = approve_final_video(
+            db,
+            user=user,
+            project=project,
+            script=current_script,
+            feedback_notes=payload.feedback_notes,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return ApprovalResponse.model_validate(approval)
+
+
+@router.post("/projects/{project_id}/final-video/reject", response_model=ApprovalResponse)
+def reject_final_video_route(
+    project_id: UUID,
+    payload: ApprovalDecisionRequest,
+    db: DbSession,
+) -> ApprovalResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    current_script = get_current_script(db, project)
+    if current_script is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
+
+    try:
+        approval = reject_final_video(
+            db,
+            user=user,
+            project=project,
+            script=current_script,
+            feedback_notes=payload.feedback_notes,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return ApprovalResponse.model_validate(approval)
 
 
 @router.post(
@@ -549,6 +635,124 @@ def queue_rough_cut_route(project_id: UUID, db: DbSession) -> BackgroundJobRespo
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return BackgroundJobResponse.model_validate(job)
+
+
+@router.post(
+    "/projects/{project_id}/publish-jobs/prepare",
+    response_model=PublishJobResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def prepare_publish_job_route(
+    project_id: UUID,
+    payload: PublishJobPrepareRequest,
+    db: DbSession,
+) -> PublishJobResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    current_script = get_current_script(db, project)
+    if current_script is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
+
+    try:
+        publish_job = prepare_publish_job(
+            db,
+            user=user,
+            project=project,
+            script=current_script,
+            payload=payload,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return PublishJobResponse.model_validate(publish_job)
+
+
+@router.post("/publish-jobs/{publish_job_id}/approve", response_model=PublishJobResponse)
+def approve_publish_job_route(
+    publish_job_id: UUID,
+    payload: ApprovalDecisionRequest,
+    db: DbSession,
+) -> PublishJobResponse:
+    user = get_or_create_default_user(db)
+    publish_job = get_owned_publish_job(db, user, publish_job_id)
+    if publish_job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publish job not found")
+
+    project = get_project(db, user, publish_job.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        approved_job = approve_publish_job(
+            db,
+            user=user,
+            project=project,
+            publish_job=publish_job,
+            feedback_notes=payload.feedback_notes,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return PublishJobResponse.model_validate(approved_job)
+
+
+@router.post("/publish-jobs/{publish_job_id}/schedule", response_model=PublishJobResponse)
+def schedule_publish_job_route(
+    publish_job_id: UUID,
+    payload: PublishJobScheduleRequest,
+    db: DbSession,
+) -> PublishJobResponse:
+    user = get_or_create_default_user(db)
+    publish_job = get_owned_publish_job(db, user, publish_job_id)
+    if publish_job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publish job not found")
+
+    project = get_project(db, user, publish_job.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        scheduled_job = schedule_publish_job(
+            db,
+            project=project,
+            publish_job=publish_job,
+            payload=payload,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return PublishJobResponse.model_validate(scheduled_job)
+
+
+@router.post("/publish-jobs/{publish_job_id}/mark-published", response_model=PublishJobResponse)
+def mark_publish_job_published_route(
+    publish_job_id: UUID,
+    payload: ManualPublishCompleteRequest,
+    db: DbSession,
+) -> PublishJobResponse:
+    user = get_or_create_default_user(db)
+    publish_job = get_owned_publish_job(db, user, publish_job_id)
+    if publish_job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publish job not found")
+
+    project = get_project(db, user, publish_job.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        published_job = mark_publish_job_published(
+            db,
+            project=project,
+            publish_job=publish_job,
+            payload=payload,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return PublishJobResponse.model_validate(published_job)
 
 
 @router.post(

@@ -32,6 +32,8 @@ class ApprovalDecision(StrEnum):
 class ApprovalTargetType(StrEnum):
     CONTENT_IDEA = "content_idea"
     SCRIPT = "script"
+    ASSET = "asset"
+    PUBLISH_JOB = "publish_job"
 
 
 class ContentIdeaStatus(StrEnum):
@@ -83,5 +85,14 @@ class BackgroundJobState(StrEnum):
     RUNNING = "running"
     WAITING_EXTERNAL = "waiting_external"
     COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class PublishJobStatus(StrEnum):
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    SCHEDULED = "scheduled"
+    PUBLISHED = "published"
     FAILED = "failed"
     CANCELLED = "cancelled"

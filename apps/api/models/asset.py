@@ -75,3 +75,4 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     script = relationship("ProjectScript", back_populates="assets")
     scene = relationship("Scene", back_populates="assets")
     generation_attempt = relationship("GenerationAttempt", back_populates="assets")
+    publish_jobs = relationship("PublishJob", back_populates="final_asset")

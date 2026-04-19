@@ -25,4 +25,5 @@ class User(UUIDPrimaryKeyMixin, Base):
     generation_attempts = relationship("GenerationAttempt", back_populates="user")
     job_logs = relationship("JobLog", back_populates="user")
     projects = relationship("Project", back_populates="user")
+    publish_jobs = relationship("PublishJob", back_populates="user")
     scripts = relationship("ProjectScript", back_populates="user")

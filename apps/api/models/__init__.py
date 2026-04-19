@@ -8,6 +8,7 @@ from apps.api.models.generation_attempt import GenerationAttempt
 from apps.api.models.job_log import JobLog
 from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
+from apps.api.models.publish_job import PublishJob
 from apps.api.models.scene import Scene
 from apps.api.models.user import User
 
@@ -22,6 +23,7 @@ __all__ = [
     "JobLog",
     "Project",
     "ProjectScript",
+    "PublishJob",
     "Scene",
     "User",
 ]

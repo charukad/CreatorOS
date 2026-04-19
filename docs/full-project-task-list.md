@@ -130,6 +130,7 @@ Legend:
 - [ ] Add project activity log capturing approvals, jobs, failures, retries, and publish actions
 - [x] Add project filtering and search in the UI
 - [x] Add tests for valid and invalid project status transitions
+- [x] Add current-resource project activity timeline for approvals and job events
 
 ### Manual checks
 - [ ] Manual check: invalid state transitions are blocked in both API and UI
@@ -196,22 +197,24 @@ The repo now has a synchronous local script generator, scene persistence, script
 ## Phase 10 - Queue System, Background Jobs, and Progress Tracking
 
 Current implementation note:
-The repo now persists queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, and safe cancel/retry operations from the project page. The browser worker can execute queued browser jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, automated retry policy, logs, and live progress updates are still pending.
+The repo now persists queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, and safe cancel/retry operations from the project page and dedicated job detail screen. The browser worker can execute queued browser jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, automated retry policy, and live progress updates are still pending.
 
 ### Build tasks
 - [ ] Choose and implement the job runner architecture backed by Redis
 - [x] Add `background_jobs` persistence and job lifecycle tracking
 - [x] Implement job states `queued`, `running`, `waiting_external`, `completed`, `failed`, and `cancelled`
 - [ ] Implement retry policy per job type as defined in `docs/queue-jobs.md`
-- [ ] Add progress update hooks for long-running tasks
+- [x] Add progress update hooks for long-running tasks
 - [ ] Add idempotency handling for publish scheduling and file ingestion
-- [ ] Add job logs and per-attempt error capture
+- [x] Add persisted job logs and per-attempt error capture
 - [x] Add job detail API with generation attempt and related asset visibility
 - [x] Add project-page job operation controls for the current script queue
 - [x] Add safe queued/waiting-external job cancellation
 - [x] Add failed/cancelled job retry without duplicate asset placeholders
 - [x] Add tests for job detail, cancel, retry, failed recovery, and invalid state guards
-- [ ] Add dedicated job detail UI screens beyond the project-page job cards
+- [x] Add dedicated job detail UI screens beyond the project-page job cards
+- [x] Add project activity timeline entries for approvals and job lifecycle events
+- [x] Add tests for persisted job logs and project activity visibility
 - [ ] Add worker-aware resume support for interrupted running jobs
 
 ### Manual checks
@@ -334,17 +337,23 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 
 ## Phase 16 - Final Approval and Publishing Center
 
+Current implementation note:
+The repo now has final-video approve/reject routes, publish job persistence, approval-gated publish preparation, publish-job approval, schedule, and manual-published completion flows. The project page includes a v1 publishing center, but real platform upload adapters, thumbnails, and calendar views are still pending.
+
 ### Build tasks
-- [ ] Build publish job persistence and APIs
-- [ ] Add publish preparation flow from approved final video
+- [x] Build publish job persistence and APIs
+- [x] Add publish preparation flow from approved final video
 - [ ] Add metadata editor for title, description, hashtags, thumbnails, and platform-specific settings
-- [ ] Add schedule and publish-now flows with state validation
-- [ ] Add publish approval stage before any upload action
+- [x] Add schedule flow with state validation
+- [x] Add manual published-completion flow with state validation
+- [x] Add publish approval stage before any upload action
 - [ ] Implement platform adapter abstraction for YouTube, Facebook, TikTok, and manual publish fallback
-- [ ] Add publish safety checks so only explicitly approved publish jobs can run
-- [ ] Add idempotency keys for scheduling requests
+- [x] Add manual publish fallback record path
+- [x] Add publish safety checks so only explicitly approved publish jobs can run
+- [x] Add idempotency keys for publish preparation requests
 - [ ] Add publishing calendar and queue views in the UI
-- [ ] Add tests for publish job safety and state transitions
+- [x] Add project-page publishing center for final review, publish approval, scheduling, and manual completion
+- [x] Add tests for publish job safety and state transitions
 
 ### Manual checks
 - [ ] Manual check: publish actions are blocked until the final approval and publish approval stages are complete

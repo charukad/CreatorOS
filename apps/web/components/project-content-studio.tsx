@@ -9,6 +9,7 @@ import {
   contentIdeaStatusLabels,
   scriptStatusLabels,
 } from "@creatoros/shared";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import {
@@ -852,6 +853,12 @@ export function ProjectContentStudio({
                             ) : null}
 
                             <div className="mt-4 flex flex-wrap gap-3">
+                              <Link
+                                className="rounded-full border border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10"
+                                href={`/jobs/${job.id}`}
+                              >
+                                Open detail
+                              </Link>
                               <button
                                 className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-100 transition hover:border-amber-200/50 hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-45"
                                 disabled={!canCancelThisJob || pendingAction !== null}

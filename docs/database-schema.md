@@ -131,15 +131,23 @@ Note:
 
 ### publish_jobs
 - id
+- user_id
 - project_id
+- script_id
+- final_asset_id
 - platform
 - title
 - description
 - hashtags_json
 - scheduled_for
 - status
+- idempotency_key nullable
 - external_post_id nullable
+- manual_publish_notes nullable
+- error_message nullable
+- metadata_json
 - created_at
+- updated_at
 
 ### analytics_snapshots
 - id
@@ -180,6 +188,24 @@ Note:
 - started_at
 - finished_at
 - error_message
+
+### job_logs
+- id
+- user_id
+- project_id
+- script_id
+- background_job_id
+- generation_attempt_id nullable
+- level
+- event_type
+- message
+- metadata_json
+- created_at
+- updated_at
+
+Note:
+- job logs persist operator-visible lifecycle events such as queue, claim, progress, attempt start/completion, failure, cancellation, and retry
+- every log remains traceable to the owning project, script, and background job, with optional generation-attempt linkage
 
 ## Important Enums
 ### project.status
@@ -238,6 +264,8 @@ Note:
 ### approval.target_type
 - content_idea
 - script
+- asset
+- publish_job
 
 ### background_jobs.job_type
 - generate_audio_browser
@@ -249,6 +277,14 @@ Note:
 - running
 - waiting_external
 - completed
+- failed
+- cancelled
+
+### publish_jobs.status
+- pending_approval
+- approved
+- scheduled
+- published
 - failed
 - cancelled
 

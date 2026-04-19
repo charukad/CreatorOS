@@ -485,6 +485,52 @@ def validate_project_transition_prerequisites(
                 "created a rough-cut artifact for the current script."
             )
 
+    if target_status == ProjectStatus.FINAL_PENDING_APPROVAL:
+        if current_script is None:
+            raise ValueError(
+                f"Project cannot transition to '{target_status.value}' without a generated script."
+            )
+        if not has_ready_rough_cut(db, current_script):
+            raise ValueError(
+                "Project cannot transition to 'final_pending_approval' until a rough-cut "
+                "artifact is ready for final review."
+            )
+
+    if target_status == ProjectStatus.READY_TO_PUBLISH:
+        if current_script is None:
+            raise ValueError(
+                f"Project cannot transition to '{target_status.value}' without a generated script."
+            )
+        from apps.api.services.publishing import (
+            get_latest_ready_final_review_asset,
+            has_final_video_approval,
+        )
+
+        final_asset = get_latest_ready_final_review_asset(db, current_script)
+        if final_asset is None or not has_final_video_approval(db, project, final_asset):
+            raise ValueError(
+                "Project cannot transition to 'ready_to_publish' until the final video has "
+                "explicit approval."
+            )
+
+    if target_status == ProjectStatus.SCHEDULED:
+        from apps.api.services.publishing import has_scheduled_publish_job
+
+        if not has_scheduled_publish_job(db, project):
+            raise ValueError(
+                "Project cannot transition to 'scheduled' until an approved publish job "
+                "has been scheduled."
+            )
+
+    if target_status == ProjectStatus.PUBLISHED:
+        from apps.api.services.publishing import has_published_publish_job
+
+        if not has_published_publish_job(db, project):
+            raise ValueError(
+                "Project cannot transition to 'published' until a publish job has been "
+                "marked as published."
+            )
+
 
 def _build_idea_candidates(
     project: Project, brand_profile: BrandProfile

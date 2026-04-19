@@ -144,6 +144,13 @@ def test_browser_worker_processes_queued_generation_jobs(tmp_path: Path, monkeyp
     assert len(jobs) == 2
     assert all(job["state"] == "completed" for job in jobs)
     assert all(job["progress_percent"] == 100 for job in jobs)
+    for job in jobs:
+        detail_response = client.get(f"/api/jobs/{job['id']}")
+        assert detail_response.status_code == 200
+        event_types = {log["event_type"] for log in detail_response.json()["job_logs"]}
+        assert "job_claimed" in event_types
+        assert "job_completed" in event_types
+        assert "job_progress_updated" in event_types
 
     assets_response = client.get(f"/api/projects/{project_id}/assets")
     assert assets_response.status_code == 200
