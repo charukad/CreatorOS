@@ -64,6 +64,16 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    analytics_snapshots = relationship(
+        "AnalyticsSnapshot",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    insights = relationship(
+        "Insight",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
     job_logs = relationship(
         "JobLog",
         back_populates="project",

@@ -72,7 +72,7 @@ Legend:
 - [x] Add database session management and dependency injection
 - [ ] Add Redis connection setup
 - [x] Add structured logging and request correlation IDs
-- [ ] Add global error model matching `docs/backend-api.md`
+- [x] Add global error model matching `docs/backend-api.md`
 - [x] Add API router registration and versioned route structure
 - [x] Add auth/session placeholder or personal-user auth implementation appropriate for v1
 - [ ] Add background job submission helpers
@@ -362,16 +362,21 @@ The repo now has final-video approve/reject routes, publish job persistence, app
 
 ## Phase 17 - Analytics Sync and Learning Loop
 
+Current implementation note:
+The repo now stores manual analytics snapshots for published jobs, exposes project analytics through the API, generates first-pass engagement/duration insights, and shows an analytics panel on the project page. Real platform API sync, account-level analytics, and feeding insights back into generation prompts are still pending.
+
 ### Build tasks
-- [ ] Implement analytics snapshot persistence and APIs
+- [x] Implement analytics snapshot persistence and APIs
 - [ ] Add analytics sync job flow for published content
-- [ ] Store views, likes, comments, shares, saves, watch time, CTR, average view duration, and retention data
-- [ ] Build project analytics screens and account-level insights views
+- [x] Add manual analytics sync flow for published content
+- [x] Store views, likes, comments, shares, saves, watch time, CTR, average view duration, and retention data
+- [x] Build project analytics screen
+- [ ] Build account-level insights views
 - [ ] Add performance summaries by hook, duration, posting time, voice, and content type
-- [ ] Build insight generation and recommendation persistence
-- [ ] Add recommendation UI for strategy updates and future prompt guidance
+- [x] Build first-pass insight generation and recommendation persistence
+- [x] Add project-level recommendation UI for strategy updates
 - [ ] Feed analytics-derived learnings back into idea and script generation context
-- [ ] Add tests for analytics ingestion and insight generation behavior
+- [x] Add tests for analytics ingestion and insight generation behavior
 
 ### Manual checks
 - [ ] Manual check: analytics are clearly tied back to the originating project and publish job
@@ -380,7 +385,8 @@ The repo now has final-video approve/reject routes, publish job persistence, app
 ## Phase 18 - Observability, Reliability, and Manual Override Tooling
 
 ### Build tasks
-- [ ] Add structured logs across API, browser worker, and media worker
+- [x] Add structured logs across API, browser worker, and media worker
+- [x] Add API request correlation IDs and response headers
 - [ ] Add error reporting and correlation IDs across job chains
 - [ ] Add per-provider debug artifact storage for screenshots, HTML snapshots, and failure notes
 - [ ] Add manual retry and resume tools for browser and media jobs
@@ -396,13 +402,17 @@ The repo now has final-video approve/reject routes, publish job persistence, app
 
 ## Phase 19 - Security, Config, and Environment Hardening
 
+Current implementation note:
+The API readiness response and shared JSON log formatter now redact URL credentials plus common token, cookie, password, secret, session, and API-key fields. API/browser/media settings also validate unsafe production defaults, empty critical paths, browser worker path separation, browser provider mode, max jobs, and FFmpeg binary configuration. Full secret scanning and provider debug artifact redaction are still pending.
+
 ### Build tasks
-- [ ] Add env validation for all services
+- [x] Add env validation for all services
 - [ ] Ensure no secrets are hardcoded anywhere in code, docs, or tests
 - [ ] Add safe secret-loading patterns for local development
 - [ ] Add storage permission checks for downloads, profiles, temp files, and exports
 - [ ] Add config separation for development, testing, and production-like local environments
-- [ ] Add safe logging redaction for tokens, cookies, and provider credentials
+- [x] Add safe logging redaction for tokens, cookies, and provider credentials
+- [x] Redact connection credentials from readiness responses
 - [ ] Add validation for external file paths before ingest or processing
 - [ ] Add dependency audit and update workflow
 
@@ -419,7 +429,7 @@ The repo now has final-video approve/reject routes, publish job persistence, app
 - [ ] Add media pipeline smoke tests with sample assets
 - [ ] Add end-to-end happy-path test from project creation to final export
 - [ ] Add end-to-end failure-path tests for rejected approvals, selector failures, download mismatch, and FFmpeg failure
-- [ ] Add CI workflow for lint, typecheck, tests, and migration checks
+- [x] Add CI workflow for lint, typecheck, tests, and migration checks
 - [ ] Add release checklist for docs, env samples, migrations, and smoke tests
 - [ ] Add sample demo project data for manual validation
 

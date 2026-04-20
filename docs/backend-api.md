@@ -5,9 +5,17 @@
 - JSON request/response
 - background jobs returned as task references
 - explicit status enums
+- every API response includes an `X-Request-ID` header for operator correlation
 
 ## Personal-Use Bootstrap Note
 - until auth/session is implemented, v1 local development can attach brand profiles and projects to a single configured default user
+
+## Logging and Correlation
+- the API, browser worker, and media worker use structured JSON logs
+- API request logs include method, path, status code, duration, and request ID
+- clients may send `X-Request-ID`; otherwise the API generates one and returns it
+- log output redacts URL credentials and common token, cookie, secret, password, and API-key fields
+- `GET /api/health/ready` returns redacted connection strings so readiness checks do not expose local credentials
 
 ## Current Workflow Note
 - the current idea and script workflow runs synchronously inside the API as a local deterministic generator
@@ -17,6 +25,7 @@
 - after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, FFmpeg command-plan sidecar, and optionally a `video/mp4` rough-cut asset when FFmpeg rendering is enabled
 - job detail, project activity, job timeline logs, safe cancel, and safe retry endpoints are implemented for operator recovery
 - final-video approval and publish-job preparation are implemented with explicit publish approval before scheduling or manual published completion
+- manual analytics snapshots and first-pass insight generation are implemented for published jobs
 - Redis-backed execution, automated retry policy, and live worker progress updates are still planned
 
 ## Core Resources
@@ -34,6 +43,7 @@
 - `POST /api/projects/:id/transition`
 - `GET /api/projects/:id/ideas`
 - `GET /api/projects/:id/activity`
+- `GET /api/projects/:id/analytics`
 - `GET /api/projects/:id/approvals`
 - `GET /api/projects/:id/jobs`
 - `GET /api/projects/:id/assets`
@@ -75,6 +85,7 @@
 - `POST /api/publish-jobs/:id/approve`
 - `POST /api/publish-jobs/:id/schedule`
 - `POST /api/publish-jobs/:id/mark-published`
+- `POST /api/publish-jobs/:id/sync-analytics`
 
 ## Implemented Payloads
 ### `POST /api/brand-profiles`
@@ -528,6 +539,54 @@ Behavior note:
 - moves the publish job to `published`
 - moves the project to `published`
 
+### `POST /api/publish-jobs/:id/sync-analytics`
+```json
+{
+  "views": 1000,
+  "likes": 90,
+  "comments": 12,
+  "shares": 8,
+  "saves": 5,
+  "watch_time_seconds": 18500,
+  "ctr": 0.041,
+  "avg_view_duration": 18.5,
+  "retention_json": {
+    "three_second_hold": 0.76
+  }
+}
+```
+
+Behavior note:
+- requires the publish job to already be marked `published`
+- stores a traceable analytics snapshot for the project and publish job
+- generates first-pass insights from engagement and average-view-duration signals
+
+### `GET /api/projects/:id/analytics`
+Response excerpt:
+```json
+{
+  "snapshots": [
+    {
+      "id": "uuid",
+      "publish_job_id": "uuid",
+      "views": 1000,
+      "likes": 90,
+      "comments": 12,
+      "shares": 8,
+      "avg_view_duration": 18.5
+    }
+  ],
+  "insights": [
+    {
+      "id": "uuid",
+      "insight_type": "engagement_rate",
+      "summary": "Engagement is strong for this post...",
+      "confidence_score": 0.78
+    }
+  ]
+}
+```
+
 ## Planned Next Endpoints
 - `POST /api/scripts/:id/regenerate`
 
@@ -541,11 +600,6 @@ Behavior note:
 - `POST /api/projects/:id/finalize`
 - `GET /api/projects/:id/exports`
 
-### Analytics
-- `POST /api/publish-jobs/:id/sync-analytics`
-- `GET /api/projects/:id/analytics`
-- `GET /api/insights`
-
 ## Example Project State Machine
 `draft -> idea_pending_approval -> script_pending_approval -> asset_generation -> asset_pending_approval -> rough_cut_ready -> final_pending_approval -> ready_to_publish -> scheduled|published|archived`
 
@@ -556,21 +610,33 @@ Behavior note:
 - moving into `asset_generation` now requires the current script version to be explicitly approved
 - scene edits are only allowed while the current script is in `draft` or `rejected` state during script approval
 - moving into `rough_cut_ready` requires an approved asset set and a ready rough-cut artifact
+- moving into `ready_to_publish` requires final-video approval
+- moving into `scheduled` requires a scheduled publish job
+- moving into `published` requires a publish job marked as published
 - archived projects cannot transition further in the current implementation
 
 ## Error Model
-All errors should return:
+All API errors now return a stable envelope, and the same request ID is also returned as the `X-Request-ID` response header:
 ```json
 {
   "error": {
     "code": "STRING_CODE",
     "message": "Human readable message",
-    "details": {}
+    "details": {},
+    "request_id": "request-id-or-null"
   }
 }
 ```
 
+Common error codes:
+- `NOT_FOUND` for missing resources
+- `CONFLICT` for invalid workflow transitions or blocked operations
+- `VALIDATION_ERROR` for request body, path, or query validation failures
+- `INTERNAL_SERVER_ERROR` for unexpected failures
+
+Validation errors include FastAPI/Pydantic field diagnostics in `error.details.validation_errors`.
+
 ## Idempotency Rules
-- publish scheduling endpoints should support idempotency keys
+- publish preparation supports idempotency keys
 - asset registration should be file-hash aware
 - regeneration actions create a new attempt, never overwrite previous attempts

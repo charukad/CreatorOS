@@ -151,6 +151,8 @@ Note:
 
 ### analytics_snapshots
 - id
+- user_id
+- project_id
 - publish_job_id
 - views
 - likes
@@ -166,6 +168,9 @@ Note:
 ### insights
 - id
 - user_id
+- project_id
+- publish_job_id
+- analytics_snapshot_id
 - insight_type
 - summary
 - evidence_json

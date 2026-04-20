@@ -1,7 +1,8 @@
 from collections.abc import Generator
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import apps.api.models  # noqa: F401
+from apps.api.core.redaction import redact_sensitive_value
 from apps.api.db.base import Base
 from apps.api.db.session import get_db
 from apps.api.main import app
@@ -51,6 +52,13 @@ def _make_test_client_for_session(test_session_factory: sessionmaker[Session]) -
 
     app.dependency_overrides[get_db] = override_get_db
     return TestClient(app)
+
+
+def _error_message(response) -> str:
+    payload = response.json()
+    if "error" in payload:
+        return str(payload["error"]["message"])
+    return str(payload["detail"])
 
 
 def _create_brand_profile_for_tests(client: TestClient) -> str:
@@ -139,11 +147,74 @@ def _move_project_to_final_review_for_tests(
 
 def test_live_health() -> None:
     client = TestClient(app)
-    response = client.get("/api/health/live")
+    response = client.get("/api/health/live", headers={"X-Request-ID": "test-request-id"})
 
     assert response.status_code == 200
+    assert response.headers["X-Request-ID"] == "test-request-id"
     assert response.json()["status"] == "ok"
     assert response.json()["service"] == "api"
+
+
+def test_ready_health_redacts_connection_credentials() -> None:
+    client = TestClient(app)
+    response = client.get("/api/health/ready")
+
+    assert response.status_code == 200
+    dependencies = response.json()["dependencies"]
+    assert "creatoros:creatoros" not in dependencies["database"]
+    assert "[redacted]" in dependencies["database"]
+
+
+def test_redaction_helper_handles_urls_and_secret_assignments() -> None:
+    value = (
+        "postgresql://user:password@example.com/db?token=abc "
+        "cookie=session-value api_key=raw-key"
+    )
+
+    redacted = redact_sensitive_value(value)
+
+    assert "user:password" not in redacted
+    assert "abc" not in redacted
+    assert "session-value" not in redacted
+    assert "raw-key" not in redacted
+    assert "[redacted]" in redacted
+
+
+def test_http_errors_use_global_error_model() -> None:
+    client = _make_test_client()
+    request_id = "error-model-request"
+
+    response = client.get(f"/api/projects/{uuid4()}", headers={"X-Request-ID": request_id})
+
+    assert response.status_code == 404
+    assert response.headers["X-Request-ID"] == request_id
+    assert response.json() == {
+        "error": {
+            "code": "NOT_FOUND",
+            "message": "Project not found",
+            "details": {},
+            "request_id": request_id,
+        }
+    }
+
+    app.dependency_overrides.clear()
+
+
+def test_validation_errors_use_global_error_model() -> None:
+    client = _make_test_client()
+    request_id = "validation-error-request"
+
+    response = client.post("/api/projects", json={}, headers={"X-Request-ID": request_id})
+
+    assert response.status_code == 422
+    assert response.headers["X-Request-ID"] == request_id
+    body = response.json()
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+    assert body["error"]["message"] == "Request validation failed."
+    assert body["error"]["request_id"] == request_id
+    assert body["error"]["details"]["validation_errors"]
+
+    app.dependency_overrides.clear()
 
 
 def test_brand_profiles_crud_flow() -> None:
@@ -310,7 +381,7 @@ def test_project_transitions_block_invalid_jump() -> None:
     )
 
     assert transition_response.status_code == 409
-    assert "cannot transition" in transition_response.json()["detail"]
+    assert "cannot transition" in _error_message(transition_response)
 
     app.dependency_overrides.clear()
 
@@ -463,7 +534,7 @@ def test_project_transition_to_script_pending_requires_generated_script() -> Non
         json={"target_status": "script_pending_approval"},
     )
     assert move_to_script_response.status_code == 409
-    assert "generated script" in move_to_script_response.json()["detail"]
+    assert "generated script" in _error_message(move_to_script_response)
 
     app.dependency_overrides.clear()
 
@@ -561,7 +632,7 @@ def test_script_approval_unblocks_asset_generation() -> None:
         json={"target_status": "asset_generation"},
     )
     assert blocked_transition_response.status_code == 409
-    assert "current script is approved" in blocked_transition_response.json()["detail"]
+    assert "current script is approved" in _error_message(blocked_transition_response)
 
     approve_script_response = client.post(
         f"/api/scripts/{script_id}/approve",
@@ -698,7 +769,7 @@ def test_scene_updates_are_blocked_after_script_approval() -> None:
         json={"overlay_text": "This should not be allowed"},
     )
     assert blocked_update_response.status_code == 409
-    assert "draft or rejected" in blocked_update_response.json()["detail"]
+    assert "draft or rejected" in _error_message(blocked_update_response)
 
     app.dependency_overrides.clear()
 
@@ -805,7 +876,7 @@ def test_queue_generation_blocks_duplicate_active_job_for_same_script() -> None:
 
     duplicate_queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
     assert duplicate_queue_response.status_code == 409
-    assert "active audio generation job" in duplicate_queue_response.json()["detail"]
+    assert "active audio generation job" in _error_message(duplicate_queue_response)
 
     app.dependency_overrides.clear()
 
@@ -828,7 +899,7 @@ def test_queue_generation_requires_approved_script() -> None:
 
     queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
     assert queue_response.status_code == 409
-    assert "current script to be approved" in queue_response.json()["detail"]
+    assert "current script to be approved" in _error_message(queue_response)
 
     app.dependency_overrides.clear()
 
@@ -1011,21 +1082,21 @@ def test_job_controls_block_invalid_states() -> None:
 
     retry_queued_response = client.post(f"/api/jobs/{job_id}/retry")
     assert retry_queued_response.status_code == 409
-    assert "failed or cancelled" in retry_queued_response.json()["detail"]
+    assert "failed or cancelled" in _error_message(retry_queued_response)
 
     cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
     assert cancel_response.status_code == 200
 
     second_cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
     assert second_cancel_response.status_code == 409
-    assert "queued or waiting-external" in second_cancel_response.json()["detail"]
+    assert "queued or waiting-external" in _error_message(second_cancel_response)
 
     replacement_queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
     assert replacement_queue_response.status_code == 201
 
     blocked_retry_response = client.post(f"/api/jobs/{job_id}/retry")
     assert blocked_retry_response.status_code == 409
-    assert "another active job" in blocked_retry_response.json()["detail"]
+    assert "another active job" in _error_message(blocked_retry_response)
 
     app.dependency_overrides.clear()
 
@@ -1057,7 +1128,7 @@ def test_final_video_approval_unblocks_publish_prep_with_idempotency() -> None:
         },
     )
     assert blocked_prepare_response.status_code == 409
-    assert "final video approval" in blocked_prepare_response.json()["detail"].lower()
+    assert "final video approval" in _error_message(blocked_prepare_response).lower()
 
     approval_response = client.post(f"/api/projects/{project_id}/final-video/approve", json={})
     assert approval_response.status_code == 200
@@ -1137,7 +1208,7 @@ def test_publish_job_approval_schedule_and_manual_publish_flow() -> None:
         json={"scheduled_for": "2030-01-01T00:00:00+00:00"},
     )
     assert blocked_schedule_response.status_code == 409
-    assert "approved publish jobs" in blocked_schedule_response.json()["detail"]
+    assert "approved publish jobs" in _error_message(blocked_schedule_response)
 
     approve_response = client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
     assert approve_response.status_code == 200
@@ -1202,7 +1273,7 @@ def test_project_publish_transitions_require_publish_job_state() -> None:
         json={"target_status": "scheduled"},
     )
     assert blocked_scheduled_response.status_code == 409
-    assert "publish job" in blocked_scheduled_response.json()["detail"]
+    assert "publish job" in _error_message(blocked_scheduled_response)
 
     prepare_response = client.post(
         f"/api/projects/{project_id}/publish-jobs/prepare",
@@ -1221,6 +1292,84 @@ def test_project_publish_transitions_require_publish_job_state() -> None:
         json={"target_status": "published"},
     )
     assert blocked_published_response.status_code == 409
-    assert "marked as published" in blocked_published_response.json()["detail"]
+    assert "marked as published" in _error_message(blocked_published_response)
+
+    app.dependency_overrides.clear()
+
+
+def test_analytics_sync_requires_published_job_and_generates_insights() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Learn from analytics",
+        objective="Persist post performance and generate recommendations",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+    client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Analytics source post",
+            "description": "Metadata for analytics validation.",
+            "hashtags": ["#CreatorOS"],
+        },
+    )
+    publish_job_id = prepare_response.json()["id"]
+
+    blocked_sync_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/sync-analytics",
+        json={
+            "views": 1000,
+            "likes": 90,
+            "comments": 12,
+            "shares": 8,
+        },
+    )
+    assert blocked_sync_response.status_code == 409
+    assert "after a publish job is marked published" in _error_message(blocked_sync_response)
+
+    client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    client.post(
+        f"/api/publish-jobs/{publish_job_id}/mark-published",
+        json={"external_post_id": "post-analytics-1"},
+    )
+
+    sync_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/sync-analytics",
+        json={
+            "views": 1000,
+            "likes": 90,
+            "comments": 12,
+            "shares": 8,
+            "saves": 5,
+            "avg_view_duration": 18.5,
+            "retention_json": {"three_second_hold": 0.76},
+        },
+    )
+    assert sync_response.status_code == 201
+    snapshot = sync_response.json()
+    assert snapshot["publish_job_id"] == publish_job_id
+    assert snapshot["views"] == 1000
+    assert snapshot["avg_view_duration"] == 18.5
+
+    analytics_response = client.get(f"/api/projects/{project_id}/analytics")
+    assert analytics_response.status_code == 200
+    analytics = analytics_response.json()
+    assert len(analytics["snapshots"]) == 1
+    assert len(analytics["insights"]) >= 1
+    assert any(
+        insight["insight_type"] == "engagement_rate"
+        and "Engagement is strong" in insight["summary"]
+        for insight in analytics["insights"]
+    )
 
     app.dependency_overrides.clear()

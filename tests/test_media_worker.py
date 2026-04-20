@@ -44,6 +44,13 @@ def _make_test_client(
     return TestClient(app)
 
 
+def _error_message(response) -> str:
+    payload = response.json()
+    if "error" in payload:
+        return str(payload["error"]["message"])
+    return str(payload["detail"])
+
+
 def _create_brand_profile_for_tests(client: TestClient) -> str:
     response = client.post(
         "/api/brand-profiles",
@@ -233,7 +240,7 @@ def test_rough_cut_queue_requires_asset_approval(
 
     queue_response = client.post(f"/api/projects/{project_id}/compose/rough-cut")
     assert queue_response.status_code == 409
-    assert "Approve the current asset set" in queue_response.json()["detail"]
+    assert "Approve the current asset set" in _error_message(queue_response)
 
     app.dependency_overrides.clear()
 

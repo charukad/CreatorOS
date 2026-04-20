@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ProjectActivityPanel } from "./project-activity-panel";
+import { ProjectAnalyticsPanel } from "./project-analytics-panel";
 import { ProjectContentStudio } from "./project-content-studio";
 import { ProjectForm } from "./project-form";
 import { ProjectPublishCenter } from "./project-publish-center";
@@ -17,6 +18,7 @@ import type {
   ContentIdea,
   Project,
   ProjectActivity,
+  ProjectAnalytics,
   ProjectPayload,
   ProjectScript,
   PublishJob,
@@ -25,6 +27,7 @@ import type {
 
 type ProjectDetailProps = {
   activity: ProjectActivity[];
+  analytics: ProjectAnalytics;
   assets: Asset[];
   approvals: ApprovalRecord[];
   brandProfiles: BrandProfile[];
@@ -43,6 +46,7 @@ function formatTimestamp(value: string): string {
 
 export function ProjectDetail({
   activity,
+  analytics,
   assets,
   approvals,
   brandProfiles,
@@ -154,6 +158,7 @@ export function ProjectDetail({
             project={project}
             publishJobs={publishJobs}
           />
+          <ProjectAnalyticsPanel analytics={analytics} publishJobs={publishJobs} />
           <ProjectActivityPanel activity={activity} />
           <ProjectStatusActions
             approvals={approvals}

@@ -200,6 +200,18 @@ export type ManualPublishCompletePayload = {
   manual_publish_notes?: string | null;
 };
 
+export type AnalyticsSnapshotPayload = {
+  views: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  saves?: number | null;
+  watch_time_seconds?: number | null;
+  ctr?: number | null;
+  avg_view_duration?: number | null;
+  retention_json?: Record<string, unknown> | null;
+};
+
 export type BackgroundJob = {
   id: string;
   user_id: string;
@@ -237,6 +249,41 @@ export type PublishJob = {
   metadata_json: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+};
+
+export type AnalyticsSnapshot = {
+  id: string;
+  user_id: string;
+  project_id: string;
+  publish_job_id: string;
+  views: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  saves: number | null;
+  watch_time_seconds: number | null;
+  ctr: number | null;
+  avg_view_duration: number | null;
+  retention_json: Record<string, unknown> | null;
+  fetched_at: string;
+};
+
+export type Insight = {
+  id: string;
+  user_id: string;
+  project_id: string;
+  publish_job_id: string;
+  analytics_snapshot_id: string;
+  insight_type: string;
+  summary: string;
+  evidence_json: Record<string, unknown>;
+  confidence_score: number;
+  created_at: string;
+};
+
+export type ProjectAnalytics = {
+  snapshots: AnalyticsSnapshot[];
+  insights: Insight[];
 };
 
 export type GenerationAttempt = {
@@ -307,4 +354,13 @@ export type ProjectActivity = {
   level: string;
   metadata_json: Record<string, unknown>;
   created_at: string;
+};
+
+export type ApiErrorEnvelope = {
+  error: {
+    code: string;
+    message: string;
+    details: Record<string, unknown>;
+    request_id: string | null;
+  };
 };

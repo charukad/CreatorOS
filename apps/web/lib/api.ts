@@ -1,6 +1,9 @@
 import { apiBaseUrl } from "./env";
 import type {
+  ApiErrorEnvelope,
   Asset,
+  AnalyticsSnapshot,
+  AnalyticsSnapshotPayload,
   ApprovalDecisionPayload,
   ApprovalRecord,
   AudioGenerationPayload,
@@ -12,6 +15,7 @@ import type {
   IdeaApprovalPayload,
   Project,
   ProjectActivity,
+  ProjectAnalytics,
   ProjectPayload,
   ProjectScript,
   ManualPublishCompletePayload,
@@ -24,12 +28,37 @@ import type {
   VisualGenerationPayload,
 } from "../types/api";
 
-type ApiErrorShape = {
+type LegacyApiErrorShape = {
   detail?: string;
-  error?: {
-    message?: string;
-  };
 };
+
+export class ApiRequestError extends Error {
+  code: string;
+  details: Record<string, unknown>;
+  requestId: string | null;
+  status: number;
+
+  constructor({
+    code,
+    details,
+    message,
+    requestId,
+    status,
+  }: {
+    code: string;
+    details: Record<string, unknown>;
+    message: string;
+    requestId: string | null;
+    status: number;
+  }) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.code = code;
+    this.details = details;
+    this.requestId = requestId;
+    this.status = status;
+  }
+}
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}/api${path}`, {
@@ -42,10 +71,10 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   const rawBody = await response.text();
-  let parsedBody: (ApiErrorShape & T) | null = null;
+  let parsedBody: (Partial<ApiErrorEnvelope> & LegacyApiErrorShape & T) | null = null;
   if (rawBody) {
     try {
-      parsedBody = JSON.parse(rawBody) as ApiErrorShape & T;
+      parsedBody = JSON.parse(rawBody) as Partial<ApiErrorEnvelope> & LegacyApiErrorShape & T;
     } catch {
       if (!response.ok) {
         throw new Error(rawBody);
@@ -54,11 +83,23 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    const message =
-      parsedBody?.error?.message ??
-      parsedBody?.detail ??
-      `API request failed with status ${response.status}`;
-    throw new Error(message);
+    if (parsedBody?.error) {
+      throw new ApiRequestError({
+        code: parsedBody.error.code,
+        details: parsedBody.error.details,
+        message: parsedBody.error.message,
+        requestId: parsedBody.error.request_id,
+        status: response.status,
+      });
+    }
+
+    throw new ApiRequestError({
+      code: `HTTP_${response.status}`,
+      details: {},
+      message: parsedBody?.detail ?? `API request failed with status ${response.status}`,
+      requestId: response.headers.get("X-Request-ID"),
+      status: response.status,
+    });
   }
 
   return parsedBody as T;
@@ -135,6 +176,10 @@ export function listProjectApprovals(projectId: string): Promise<ApprovalRecord[
 
 export function listProjectActivity(projectId: string): Promise<ProjectActivity[]> {
   return apiRequest<ProjectActivity[]>(`/projects/${projectId}/activity`);
+}
+
+export function getProjectAnalytics(projectId: string): Promise<ProjectAnalytics> {
+  return apiRequest<ProjectAnalytics>(`/projects/${projectId}/analytics`);
 }
 
 export function listProjectJobs(projectId: string): Promise<BackgroundJob[]> {
@@ -284,6 +329,16 @@ export function markPublishJobPublished(
   payload: ManualPublishCompletePayload,
 ): Promise<PublishJob> {
   return apiRequest<PublishJob>(`/publish-jobs/${publishJobId}/mark-published`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function syncPublishJobAnalytics(
+  publishJobId: string,
+  payload: AnalyticsSnapshotPayload,
+): Promise<AnalyticsSnapshot> {
+  return apiRequest<AnalyticsSnapshot>(`/publish-jobs/${publishJobId}/sync-analytics`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

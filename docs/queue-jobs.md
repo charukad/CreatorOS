@@ -7,7 +7,9 @@
 - `compose_rough_cut` can now be queued after asset approval and consumed by the media worker
 - the media worker currently probes WAV narration duration, validates contiguous timeline data, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, an FFmpeg command-plan sidecar with scene overlay text, trim/loop handling, and fade transitions, and optionally renders/registers a `video/mp4` rough cut when `MEDIA_ENABLE_FFMPEG_RENDER=true`
 - job detail, job timeline logs, safe cancel, and safe retry operations are available through the API, dedicated job detail screen, and project page
+- analytics snapshots can now be manually synced for published jobs through the API and project analytics panel, with first-pass insights persisted for review
 - actual Redis-backed execution, automated retry policy, and live worker progress updates are still pending
+- automated analytics platform polling through `sync_analytics` is still pending
 
 ## Principles
 - Every long-running operation is a queued job.
@@ -123,6 +125,12 @@ Input:
 Output:
 - analytics snapshot
 - possibly new insights
+
+Current manual v1 behavior:
+- `POST /api/publish-jobs/{publish_job_id}/sync-analytics` records an operator-supplied analytics snapshot only after the publish job is marked `published`
+- the API persists engagement metrics, optional retention data, and generated project-level insights
+- the project page can display the latest snapshot and insight cards for review
+- a queue-backed worker and official platform adapters are still pending
 
 ## Retry Policy
 - browser jobs: up to 3 retries with screenshots and logs

@@ -2,6 +2,7 @@ import { ProjectDetail } from "../../../components/project-detail";
 import {
   getCurrentProjectScript,
   getProject,
+  getProjectAnalytics,
   getScriptPromptPack,
   listProjectActivity,
   listProjectAssets,
@@ -19,6 +20,7 @@ import type {
   ContentIdea,
   Project,
   ProjectActivity,
+  ProjectAnalytics,
   PublishJob,
   ProjectScript,
   ScriptPromptPack,
@@ -38,6 +40,10 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   let brandProfiles: BrandProfile[] = [];
   let ideas: ContentIdea[] = [];
   let activity: ProjectActivity[] = [];
+  let analytics: ProjectAnalytics = {
+    insights: [],
+    snapshots: [],
+  };
   let approvals: ApprovalRecord[] = [];
   let assets: Asset[] = [];
   let jobs: BackgroundJob[] = [];
@@ -52,6 +58,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       brandProfiles,
       ideas,
       activity,
+      analytics,
       approvals,
       jobs,
       assets,
@@ -62,6 +69,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       listBrandProfiles(),
       listProjectIdeas(projectId),
       listProjectActivity(projectId),
+      getProjectAnalytics(projectId),
       listProjectApprovals(projectId),
       listProjectJobs(projectId),
       listProjectAssets(projectId),
@@ -79,6 +87,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   return (
     <ProjectDetail
       activity={activity}
+      analytics={analytics}
       assets={assets}
       approvals={approvals}
       brandProfiles={brandProfiles}

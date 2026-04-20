@@ -55,3 +55,13 @@ class PublishJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     project = relationship("Project", back_populates="publish_jobs")
     script = relationship("ProjectScript", back_populates="publish_jobs")
     final_asset = relationship("Asset", back_populates="publish_jobs")
+    analytics_snapshots = relationship(
+        "AnalyticsSnapshot",
+        back_populates="publish_job",
+        cascade="all, delete-orphan",
+    )
+    insights = relationship(
+        "Insight",
+        back_populates="publish_job",
+        cascade="all, delete-orphan",
+    )

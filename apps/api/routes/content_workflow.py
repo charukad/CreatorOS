@@ -9,6 +9,8 @@ from apps.api.core.config import get_settings
 from apps.api.db.session import get_db
 from apps.api.schemas.approvals import ApprovalDecisionRequest, ApprovalResponse
 from apps.api.schemas.content_workflow import (
+    AnalyticsSnapshotRequest,
+    AnalyticsSnapshotResponse,
     AssetResponse,
     AudioGenerationRequest,
     BackgroundJobDetailResponse,
@@ -16,9 +18,11 @@ from apps.api.schemas.content_workflow import (
     ContentIdeaResponse,
     GenerationAttemptResponse,
     IdeaApprovalRequest,
+    InsightResponse,
     JobLogResponse,
     ManualPublishCompleteRequest,
     ProjectActivityResponse,
+    ProjectAnalyticsResponse,
     ProjectScriptResponse,
     PublishJobPrepareRequest,
     PublishJobResponse,
@@ -29,6 +33,7 @@ from apps.api.schemas.content_workflow import (
     ScriptPromptPackResponse,
     VisualGenerationRequest,
 )
+from apps.api.services.analytics import list_project_analytics, sync_publish_job_analytics
 from apps.api.services.approvals import list_project_approvals
 from apps.api.services.assets import (
     approve_current_script_assets,
@@ -158,6 +163,23 @@ def list_project_activity_route(project_id: UUID, db: DbSession) -> list[Project
 
     activity = [*approval_entries, *job_log_entries]
     return sorted(activity, key=lambda entry: entry.created_at, reverse=True)[:80]
+
+
+@router.get("/projects/{project_id}/analytics", response_model=ProjectAnalyticsResponse)
+def get_project_analytics_route(project_id: UUID, db: DbSession) -> ProjectAnalyticsResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    snapshots, insights = list_project_analytics(db, project)
+    return ProjectAnalyticsResponse(
+        snapshots=[
+            AnalyticsSnapshotResponse.model_validate(snapshot)
+            for snapshot in snapshots
+        ],
+        insights=[InsightResponse.model_validate(insight) for insight in insights],
+    )
 
 
 @router.get("/projects/{project_id}/jobs", response_model=list[BackgroundJobResponse])
@@ -753,6 +775,29 @@ def mark_publish_job_published_route(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return PublishJobResponse.model_validate(published_job)
+
+
+@router.post(
+    "/publish-jobs/{publish_job_id}/sync-analytics",
+    response_model=AnalyticsSnapshotResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def sync_publish_job_analytics_route(
+    publish_job_id: UUID,
+    payload: AnalyticsSnapshotRequest,
+    db: DbSession,
+) -> AnalyticsSnapshotResponse:
+    user = get_or_create_default_user(db)
+    publish_job = get_owned_publish_job(db, user, publish_job_id)
+    if publish_job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publish job not found")
+
+    try:
+        snapshot = sync_publish_job_analytics(db, publish_job=publish_job, payload=payload)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return AnalyticsSnapshotResponse.model_validate(snapshot)
 
 
 @router.post(

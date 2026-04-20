@@ -18,11 +18,13 @@ class User(UUIDPrimaryKeyMixin, Base):
     )
 
     approvals = relationship("Approval", back_populates="user")
+    analytics_snapshots = relationship("AnalyticsSnapshot", back_populates="user")
     assets = relationship("Asset", back_populates="user")
     background_jobs = relationship("BackgroundJob", back_populates="user")
     brand_profiles = relationship("BrandProfile", back_populates="user")
     content_ideas = relationship("ContentIdea", back_populates="user")
     generation_attempts = relationship("GenerationAttempt", back_populates="user")
+    insights = relationship("Insight", back_populates="user")
     job_logs = relationship("JobLog", back_populates="user")
     projects = relationship("Project", back_populates="user")
     publish_jobs = relationship("PublishJob", back_populates="user")

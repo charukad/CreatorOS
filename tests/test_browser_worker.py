@@ -41,6 +41,13 @@ def _make_test_client(
     return TestClient(app)
 
 
+def _error_message(response) -> str:
+    payload = response.json()
+    if "error" in payload:
+        return str(payload["error"]["message"])
+    return str(payload["detail"])
+
+
 def _create_brand_profile_for_tests(client: TestClient) -> str:
     response = client.post(
         "/api/brand-profiles",
@@ -209,7 +216,7 @@ def test_asset_review_routes_update_status_and_approval_history(
         json={"target_status": "rough_cut_ready"},
     )
     assert blocked_transition_response.status_code == 409
-    assert "asset set has been explicitly approved" in blocked_transition_response.json()["detail"]
+    assert "asset set has been explicitly approved" in _error_message(blocked_transition_response)
 
     approve_assets_response = client.post(f"/api/projects/{project_id}/assets/approve", json={})
     assert approve_assets_response.status_code == 200
@@ -229,9 +236,9 @@ def test_asset_review_routes_update_status_and_approval_history(
         json={"target_status": "rough_cut_ready"},
     )
     assert blocked_until_media_response.status_code == 409
-    assert "media worker has created a rough-cut artifact" in blocked_until_media_response.json()[
-        "detail"
-    ]
+    assert "media worker has created a rough-cut artifact" in _error_message(
+        blocked_until_media_response
+    )
 
     app.dependency_overrides.clear()
 

@@ -146,6 +146,18 @@ class ManualPublishCompleteRequest(BaseModel):
     manual_publish_notes: str | None = Field(default=None, max_length=5000)
 
 
+class AnalyticsSnapshotRequest(BaseModel):
+    views: int = Field(ge=0)
+    likes: int = Field(default=0, ge=0)
+    comments: int = Field(default=0, ge=0)
+    shares: int = Field(default=0, ge=0)
+    saves: int | None = Field(default=None, ge=0)
+    watch_time_seconds: int | None = Field(default=None, ge=0)
+    ctr: float | None = Field(default=None, ge=0)
+    avg_view_duration: float | None = Field(default=None, ge=0)
+    retention_json: dict[str, Any] | None = None
+
+
 class BackgroundJobResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -228,6 +240,45 @@ class PublishJobResponse(BaseModel):
     metadata_json: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+
+
+class AnalyticsSnapshotResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    project_id: UUID
+    publish_job_id: UUID
+    views: int
+    likes: int
+    comments: int
+    shares: int
+    saves: int | None
+    watch_time_seconds: int | None
+    ctr: float | None
+    avg_view_duration: float | None
+    retention_json: dict[str, Any] | None
+    fetched_at: datetime
+
+
+class InsightResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    project_id: UUID
+    publish_job_id: UUID
+    analytics_snapshot_id: UUID
+    insight_type: str
+    summary: str
+    evidence_json: dict[str, Any]
+    confidence_score: float
+    created_at: datetime
+
+
+class ProjectAnalyticsResponse(BaseModel):
+    snapshots: list[AnalyticsSnapshotResponse]
+    insights: list[InsightResponse]
 
 
 class JobLogResponse(BaseModel):
