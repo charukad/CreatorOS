@@ -244,6 +244,10 @@ export function listProjectAssets(projectId: string): Promise<Asset[]> {
   return apiRequest<Asset[]>(`/projects/${projectId}/assets`);
 }
 
+export function getAsset(assetId: string): Promise<Asset> {
+  return apiRequest<Asset>(`/assets/${assetId}`);
+}
+
 export function listProjectPublishJobs(projectId: string): Promise<PublishJob[]> {
   return apiRequest<PublishJob[]>(`/projects/${projectId}/publish-jobs`);
 }
@@ -392,11 +396,41 @@ export function approveProjectAssets(
   });
 }
 
+export function approveAsset(
+  assetId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<ApprovalRecord> {
+  return apiRequest<ApprovalRecord>(`/assets/${assetId}/approve`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function rejectProjectAssets(
   projectId: string,
   payload: ApprovalDecisionPayload = {},
 ): Promise<ApprovalRecord> {
   return apiRequest<ApprovalRecord>(`/projects/${projectId}/assets/reject`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function rejectAsset(
+  assetId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<ApprovalRecord> {
+  return apiRequest<ApprovalRecord>(`/assets/${assetId}/reject`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function regenerateAsset(
+  assetId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<BackgroundJob> {
+  return apiRequest<BackgroundJob>(`/assets/${assetId}/regenerate`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

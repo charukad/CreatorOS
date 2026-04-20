@@ -21,6 +21,7 @@
 - the current idea and script workflow runs synchronously inside the API as a local deterministic generator
 - asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
 - the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
+- browser output ingestion now persists checksums, keeps regeneration paths attempt-specific, logs duplicate asset checksums, and quarantines mismatched downloads
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
 - after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, FFmpeg command-plan sidecar, and optionally a `video/mp4` rough-cut asset when FFmpeg rendering is enabled
 - job detail, project activity, job timeline logs, safe cancel, and safe retry endpoints are implemented for operator recovery
@@ -77,7 +78,11 @@
 - `PATCH /api/scenes/:id`
 
 ### Asset Files
+- `GET /api/assets/:id`
 - `GET /api/assets/:id/content`
+- `POST /api/assets/:id/approve`
+- `POST /api/assets/:id/reject`
+- `POST /api/assets/:id/regenerate`
 
 ### Jobs
 - `GET /api/jobs/:id`
@@ -496,6 +501,45 @@ Behavior note:
 - ready assets from the current script are marked `rejected`
 - the project moves back into `asset_generation` so you can queue another pass
 
+### `GET /api/assets/:id`
+- returns one owned asset record, including file path, mime type, duration, dimensions, checksum, scene id, and generation attempt id
+
+### `POST /api/assets/:id/approve`
+```json
+{
+  "feedback_notes": "This scene visual is approved."
+}
+```
+
+Behavior note:
+- records an `assets`-stage approval targeted at the individual asset
+- requires the project to be in `asset_pending_approval` and the asset to be `ready`
+- writes a project event so the asset decision appears in project activity
+
+### `POST /api/assets/:id/reject`
+```json
+{
+  "feedback_notes": "Regenerate this scene with clearer UI detail."
+}
+```
+
+Behavior note:
+- records an `assets`-stage rejection targeted at the individual asset
+- marks the selected asset `rejected`
+- moves the project back into `asset_generation` so a replacement can be queued
+
+### `POST /api/assets/:id/regenerate`
+```json
+{
+  "feedback_notes": "Try a more specific visual direction."
+}
+```
+
+Behavior note:
+- supports narration and scene image assets from the current script
+- rejects the selected ready asset when needed, then queues a new browser generation job for the matching asset scope
+- regeneration creates new generation attempts and new planned asset paths instead of overwriting the rejected artifact
+
 ### `GET /api/assets/:id/content`
 - streams the stored asset file for preview
 - access is limited to files inside the configured storage root
@@ -646,12 +690,6 @@ Response excerpt:
 
 ## Planned Next Endpoints
 - `POST /api/scripts/:id/regenerate`
-
-### Assets
-- `GET /api/projects/:id/assets`
-- `POST /api/assets/:id/approve`
-- `POST /api/assets/:id/reject`
-- `POST /api/assets/:id/regenerate`
 
 ### Rough Cut / Final Video
 - `POST /api/projects/:id/finalize`

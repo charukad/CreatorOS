@@ -7,6 +7,7 @@ Use Playwright-based browser automation to operate subscription-based tools thro
 - the browser worker can already claim queued narration and visual jobs from the database
 - local development currently uses a `dry_run` provider mode that writes WAV narration placeholders and SVG visual placeholders
 - dry-run providers now write prompt/debug notes under per-provider `debug` folders and job logs link to those artifact paths
+- browser worker ingestion now hashes materialized files, logs duplicate checksums, and quarantines mismatched download counts under project storage for manual review
 - live Playwright navigation, selectors, screenshots, and download handling are still pending for the real providers
 
 ## Supported Providers in v1

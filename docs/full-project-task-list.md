@@ -55,7 +55,7 @@ Legend:
 - [ ] Add created/updated timestamps consistently
 - [ ] Add immutable versioning strategy for scripts and generation attempts
 - [ ] Add audit-friendly approval history persistence
-- [ ] Add checksum persistence for ingested files
+- [x] Add checksum persistence for ingested files
 - [ ] Add migration scripts for the full initial schema
 - [x] Add seed data helpers for local development
 - [x] Add repository/service-layer persistence helpers for the main domain entities
@@ -277,7 +277,7 @@ There is now a dry-run Flow-style provider that produces local SVG scene artifac
 - [ ] Add scene prompt submission for single-scene and batch flows
 - [ ] Add completion detection for generated visuals
 - [ ] Add clip/image download handling
-- [ ] Map downloaded outputs back to project, scene, and generation attempt records
+- [x] Map downloaded outputs back to project, scene, and generation attempt records
 - [ ] Add retry and timeout handling
 - [ ] Add selector fallback strategy where reasonable
 - [x] Add smoke tests or dry-run scripts for Flow automation
@@ -290,18 +290,18 @@ There is now a dry-run Flow-style provider that produces local SVG scene artifac
 ## Phase 14 - Download Manager and Asset Registry
 
 Current implementation note:
-The worker now moves dry-run outputs into canonical project storage paths, and the project page can preview and approve or reject the current asset set. File hashing, quarantine handling, and asset-level regeneration are still pending.
+The worker now moves dry-run outputs into canonical project storage paths, computes checksums, logs duplicate checksums, quarantines mismatched download counts, and the project page can preview, approve, reject, or regenerate individual assets. Live-provider download watcher/interception is still pending.
 
 ### Build tasks
 - [ ] Implement download watcher or explicit ingest flow for browser outputs
-- [ ] Add file hash calculation and duplicate detection
+- [x] Add file hash calculation and duplicate detection
 - [x] Add canonical storage path generation under `storage/projects/{project_id}`
 - [x] Move files from temporary download folders into permanent storage
-- [ ] Register assets with metadata including file path, mime type, duration, resolution, checksum, scene link, and attempt link
-- [ ] Add quarantine path for unknown or mismatched downloads
-- [ ] Add asset approval/rejection/regeneration APIs
+- [x] Register assets with metadata including file path, mime type, duration, resolution, checksum, scene link, and attempt link
+- [x] Add quarantine path for unknown or mismatched downloads
+- [x] Add asset approval/rejection/regeneration APIs
 - [x] Add asset gallery and preview UI
-- [ ] Add tests for download ingestion mapping and duplicate handling
+- [x] Add tests for download ingestion mapping and duplicate handling
 
 ### Manual checks
 - [ ] Manual check: files are stored in predictable project folders and can be traced back to their source attempt

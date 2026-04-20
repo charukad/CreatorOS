@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import {
+  approveAsset,
   approveProjectAssets,
   cancelJob,
   queueAudioGeneration,
@@ -23,6 +24,8 @@ import {
   getAssetContentUrl,
   generateProjectScript,
   queueRoughCut,
+  regenerateAsset,
+  rejectAsset,
   rejectProjectAssets,
   rejectIdea,
   rejectScript,
@@ -121,6 +124,10 @@ function assetSortPriority(assetType: Asset["asset_type"]): number {
     default:
       return 4;
   }
+}
+
+function canRegenerateAssetType(assetType: Asset["asset_type"]): boolean {
+  return assetType === "narration_audio" || assetType === "scene_image";
 }
 
 function formatWorkflowValue(value: string): string {
@@ -1007,6 +1014,16 @@ export function ProjectContentStudio({
                                 : asset.asset_type === "subtitle_file"
                                   ? "Subtitle sidecar"
                                   : "Project-level asset";
+                        const activeRegenerationJob =
+                          asset.asset_type === "narration_audio" ? activeAudioJob : activeVisualJob;
+                        const canApproveThisAsset = canReviewAssets && asset.status === "ready";
+                        const canRejectThisAsset = canReviewAssets && asset.status === "ready";
+                        const canRegenerateThisAsset =
+                          canRegenerateAssetType(asset.asset_type) &&
+                          (asset.status === "ready" || asset.status === "rejected") &&
+                          (project.status === "asset_pending_approval" ||
+                            project.status === "asset_generation") &&
+                          activeRegenerationJob === null;
 
                         return (
                           <article
@@ -1089,7 +1106,68 @@ export function ProjectContentStudio({
                               {asset.duration_seconds ? (
                                 <p>Duration target: {asset.duration_seconds}s</p>
                               ) : null}
+                              {asset.width && asset.height ? (
+                                <p>
+                                  Resolution target: {asset.width}x{asset.height}
+                                </p>
+                              ) : null}
+                              {asset.checksum ? (
+                                <p>Checksum: {asset.checksum.slice(0, 16)}...</p>
+                              ) : null}
                             </div>
+
+                            {canApproveThisAsset || canRejectThisAsset || canRegenerateThisAsset ? (
+                              <div className="mt-4 flex flex-wrap gap-3">
+                                {canApproveThisAsset ? (
+                                  <button
+                                    className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                    disabled={pendingAction !== null}
+                                    onClick={() =>
+                                      runAction(`approve-asset-${asset.id}`, () =>
+                                        approveAsset(asset.id),
+                                      )
+                                    }
+                                    type="button"
+                                  >
+                                    {pendingAction === `approve-asset-${asset.id}`
+                                      ? "Approving..."
+                                      : "Approve asset"}
+                                  </button>
+                                ) : null}
+                                {canRejectThisAsset ? (
+                                  <button
+                                    className="rounded-full border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                    disabled={pendingAction !== null}
+                                    onClick={() =>
+                                      runAction(`reject-asset-${asset.id}`, () =>
+                                        rejectAsset(asset.id),
+                                      )
+                                    }
+                                    type="button"
+                                  >
+                                    {pendingAction === `reject-asset-${asset.id}`
+                                      ? "Rejecting..."
+                                      : "Reject asset"}
+                                  </button>
+                                ) : null}
+                                {canRegenerateThisAsset ? (
+                                  <button
+                                    className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                    disabled={pendingAction !== null}
+                                    onClick={() =>
+                                      runAction(`regenerate-asset-${asset.id}`, () =>
+                                        regenerateAsset(asset.id),
+                                      )
+                                    }
+                                    type="button"
+                                  >
+                                    {pendingAction === `regenerate-asset-${asset.id}`
+                                      ? "Queueing..."
+                                      : "Regenerate asset"}
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </article>
                         );
                       })}

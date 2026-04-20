@@ -9,6 +9,7 @@
 - job detail, job timeline logs, safe cancel, and safe retry operations are available through the API, dedicated job detail screen, and project page
 - queued browser/media job payloads include a `correlation_id` that is also copied into queue log metadata
 - browser provider debug artifacts are captured into per-provider debug folders and linked from job logs
+- browser output ingestion now persists file checksums, writes per-attempt asset paths, logs duplicate checksums, and quarantines mismatched download counts for manual review
 - analytics snapshots can now be manually synced for published jobs through the API and project analytics panel, with first-pass insights persisted for review
 - actual Redis-backed execution, automated retry policy, and live worker progress updates are still pending
 - automated analytics platform polling through `sync_analytics` is still pending
@@ -54,6 +55,7 @@ Persisted queue payload includes:
 - script version
 - optional voice label
 - narration segments derived from the current prompt pack
+- a planned narration asset path with the generation attempt id embedded so regeneration does not overwrite older artifacts
 
 ### `generate_visuals_browser`
 Input:
@@ -70,6 +72,7 @@ Persisted queue payload includes:
 - script version
 - selected scene ids
 - scene prompt excerpts for the browser worker handoff
+- planned scene asset paths with the generation attempt id embedded so every output stays traceable
 
 ### `ingest_download`
 Input:
@@ -175,4 +178,6 @@ Logs include:
 
 Additional current recovery events:
 - `debug_artifacts_captured`
+- `downloads_quarantined`
+- `duplicate_asset_detected`
 - `manual_intervention_required`

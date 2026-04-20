@@ -118,6 +118,10 @@ Note:
 - created_at
 - updated_at
 
+Note:
+- browser-generated asset paths include the generation attempt id segment so regenerated files do not overwrite older artifacts
+- checksum is populated when the worker materializes a downloaded file into canonical project storage
+
 ### approvals
 - id
 - user_id
@@ -226,6 +230,7 @@ Note:
 
 Note:
 - job logs persist operator-visible lifecycle events such as queue, claim, progress, attempt start/completion, debug artifact capture, failure, cancellation, retry, and manual intervention required
+- download mismatch and duplicate checksum events are logged as `downloads_quarantined` and `duplicate_asset_detected`
 - every log remains traceable to the owning project, script, and background job, with optional generation-attempt linkage
 
 ## Important Enums

@@ -140,7 +140,7 @@ def queue_audio_generation_job(
             file_path=build_project_storage_path(
                 project.id,
                 "audio",
-                f"script-v{script.version_number}-narration.wav",
+                f"script-v{script.version_number}-attempt-{attempt.id.hex[:8]}-narration.wav",
             ),
             mime_type="audio/wav",
             duration_seconds=script.estimated_duration_seconds,
@@ -244,10 +244,15 @@ def queue_visual_generation_job(
                 file_path=build_project_storage_path(
                     project.id,
                     "scenes",
-                    f"scene-{scene.scene_order:02d}-{_slugify(scene.title)}.svg",
+                    (
+                        f"scene-{scene.scene_order:02d}-{_slugify(scene.title)}-"
+                        f"attempt-{attempt.id.hex[:8]}.svg"
+                    ),
                 ),
                 mime_type="image/svg+xml",
                 duration_seconds=scene.estimated_duration_seconds,
+                width=1080,
+                height=1920,
             )
         )
 
@@ -261,11 +266,12 @@ def _validate_generation_queue(project: Project, script: ProjectScript) -> None:
     allowed_project_statuses = {
         ProjectStatus.SCRIPT_PENDING_APPROVAL,
         ProjectStatus.ASSET_GENERATION,
+        ProjectStatus.ASSET_PENDING_APPROVAL,
     }
     if project.status not in allowed_project_statuses:
         raise ValueError(
             "Generation jobs can only be queued while the project is in script approval "
-            "or asset generation."
+            "asset generation, or asset review."
         )
 
     if script.project_id != project.id:
@@ -309,7 +315,10 @@ def _select_prompt_pack_scenes(
 
 
 def _promote_project_to_asset_generation(db: Session, project: Project) -> None:
-    if project.status == ProjectStatus.SCRIPT_PENDING_APPROVAL:
+    if project.status in {
+        ProjectStatus.SCRIPT_PENDING_APPROVAL,
+        ProjectStatus.ASSET_PENDING_APPROVAL,
+    }:
         project.status = ProjectStatus.ASSET_GENERATION
         db.add(project)
 

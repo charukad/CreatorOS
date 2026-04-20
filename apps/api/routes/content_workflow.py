@@ -35,13 +35,17 @@ from apps.api.schemas.content_workflow import (
     ScriptPromptPackResponse,
     VisualGenerationRequest,
 )
+from apps.api.schemas.enums import AssetType
 from apps.api.services.analytics import list_project_analytics, sync_publish_job_analytics
 from apps.api.services.approvals import list_project_approvals
 from apps.api.services.assets import (
+    approve_asset,
     approve_current_script_assets,
     get_asset,
+    reject_asset,
     reject_current_script_assets,
     resolve_asset_file_path,
+    stage_asset_rejection,
 )
 from apps.api.services.background_jobs import (
     cancel_background_job,
@@ -75,7 +79,7 @@ from apps.api.services.generation_pipeline import (
     queue_visual_generation_job,
 )
 from apps.api.services.media_pipeline import queue_rough_cut_job
-from apps.api.services.project_events import list_project_events
+from apps.api.services.project_events import create_project_event, list_project_events
 from apps.api.services.project_export import (
     build_project_export_bundle,
     encode_project_export_bundle,
@@ -293,6 +297,168 @@ def list_project_assets_route(project_id: UUID, db: DbSession) -> list[AssetResp
 
     assets = list_project_assets(db, project)
     return [AssetResponse.model_validate(asset) for asset in assets]
+
+
+@router.get("/assets/{asset_id}", response_model=AssetResponse)
+def get_asset_route(asset_id: UUID, db: DbSession) -> AssetResponse:
+    user = get_or_create_default_user(db)
+    asset = get_asset(db, user, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+
+    return AssetResponse.model_validate(asset)
+
+
+@router.post("/assets/{asset_id}/approve", response_model=ApprovalResponse)
+def approve_asset_route(
+    asset_id: UUID,
+    payload: ApprovalDecisionRequest,
+    db: DbSession,
+) -> ApprovalResponse:
+    user = get_or_create_default_user(db)
+    asset = get_asset(db, user, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+
+    project = get_project(db, user, asset.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        approval = approve_asset(
+            db,
+            user=user,
+            project=project,
+            asset=asset,
+            feedback_notes=payload.feedback_notes,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return ApprovalResponse.model_validate(approval)
+
+
+@router.post("/assets/{asset_id}/reject", response_model=ApprovalResponse)
+def reject_asset_route(
+    asset_id: UUID,
+    payload: ApprovalDecisionRequest,
+    db: DbSession,
+) -> ApprovalResponse:
+    user = get_or_create_default_user(db)
+    asset = get_asset(db, user, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+
+    project = get_project(db, user, asset.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        approval = reject_asset(
+            db,
+            user=user,
+            project=project,
+            asset=asset,
+            feedback_notes=payload.feedback_notes,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return ApprovalResponse.model_validate(approval)
+
+
+@router.post(
+    "/assets/{asset_id}/regenerate",
+    response_model=BackgroundJobResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def regenerate_asset_route(
+    asset_id: UUID,
+    payload: ApprovalDecisionRequest,
+    db: DbSession,
+) -> BackgroundJobResponse:
+    user = get_or_create_default_user(db)
+    asset = get_asset(db, user, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+
+    project = get_project(db, user, asset.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    script = get_project_script(db, user, asset.script_id)
+    if script is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
+
+    current_script = get_current_script(db, project)
+    if current_script is None or current_script.id != script.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only assets from the current script can be regenerated.",
+        )
+
+    if asset.asset_type not in {
+        AssetType.NARRATION_AUDIO,
+        AssetType.SCENE_IMAGE,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only narration and scene image assets can be regenerated.",
+        )
+
+    try:
+        stage_asset_rejection(
+            db,
+            user=user,
+            project=project,
+            asset=asset,
+            feedback_notes=payload.feedback_notes,
+            allow_already_rejected=True,
+        )
+        create_project_event(
+            db,
+            project,
+            event_type="asset_regeneration_requested",
+            title="Asset regeneration requested",
+            description=payload.feedback_notes,
+            level="warning",
+            metadata={
+                "asset_id": str(asset.id),
+                "asset_type": asset.asset_type.value,
+                "scene_id": str(asset.scene_id) if asset.scene_id is not None else None,
+            },
+        )
+        prompt_pack = _build_script_prompt_pack_for_route(
+            db,
+            user=user,
+            project=project,
+            script=script,
+        )
+        if asset.asset_type == AssetType.NARRATION_AUDIO:
+            job = queue_audio_generation_job(
+                db,
+                user=user,
+                project=project,
+                script=script,
+                prompt_pack=prompt_pack,
+                payload=AudioGenerationRequest(),
+            )
+        else:
+            if asset.scene_id is None:
+                raise ValueError("Scene visual assets must include a scene id before regeneration.")
+
+            job = queue_visual_generation_job(
+                db,
+                user=user,
+                project=project,
+                script=script,
+                prompt_pack=prompt_pack,
+                payload=VisualGenerationRequest(scene_ids=[asset.scene_id]),
+            )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return BackgroundJobResponse.model_validate(job)
 
 
 @router.get("/projects/{project_id}/publish-jobs", response_model=list[PublishJobResponse])
@@ -965,6 +1131,29 @@ def update_scene_route(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return SceneResponse.model_validate(updated_scene)
+
+
+def _build_script_prompt_pack_for_route(
+    db: Session,
+    *,
+    user,
+    project,
+    script,
+) -> ScriptPromptPackResponse:
+    brand_profile = get_owned_brand_profile(db, user, project.brand_profile_id)
+    if brand_profile is None:
+        raise ValueError("Brand profile not found.")
+
+    source_idea = get_content_idea(db, user, script.content_idea_id)
+    if source_idea is None:
+        raise ValueError("Source idea not found.")
+
+    return build_script_prompt_pack(
+        project=project,
+        brand_profile=brand_profile,
+        approved_idea=source_idea,
+        script=script,
+    )
 
 
 def _job_detail_response(db: Session, job) -> BackgroundJobDetailResponse:
