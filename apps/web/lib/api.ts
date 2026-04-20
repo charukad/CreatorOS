@@ -15,6 +15,7 @@ import type {
   BrandPromptContext,
   ContentIdea,
   IdeaApprovalPayload,
+  IdeaGeneratePayload,
   Project,
   ProjectActivity,
   ProjectAnalytics,
@@ -29,6 +30,7 @@ import type {
   PublishJobSchedulePayload,
   ProjectExport,
   ProjectManualOverridePayload,
+  SceneReorderPayload,
   SceneUpdatePayload,
   ScriptPromptPack,
   ScriptGeneratePayload,
@@ -273,9 +275,13 @@ export function getAssetContentUrl(assetId: string): string {
   return `${apiBaseUrl}/api/assets/${assetId}/content`;
 }
 
-export function generateProjectIdeas(projectId: string): Promise<ContentIdea[]> {
+export function generateProjectIdeas(
+  projectId: string,
+  payload: IdeaGeneratePayload = {},
+): Promise<ContentIdea[]> {
   return apiRequest<ContentIdea[]>(`/projects/${projectId}/ideas/generate`, {
     method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 
@@ -466,6 +472,16 @@ export function generateProjectScript(
 export function updateScene(sceneId: string, payload: SceneUpdatePayload) {
   return apiRequest<ProjectScript["scenes"][number]>(`/scenes/${sceneId}`, {
     method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function reorderScriptScenes(
+  scriptId: string,
+  payload: SceneReorderPayload,
+): Promise<ProjectScript> {
+  return apiRequest<ProjectScript>(`/scripts/${scriptId}/scenes/reorder`, {
+    method: "POST",
     body: JSON.stringify(payload),
   });
 }

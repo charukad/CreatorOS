@@ -16,11 +16,11 @@ class JobLog(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
         nullable=False,
     )
-    script_id: Mapped[UUID] = mapped_column(
+    script_id: Mapped[UUID | None] = mapped_column(
         Uuid,
         ForeignKey("scripts.id"),
         index=True,
-        nullable=False,
+        nullable=True,
     )
     background_job_id: Mapped[UUID] = mapped_column(
         Uuid,

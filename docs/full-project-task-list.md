@@ -75,7 +75,7 @@ Legend:
 - [x] Add global error model matching `docs/backend-api.md`
 - [x] Add API router registration and versioned route structure
 - [x] Add auth/session placeholder or personal-user auth implementation appropriate for v1
-- [ ] Add background job submission helpers
+- [x] Add background job submission helpers
 - [x] Add service layer boundaries so routes stay thin
 - [x] Add API test harness with database and Redis fixtures
 
@@ -143,16 +143,16 @@ Brand profiles now support create/edit/view/list flows, readiness checks, postin
 ## Phase 7 - Idea Generation and Research Workflow
 
 Current implementation note:
-The repo now has a synchronous local idea generator, persisted idea records, explicit approve/reject actions, and project-page approval history UI. Queue-backed job submission and richer research/regeneration are still pending.
+The repo now has an inline-local `generate_ideas` background job record with lifecycle logs, a deterministic local idea generator, persisted idea records with source feedback notes, explicit approve/reject actions with review comments, and project-page approval history UI. Optional external research is still pending.
 
 ### Build tasks
-- [ ] Implement idea generation job submission from a project
+- [x] Implement idea generation job submission from a project
 - [x] Add idea generation service using brand context and topic constraints
 - [ ] Add optional research step for trends, competitor angles, and posting strategies
 - [x] Persist generated content ideas with title, hook, angle, rationale, score, and approval status
 - [ ] Persist generated content ideas with score, rationale, topic, and angle
 - [x] Add UI for idea review, comparison, approval, rejection, and regeneration
-- [ ] Add revision notes and regenerate-with-feedback flow
+- [x] Add revision notes and regenerate-with-feedback flow
 - [ ] Update project status when ideas are pending approval or approved
 - [x] Add tests for idea generation payload creation and approval gating
 
@@ -163,19 +163,19 @@ The repo now has a synchronous local idea generator, persisted idea records, exp
 ## Phase 8 - Script Generation, Scene Planning, and Prompt Packs
 
 Current implementation note:
-The repo now has a synchronous local script generator, scene persistence, script version numbers, explicit script approve/reject actions, a project-page script viewer with approval history, scene editing, and prompt-pack output for downstream workers. Queue jobs and richer editing ergonomics are still pending.
+The repo now has an inline-local `generate_script` background job record with lifecycle logs, a deterministic local script generator, source feedback notes for regenerated versions, scene persistence, script version numbers, explicit script approve/reject actions with review comments, a project-page script viewer with approval history, scene editing and reordering, prompt-pack validation, and prompt-pack output for downstream workers. Redis-backed script worker execution is still pending.
 
 ### Build tasks
-- [ ] Implement script generation job submission from an approved idea
+- [x] Implement script generation job submission from an approved idea
 - [x] Build script generation service to produce hook, full script, estimated duration, titles, captions, and hashtags
 - [x] Persist script versions without overwriting previous approved or rejected versions
 - [x] Build scene breakdown generation with narration text, duration, overlay text, image prompt, video prompt, and notes
 - [x] Add script view UI
 - [x] Add scene editor UI
-- [ ] Add scene reorder, edit, and validation behavior
+- [x] Add scene reorder, edit, and validation behavior
 - [x] Add regenerate script flow while preserving version history
 - [x] Add prompt-pack generation for narration and visual tools
-- [ ] Add tests for scene JSON validation and script versioning
+- [x] Add tests for scene JSON validation and script versioning
 
 ### Manual checks
 - [ ] Manual check: script approval clearly shows the hook, full script, scene plan, and platform metadata
@@ -201,7 +201,7 @@ The repo now has a synchronous local script generator, scene persistence, script
 ## Phase 10 - Queue System, Background Jobs, and Progress Tracking
 
 Current implementation note:
-The repo now persists queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, and safe cancel/retry operations from the project page and dedicated job detail screen. The browser worker can execute queued browser jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, automated retry policy, and live progress updates are still pending.
+The repo now persists inline-local idea/script generation jobs, queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, and safe cancel/retry operations from the project page and dedicated job detail screen. The browser worker can execute queued browser jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, automated retry policy, and live progress updates are still pending.
 
 ### Build tasks
 - [ ] Choose and implement the job runner architecture backed by Redis

@@ -151,7 +151,11 @@ def test_browser_worker_processes_queued_generation_jobs(tmp_path: Path, monkeyp
 
     jobs_response = client.get(f"/api/projects/{project_id}/jobs")
     assert jobs_response.status_code == 200
-    jobs = jobs_response.json()
+    jobs = [
+        job
+        for job in jobs_response.json()
+        if job["job_type"] in {"generate_audio_browser", "generate_visuals_browser"}
+    ]
     assert len(jobs) == 2
     assert all(job["state"] == "completed" for job in jobs)
     assert all(job["progress_percent"] == 100 for job in jobs)

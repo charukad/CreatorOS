@@ -112,13 +112,17 @@ def _create_project_for_tests(
     return response.json()["id"]
 
 
-def _create_approved_script_for_tests(client: TestClient, project_id: str) -> dict[str, object]:
+def _create_draft_script_for_tests(client: TestClient, project_id: str) -> dict[str, object]:
     ideas_response = client.post(f"/api/projects/{project_id}/ideas/generate")
     approved_idea_id = ideas_response.json()[0]["id"]
     client.post(f"/api/ideas/{approved_idea_id}/approve", json={})
 
     script_response = client.post(f"/api/projects/{project_id}/scripts/generate", json={})
-    script = script_response.json()
+    return script_response.json()
+
+
+def _create_approved_script_for_tests(client: TestClient, project_id: str) -> dict[str, object]:
+    script = _create_draft_script_for_tests(client, project_id)
     client.post(f"/api/scripts/{script['id']}/approve", json={})
     return script
 
@@ -180,8 +184,7 @@ def test_ready_health_redacts_connection_credentials() -> None:
 
 def test_redaction_helper_handles_urls_and_secret_assignments() -> None:
     value = (
-        "postgresql://user:password@example.com/db?token=abc "
-        "cookie=session-value api_key=raw-key"
+        "postgresql://user:password@example.com/db?token=abc cookie=session-value api_key=raw-key"
     )
 
     redacted = redact_sensitive_value(value)
@@ -506,8 +509,7 @@ def test_project_archive_manual_override_activity_and_export() -> None:
     assert export_bundle["project"]["id"] == project_id
     assert export_bundle["brand_profile"]["id"] == brand_profile_id
     assert any(
-        event["event_type"] == "manual_status_override"
-        for event in export_bundle["project_events"]
+        event["event_type"] == "manual_status_override" for event in export_bundle["project_events"]
     )
 
     archive_response = client.post(
@@ -631,6 +633,122 @@ def test_idea_approval_and_script_generation_flow() -> None:
     assert len(approvals) == 1
     assert approvals[0]["stage"] == "idea"
     assert approvals[0]["decision"] == "approved"
+
+    app.dependency_overrides.clear()
+
+
+def test_idea_generation_creates_completed_project_level_job() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Track idea generation jobs",
+        objective="Make planning work observable",
+        notes=None,
+    )
+
+    generate_ideas_response = client.post(f"/api/projects/{project_id}/ideas/generate")
+
+    assert generate_ideas_response.status_code == 201
+    ideas = generate_ideas_response.json()
+    jobs_response = client.get(f"/api/projects/{project_id}/jobs")
+    assert jobs_response.status_code == 200
+    idea_jobs = [job for job in jobs_response.json() if job["job_type"] == "generate_ideas"]
+    assert len(idea_jobs) == 1
+    idea_job = idea_jobs[0]
+    assert idea_job["script_id"] is None
+    assert idea_job["state"] == "completed"
+    assert idea_job["progress_percent"] == 100
+    assert idea_job["payload_json"]["idea_count"] == len(ideas)
+    assert idea_job["payload_json"]["idea_ids"] == [idea["id"] for idea in ideas]
+
+    detail_response = client.get(f"/api/jobs/{idea_job['id']}")
+    assert detail_response.status_code == 200
+    event_types = {log["event_type"] for log in detail_response.json()["job_logs"]}
+    assert {"job_queued", "job_started", "content_ideas_generated", "job_completed"}.issubset(
+        event_types
+    )
+
+    app.dependency_overrides.clear()
+
+
+def test_idea_regeneration_persists_source_feedback_notes() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Regenerate ideas with notes",
+        objective="Make idea revision instructions traceable",
+        notes=None,
+    )
+    feedback_notes = "Make the next batch more tactical and contrarian."
+    client.post(f"/api/projects/{project_id}/ideas/generate", json={})
+
+    regenerate_response = client.post(
+        f"/api/projects/{project_id}/ideas/generate",
+        json={"source_feedback_notes": feedback_notes},
+    )
+
+    assert regenerate_response.status_code == 201
+    regenerated_ideas = regenerate_response.json()
+    assert all(idea["source_feedback_notes"] == feedback_notes for idea in regenerated_ideas)
+    assert all("revision note" in idea["rationale"].lower() for idea in regenerated_ideas)
+
+    jobs_response = client.get(f"/api/projects/{project_id}/jobs")
+    assert jobs_response.status_code == 200
+    idea_jobs = [job for job in jobs_response.json() if job["job_type"] == "generate_ideas"]
+    assert len(idea_jobs) == 2
+    latest_revision_job = next(
+        job
+        for job in idea_jobs
+        if job["payload_json"].get("source_feedback_notes") == feedback_notes
+    )
+    assert latest_revision_job["payload_json"]["idea_ids"] == [
+        idea["id"] for idea in regenerated_ideas
+    ]
+
+    app.dependency_overrides.clear()
+
+
+def test_script_generation_creates_completed_job_linked_to_script() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Track script generation jobs",
+        objective="Make script planning observable",
+        notes=None,
+    )
+    ideas_response = client.post(f"/api/projects/{project_id}/ideas/generate")
+    approved_idea_id = ideas_response.json()[0]["id"]
+    client.post(f"/api/ideas/{approved_idea_id}/approve", json={})
+
+    script_response = client.post(
+        f"/api/projects/{project_id}/scripts/generate",
+        json={"source_feedback_notes": "Use tighter proof points."},
+    )
+
+    assert script_response.status_code == 201
+    script = script_response.json()
+    jobs_response = client.get(f"/api/projects/{project_id}/jobs")
+    assert jobs_response.status_code == 200
+    script_jobs = [job for job in jobs_response.json() if job["job_type"] == "generate_script"]
+    assert len(script_jobs) == 1
+    script_job = script_jobs[0]
+    assert script_job["script_id"] == script["id"]
+    assert script_job["state"] == "completed"
+    assert script_job["payload_json"]["script_id"] == script["id"]
+    assert script_job["payload_json"]["script_version"] == 1
+    assert script_job["payload_json"]["scene_count"] == len(script["scenes"])
+    assert script_job["payload_json"]["source_feedback_notes"] == "Use tighter proof points."
+
+    detail_response = client.get(f"/api/jobs/{script_job['id']}")
+    assert detail_response.status_code == 200
+    event_types = {log["event_type"] for log in detail_response.json()["job_logs"]}
+    assert {"job_queued", "job_started", "script_generated", "job_completed"}.issubset(event_types)
 
     app.dependency_overrides.clear()
 
@@ -838,6 +956,8 @@ def test_scene_updates_persist_and_prompt_pack_reflects_changes() -> None:
     script = script_response.json()
     script_id = script["id"]
     first_scene_id = script["scenes"][0]["id"]
+    original_duration = sum(scene["estimated_duration_seconds"] for scene in script["scenes"])
+    expected_duration = original_duration - script["scenes"][0]["estimated_duration_seconds"] + 9
 
     update_scene_response = client.patch(
         f"/api/scenes/{first_scene_id}",
@@ -853,6 +973,10 @@ def test_scene_updates_persist_and_prompt_pack_reflects_changes() -> None:
     assert updated_scene["estimated_duration_seconds"] == 9
     assert updated_scene["notes"] == "Use a cleaner visual example."
 
+    current_script_response = client.get(f"/api/projects/{project_id}/scripts/current")
+    assert current_script_response.status_code == 200
+    assert current_script_response.json()["estimated_duration_seconds"] == expected_duration
+
     prompt_pack_response = client.get(f"/api/scripts/{script_id}/prompt-pack")
     assert prompt_pack_response.status_code == 200
     prompt_pack = prompt_pack_response.json()
@@ -862,6 +986,144 @@ def test_scene_updates_persist_and_prompt_pack_reflects_changes() -> None:
     assert prompt_pack["scenes"][0]["overlay_text"] == "Updated overlay guidance"
     assert prompt_pack["scenes"][0]["estimated_duration_seconds"] == 9
     assert "Creator Lab" in prompt_pack["scenes"][0]["image_generation_prompt"]
+
+    app.dependency_overrides.clear()
+
+
+def test_scene_reorder_updates_orders_and_prompt_pack() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Reorder scene plan",
+        objective="Keep prompt packs in edited scene order",
+        notes=None,
+    )
+    script = _create_draft_script_for_tests(client, project_id)
+    script_id = script["id"]
+    reordered_scene_ids = [scene["id"] for scene in reversed(script["scenes"])]
+
+    reorder_response = client.post(
+        f"/api/scripts/{script_id}/scenes/reorder",
+        json={"scene_ids": reordered_scene_ids},
+    )
+
+    assert reorder_response.status_code == 200
+    reordered_script = reorder_response.json()
+    assert [scene["id"] for scene in reordered_script["scenes"]] == reordered_scene_ids
+    assert [scene["scene_order"] for scene in reordered_script["scenes"]] == [1, 2, 3, 4]
+    assert reordered_script["estimated_duration_seconds"] == script["estimated_duration_seconds"]
+
+    prompt_pack_response = client.get(f"/api/scripts/{script_id}/prompt-pack")
+    assert prompt_pack_response.status_code == 200
+    assert [
+        scene_prompt["scene_id"] for scene_prompt in prompt_pack_response.json()["scenes"]
+    ] == reordered_scene_ids
+
+    app.dependency_overrides.clear()
+
+
+def test_scene_reorder_requires_complete_current_scene_set_and_draft_script() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Validate scene reorder",
+        objective="Block invalid scene order payloads",
+        notes=None,
+    )
+    script = _create_draft_script_for_tests(client, project_id)
+    script_id = script["id"]
+    scene_ids = [scene["id"] for scene in script["scenes"]]
+
+    duplicate_response = client.post(
+        f"/api/scripts/{script_id}/scenes/reorder",
+        json={"scene_ids": [scene_ids[0], scene_ids[0], *scene_ids[2:]]},
+    )
+    assert duplicate_response.status_code == 409
+    assert "exactly once" in _error_message(duplicate_response)
+
+    missing_response = client.post(
+        f"/api/scripts/{script_id}/scenes/reorder",
+        json={"scene_ids": scene_ids[:-1]},
+    )
+    assert missing_response.status_code == 409
+    assert "exactly once" in _error_message(missing_response)
+
+    approve_script_response = client.post(f"/api/scripts/{script_id}/approve", json={})
+    assert approve_script_response.status_code == 200
+
+    blocked_response = client.post(
+        f"/api/scripts/{script_id}/scenes/reorder",
+        json={"scene_ids": list(reversed(scene_ids))},
+    )
+    assert blocked_response.status_code == 409
+    assert "draft or rejected" in _error_message(blocked_response)
+
+    app.dependency_overrides.clear()
+
+
+def test_prompt_pack_rejects_non_contiguous_scene_order() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Validate scene order before prompts",
+        objective="Do not hand workers a broken scene plan",
+        notes=None,
+    )
+    script = _create_draft_script_for_tests(client, project_id)
+    script_id = script["id"]
+
+    with session_factory() as session:
+        stored_script = session.get(ProjectScript, UUID(script_id))
+        assert stored_script is not None
+        scene = stored_script.scenes[0]
+        scene.scene_order = 99
+        session.add(scene)
+        session.commit()
+
+    prompt_pack_response = client.get(f"/api/scripts/{script_id}/prompt-pack")
+
+    assert prompt_pack_response.status_code == 409
+    assert "contiguous" in _error_message(prompt_pack_response)
+
+    app.dependency_overrides.clear()
+
+
+def test_script_regeneration_preserves_version_history() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Regenerate script versions",
+        objective="Preserve prior script attempts",
+        notes=None,
+    )
+
+    first_script = _create_draft_script_for_tests(client, project_id)
+    second_script_response = client.post(
+        f"/api/projects/{project_id}/scripts/generate",
+        json={"source_feedback_notes": "Make the second pass more concrete."},
+    )
+
+    assert second_script_response.status_code == 201
+    second_script = second_script_response.json()
+    assert second_script["version_number"] == 2
+    assert second_script["source_feedback_notes"] == "Make the second pass more concrete."
+
+    current_script_response = client.get(f"/api/projects/{project_id}/scripts/current")
+    assert current_script_response.status_code == 200
+    assert current_script_response.json()["id"] == second_script["id"]
+
+    with session_factory() as session:
+        stored_first_script = session.get(ProjectScript, UUID(first_script["id"]))
+        assert stored_first_script is not None
+        assert stored_first_script.status.value == "superseded"
 
     app.dependency_overrides.clear()
 
@@ -945,7 +1207,7 @@ def test_queue_audio_generation_creates_job_and_planned_asset() -> None:
     jobs_response = client.get(f"/api/projects/{project_id}/jobs")
     assert jobs_response.status_code == 200
     jobs = jobs_response.json()
-    assert len(jobs) == 1
+    assert len([job for job in jobs if job["job_type"] == "generate_audio_browser"]) == 1
 
     assets_response = client.get(f"/api/projects/{project_id}/assets")
     assert assets_response.status_code == 200
@@ -997,7 +1259,10 @@ def test_queue_visual_generation_creates_scene_assets_for_current_script() -> No
 
     jobs_response = client.get(f"/api/projects/{project_id}/jobs")
     assert jobs_response.status_code == 200
-    assert len(jobs_response.json()) == 1
+    assert (
+        len([job for job in jobs_response.json() if job["job_type"] == "generate_visuals_browser"])
+        == 1
+    )
 
     app.dependency_overrides.clear()
 
@@ -1109,10 +1374,7 @@ def test_job_manual_intervention_marks_waiting_external_and_logs_reason() -> Non
     detail = intervention_response.json()
     assert detail["job"]["state"] == "waiting_external"
     assert "Login expired" in detail["job"]["error_message"]
-    assert any(
-        log["event_type"] == "manual_intervention_required"
-        for log in detail["job_logs"]
-    )
+    assert any(log["event_type"] == "manual_intervention_required" for log in detail["job_logs"])
 
     activity_response = client.get(f"/api/projects/{project_id}/activity")
     assert activity_response.status_code == 200
@@ -1246,7 +1508,8 @@ def test_cancel_queued_generation_job_marks_attempts_and_assets_failed() -> None
 
     jobs_response = client.get(f"/api/projects/{project_id}/jobs")
     assert jobs_response.status_code == 200
-    assert jobs_response.json()[0]["state"] == "cancelled"
+    cancelled_job = next(job for job in jobs_response.json() if job["id"] == job_id)
+    assert cancelled_job["state"] == "cancelled"
 
     app.dependency_overrides.clear()
 
@@ -1269,9 +1532,7 @@ def test_retry_cancelled_job_reuses_existing_attempts_and_assets() -> None:
 
     initial_detail_response = client.get(f"/api/jobs/{job_id}")
     initial_detail = initial_detail_response.json()
-    initial_attempt_ids = {
-        attempt["id"] for attempt in initial_detail["generation_attempts"]
-    }
+    initial_attempt_ids = {attempt["id"] for attempt in initial_detail["generation_attempts"]}
     initial_asset_ids = {asset["id"] for asset in initial_detail["related_assets"]}
 
     cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
@@ -1283,9 +1544,7 @@ def test_retry_cancelled_job_reuses_existing_attempts_and_assets() -> None:
     assert retried_detail["job"]["state"] == "queued"
     assert retried_detail["job"]["progress_percent"] == 0
     assert retried_detail["job"]["error_message"] is None
-    retried_attempt_ids = {
-        attempt["id"] for attempt in retried_detail["generation_attempts"]
-    }
+    retried_attempt_ids = {attempt["id"] for attempt in retried_detail["generation_attempts"]}
     assert retried_attempt_ids == initial_attempt_ids
     assert {asset["id"] for asset in retried_detail["related_assets"]} == initial_asset_ids
     assert all(attempt["state"] == "queued" for attempt in retried_detail["generation_attempts"])

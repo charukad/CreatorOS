@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from apps.api.schemas.content_workflow import (
     ContentIdeaResponse,
     GenerationAttemptResponse,
     IdeaApprovalRequest,
+    IdeaGenerateRequest,
     InsightResponse,
     JobLogResponse,
     ManualInterventionRequest,
@@ -29,6 +30,7 @@ from apps.api.schemas.content_workflow import (
     PublishJobPrepareRequest,
     PublishJobResponse,
     PublishJobScheduleRequest,
+    SceneReorderRequest,
     SceneResponse,
     SceneUpdate,
     ScriptGenerateRequest,
@@ -60,8 +62,6 @@ from apps.api.services.content_workflow import (
     approve_content_idea,
     approve_project_script,
     build_script_prompt_pack,
-    generate_content_ideas,
-    generate_project_script,
     get_approved_content_idea,
     get_content_idea,
     get_current_script,
@@ -70,6 +70,7 @@ from apps.api.services.content_workflow import (
     list_project_ideas,
     reject_content_idea,
     reject_project_script,
+    reorder_script_scenes,
     update_scene,
 )
 from apps.api.services.generation_pipeline import (
@@ -77,6 +78,8 @@ from apps.api.services.generation_pipeline import (
     list_project_background_jobs,
     queue_audio_generation_job,
     queue_visual_generation_job,
+    submit_idea_generation_job,
+    submit_script_generation_job,
 )
 from apps.api.services.media_pipeline import queue_rough_cut_job
 from apps.api.services.project_events import create_project_event, list_project_events
@@ -210,10 +213,7 @@ def get_project_analytics_route(project_id: UUID, db: DbSession) -> ProjectAnaly
 
     snapshots, insights = list_project_analytics(db, project)
     return ProjectAnalyticsResponse(
-        snapshots=[
-            AnalyticsSnapshotResponse.model_validate(snapshot)
-            for snapshot in snapshots
-        ],
+        snapshots=[AnalyticsSnapshotResponse.model_validate(snapshot) for snapshot in snapshots],
         insights=[InsightResponse.model_validate(insight) for insight in insights],
     )
 
@@ -556,7 +556,11 @@ def reject_final_video_route(
     response_model=list[ContentIdeaResponse],
     status_code=status.HTTP_201_CREATED,
 )
-def generate_project_ideas_route(project_id: UUID, db: DbSession) -> list[ContentIdeaResponse]:
+def generate_project_ideas_route(
+    project_id: UUID,
+    db: DbSession,
+    payload: Annotated[IdeaGenerateRequest | None, Body()] = None,
+) -> list[ContentIdeaResponse]:
     user = get_or_create_default_user(db)
     project = get_project(db, user, project_id)
     if project is None:
@@ -570,7 +574,13 @@ def generate_project_ideas_route(project_id: UUID, db: DbSession) -> list[Conten
         )
 
     try:
-        ideas = generate_content_ideas(db, user, project, brand_profile)
+        ideas = submit_idea_generation_job(
+            db,
+            user=user,
+            project=project,
+            brand_profile=brand_profile,
+            payload=payload or IdeaGenerateRequest(),
+        )
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
@@ -672,12 +682,15 @@ def get_script_prompt_pack_route(script_id: UUID, db: DbSession) -> ScriptPrompt
     if source_idea is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source idea not found")
 
-    return build_script_prompt_pack(
-        project=project,
-        brand_profile=brand_profile,
-        approved_idea=source_idea,
-        script=script,
-    )
+    try:
+        return build_script_prompt_pack(
+            project=project,
+            brand_profile=brand_profile,
+            approved_idea=source_idea,
+            script=script,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
 
 @router.post(
@@ -713,14 +726,13 @@ def queue_audio_generation_route(
     if source_idea is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source idea not found")
 
-    prompt_pack = build_script_prompt_pack(
-        project=project,
-        brand_profile=brand_profile,
-        approved_idea=source_idea,
-        script=current_script,
-    )
-
     try:
+        prompt_pack = build_script_prompt_pack(
+            project=project,
+            brand_profile=brand_profile,
+            approved_idea=source_idea,
+            script=current_script,
+        )
         job = queue_audio_generation_job(
             db,
             user=user,
@@ -768,14 +780,13 @@ def queue_visual_generation_route(
     if source_idea is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source idea not found")
 
-    prompt_pack = build_script_prompt_pack(
-        project=project,
-        brand_profile=brand_profile,
-        approved_idea=source_idea,
-        script=current_script,
-    )
-
     try:
+        prompt_pack = build_script_prompt_pack(
+            project=project,
+            brand_profile=brand_profile,
+            approved_idea=source_idea,
+            script=current_script,
+        )
         job = queue_visual_generation_job(
             db,
             user=user,
@@ -1047,7 +1058,14 @@ def generate_project_script_route(
         )
 
     try:
-        script = generate_project_script(db, user, project, approved_idea, brand_profile, payload)
+        script = submit_script_generation_job(
+            db,
+            user=user,
+            project=project,
+            approved_idea=approved_idea,
+            brand_profile=brand_profile,
+            payload=payload,
+        )
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
@@ -1133,6 +1151,34 @@ def update_scene_route(
     return SceneResponse.model_validate(updated_scene)
 
 
+@router.post("/scripts/{script_id}/scenes/reorder", response_model=ProjectScriptResponse)
+def reorder_script_scenes_route(
+    script_id: UUID,
+    payload: SceneReorderRequest,
+    db: DbSession,
+) -> ProjectScriptResponse:
+    user = get_or_create_default_user(db)
+    script = get_project_script(db, user, script_id)
+    if script is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
+
+    project = get_project(db, user, script.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        reordered_script = reorder_script_scenes(
+            db,
+            project=project,
+            script=script,
+            scene_ids=payload.scene_ids,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return ProjectScriptResponse.model_validate(reordered_script)
+
+
 def _build_script_prompt_pack_for_route(
     db: Session,
     *,
@@ -1160,12 +1206,10 @@ def _job_detail_response(db: Session, job) -> BackgroundJobDetailResponse:
     return BackgroundJobDetailResponse(
         job=BackgroundJobResponse.model_validate(job),
         generation_attempts=[
-            GenerationAttemptResponse.model_validate(attempt)
-            for attempt in job.generation_attempts
+            GenerationAttemptResponse.model_validate(attempt) for attempt in job.generation_attempts
         ],
         related_assets=[
-            AssetResponse.model_validate(asset)
-            for asset in list_job_related_assets(db, job)
+            AssetResponse.model_validate(asset) for asset in list_job_related_assets(db, job)
         ],
         job_logs=[JobLogResponse.model_validate(job_log) for job_log in list_job_logs(db, job)],
     )

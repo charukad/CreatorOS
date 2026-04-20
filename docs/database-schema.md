@@ -50,6 +50,7 @@ Note:
 - angle
 - rationale
 - score
+- source_feedback_notes nullable
 - status
 - feedback_notes
 - created_at
@@ -190,7 +191,7 @@ Note:
 - id
 - user_id
 - project_id
-- script_id
+- script_id nullable for project-level jobs before a script exists
 - job_type
 - provider_name nullable
 - payload_json
@@ -223,7 +224,7 @@ Note:
 - id
 - user_id
 - project_id
-- script_id
+- script_id nullable for project-level jobs before a script exists
 - background_job_id
 - generation_attempt_id nullable
 - level
@@ -299,6 +300,8 @@ Note:
 - publish_job
 
 ### background_jobs.job_type
+- generate_ideas
+- generate_script
 - generate_audio_browser
 - generate_visuals_browser
 - compose_rough_cut

@@ -19,6 +19,7 @@ class ContentIdea(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     angle: Mapped[str] = mapped_column(Text, nullable=False)
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
     score: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_feedback_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[ContentIdeaStatus] = mapped_column(
         Enum(
             ContentIdeaStatus,

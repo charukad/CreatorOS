@@ -28,10 +28,15 @@ class ContentIdeaResponse(BaseModel):
     angle: str
     rationale: str
     score: int
+    source_feedback_notes: str | None
     status: ContentIdeaStatus
     feedback_notes: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class IdeaGenerateRequest(BaseModel):
+    source_feedback_notes: str | None = Field(default=None, max_length=5000)
 
 
 class IdeaApprovalRequest(BaseModel):
@@ -63,6 +68,10 @@ class SceneUpdate(BaseModel):
     video_prompt: str | None = Field(default=None, min_length=1)
     estimated_duration_seconds: int | None = Field(default=None, ge=1, le=120)
     notes: str | None = None
+
+
+class SceneReorderRequest(BaseModel):
+    scene_ids: list[UUID] = Field(min_length=1)
 
 
 class ScriptGenerateRequest(BaseModel):
@@ -170,7 +179,7 @@ class BackgroundJobResponse(BaseModel):
     id: UUID
     user_id: UUID
     project_id: UUID
-    script_id: UUID
+    script_id: UUID | None
     job_type: BackgroundJobType
     provider_name: ProviderName | None
     state: BackgroundJobState
@@ -324,7 +333,7 @@ class JobLogResponse(BaseModel):
     id: UUID
     user_id: UUID
     project_id: UUID
-    script_id: UUID
+    script_id: UUID | None
     background_job_id: UUID
     generation_attempt_id: UUID | None
     level: str

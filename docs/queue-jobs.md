@@ -1,6 +1,7 @@
 # Queue Jobs
 
 ## Current Implementation Note
+- `generate_ideas` and `generate_script` now create project-level background job records and lifecycle logs before running the local deterministic generator inline
 - `generate_audio_browser` and `generate_visuals_browser` can now be queued through the API
 - queue submission persists `background_jobs`, `generation_attempts`, and planned `assets`
 - the browser worker can now execute those queued jobs in local `dry_run` mode and materialize WAV/SVG development artifacts
@@ -11,7 +12,7 @@
 - browser provider debug artifacts are captured into per-provider debug folders and linked from job logs
 - browser output ingestion now persists file checksums, writes per-attempt asset paths, logs duplicate checksums, and quarantines mismatched download counts for manual review
 - analytics snapshots can now be manually synced for published jobs through the API and project analytics panel, with first-pass insights persisted for review
-- actual Redis-backed execution, automated retry policy, and live worker progress updates are still pending
+- actual Redis-backed execution for idea/script generation, automated retry policy, and live worker progress updates are still pending
 - automated analytics platform polling through `sync_analytics` is still pending
 
 ## Principles
@@ -30,6 +31,14 @@ Input:
 Output:
 - content idea records
 
+Current inline-local payload includes:
+- brand profile id
+- target platform
+- objective
+- source feedback notes for regeneration
+- idea count and generated idea ids after completion
+- correlation id for activity/job log tracing
+
 ### `generate_script`
 Input:
 - project_id
@@ -39,6 +48,14 @@ Input:
 Output:
 - script record
 - scene records
+
+Current inline-local payload includes:
+- approved idea id
+- brand profile id
+- source feedback notes
+- generated script id and version after completion
+- scene count
+- correlation id for activity/job log tracing
 
 ### `generate_audio_browser`
 Input:
@@ -164,8 +181,11 @@ Current manual cancel behavior:
 ## Persisted Job Logs
 The `job_logs` table records operator-facing lifecycle events. Current event types include:
 - `job_queued`
+- `job_started`
 - `job_claimed`
 - `job_progress_updated`
+- `content_ideas_generated`
+- `script_generated`
 - `attempt_started`
 - `attempt_completed`
 - `job_completed`

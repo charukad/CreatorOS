@@ -93,10 +93,15 @@ export type ContentIdea = {
   angle: string;
   rationale: string;
   score: number;
+  source_feedback_notes: string | null;
   status: ContentIdeaStatus;
   feedback_notes: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type IdeaGeneratePayload = {
+  source_feedback_notes?: string | null;
 };
 
 export type IdeaApprovalPayload = {
@@ -151,6 +156,10 @@ export type SceneUpdatePayload = {
   video_prompt?: string;
   estimated_duration_seconds?: number;
   notes?: string | null;
+};
+
+export type SceneReorderPayload = {
+  scene_ids: string[];
 };
 
 export type ScenePromptPack = {
@@ -241,7 +250,7 @@ export type BackgroundJob = {
   id: string;
   user_id: string;
   project_id: string;
-  script_id: string;
+  script_id: string | null;
   job_type: BackgroundJobType;
   provider_name: ProviderName | null;
   state: BackgroundJobState;
@@ -390,7 +399,7 @@ export type JobLog = {
   id: string;
   user_id: string;
   project_id: string;
-  script_id: string;
+  script_id: string | null;
   background_job_id: string;
   generation_attempt_id: string | null;
   level: string;

@@ -75,6 +75,7 @@
 - `POST /api/scripts/:id/approve`
 - `POST /api/scripts/:id/reject`
 - `GET /api/scripts/:id/scenes`
+- `POST /api/scripts/:id/scenes/reorder`
 - `GET /api/scripts/:id/prompt-pack`
 
 ### Scenes
@@ -215,8 +216,16 @@ Behavior note:
 ### `POST /api/projects/:id/ideas/generate`
 Request body:
 ```json
-{}
+{
+  "source_feedback_notes": "Make the next batch more specific to solo founders."
+}
 ```
+
+Behavior note:
+- creates a completed `generate_ideas` background job with lifecycle logs before returning the generated ideas
+- project-level generation jobs may have `script_id: null` because they run before a script exists
+- source feedback notes are copied to the generation job payload and each returned idea
+- the response contains the newly generated batch; use `GET /api/projects/:id/ideas` for the full saved list
 
 Response excerpt:
 ```json
@@ -229,6 +238,7 @@ Response excerpt:
     "angle": "Turn the project objective into a practical three-step playbook tailored to solo founders.",
     "rationale": "Fits the brand tone and gives short-form viewers a fast payoff.",
     "score": 91,
+    "source_feedback_notes": "Make the next batch more specific to solo founders.",
     "status": "proposed"
   }
 ]
@@ -254,6 +264,11 @@ Response excerpt:
   "source_feedback_notes": "Keep the pacing tight and practical."
 }
 ```
+
+Behavior note:
+- creates a completed `generate_script` background job with lifecycle logs before returning the generated script
+- the generation job is linked to the new script once the script and scene records are persisted
+- source feedback notes are copied to the generation job payload and persisted on the script version
 
 Response excerpt:
 ```json
@@ -290,6 +305,19 @@ Response excerpt:
 
 ### `GET /api/scripts/:id/scenes`
 - returns the persisted scene list for the requested script version
+
+### `POST /api/scripts/:id/scenes/reorder`
+```json
+{
+  "scene_ids": ["uuid-scene-4", "uuid-scene-1", "uuid-scene-2", "uuid-scene-3"]
+}
+```
+
+- only works for the current script while the project is in `script_pending_approval`
+- the current script must be `draft` or `rejected`
+- the request must include every current scene exactly once
+- successful reorders rewrite `scene_order` values contiguously from `1`
+- returns the updated script with scenes in the saved order
 
 ### `POST /api/scripts/:id/approve`
 ```json
@@ -330,6 +358,9 @@ Response excerpt:
   "notes": "Use a cleaner visual example."
 }
 ```
+
+- scene edits are limited to the current `draft` or `rejected` script during script approval
+- changing scene duration updates the script-level `estimated_duration_seconds`
 
 ### `GET /api/scripts/:id/prompt-pack`
 Response excerpt:
@@ -810,6 +841,7 @@ Response excerpt:
 - moving into `script_pending_approval` requires a generated script to exist
 - moving into `asset_generation` now requires the current script version to be explicitly approved
 - scene edits are only allowed while the current script is in `draft` or `rejected` state during script approval
+- scene reorders follow the same script approval gate and prompt packs reject non-contiguous scene order data
 - moving into `rough_cut_ready` requires an approved asset set and a ready rough-cut artifact
 - moving into `ready_to_publish` requires final-video approval
 - moving into `scheduled` requires a scheduled publish job
