@@ -7,11 +7,15 @@ from sqlalchemy.orm import Session
 from apps.api.db.session import get_db
 from apps.api.schemas.brand_profiles import (
     BrandProfileCreate,
+    BrandProfileReadinessResponse,
     BrandProfileResponse,
     BrandProfileUpdate,
+    BrandPromptContextResponse,
 )
 from apps.api.services.brand_profiles import (
+    build_brand_prompt_context,
     create_brand_profile,
+    evaluate_brand_profile_readiness,
     get_brand_profile,
     list_brand_profiles,
     update_brand_profile,
@@ -48,6 +52,32 @@ def get_brand_profile_route(brand_profile_id: UUID, db: DbSession) -> BrandProfi
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Brand profile not found")
 
     return BrandProfileResponse.model_validate(brand_profile)
+
+
+@router.get("/{brand_profile_id}/readiness", response_model=BrandProfileReadinessResponse)
+def get_brand_profile_readiness_route(
+    brand_profile_id: UUID,
+    db: DbSession,
+) -> BrandProfileReadinessResponse:
+    user = get_or_create_default_user(db)
+    brand_profile = get_brand_profile(db, user, brand_profile_id)
+    if brand_profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Brand profile not found")
+
+    return evaluate_brand_profile_readiness(brand_profile)
+
+
+@router.get("/{brand_profile_id}/prompt-context", response_model=BrandPromptContextResponse)
+def get_brand_profile_prompt_context_route(
+    brand_profile_id: UUID,
+    db: DbSession,
+) -> BrandPromptContextResponse:
+    user = get_or_create_default_user(db)
+    brand_profile = get_brand_profile(db, user, brand_profile_id)
+    if brand_profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Brand profile not found")
+
+    return build_brand_prompt_context(brand_profile)
 
 
 @router.patch("/{brand_profile_id}", response_model=BrandProfileResponse)

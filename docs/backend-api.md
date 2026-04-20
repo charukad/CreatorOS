@@ -34,6 +34,8 @@
 ### Brand Profiles
 - `POST /api/brand-profiles`
 - `GET /api/brand-profiles/:id`
+- `GET /api/brand-profiles/:id/readiness`
+- `GET /api/brand-profiles/:id/prompt-context`
 - `PATCH /api/brand-profiles/:id`
 - `GET /api/brand-profiles`
 
@@ -112,10 +114,67 @@
   "cta_style": "Invite discussion",
   "visual_style": "Cinematic screen-recording mix",
   "posting_preferences_json": {
-    "platforms": ["youtube_shorts", "tiktok"]
+    "platforms": ["youtube_shorts", "tiktok"],
+    "default_platform": "youtube_shorts",
+    "output_defaults": {
+      "aspect_ratio": "9:16",
+      "target_duration_seconds": 35
+    }
   }
 }
 ```
+
+Behavior note:
+- brand profile text fields are trimmed before persistence
+- posting preferences must be a JSON object
+- `platforms`, when provided, must be a list of non-empty strings
+- `default_platform`, when provided, must be a non-empty string
+- `output_defaults`, when provided, must be an object
+
+### `GET /api/brand-profiles/:id/readiness`
+Response excerpt:
+```json
+{
+  "brand_profile_id": "uuid",
+  "is_ready": true,
+  "missing_fields": [],
+  "warnings": [],
+  "recommended_next_steps": [
+    "Use this profile to generate project ideas and script prompt packs."
+  ]
+}
+```
+
+Behavior note:
+- readiness checks required setup fields, platform preferences, target-audience detail, and visual-style detail
+- warnings do not block saving, but they make weak onboarding visible before generation quality suffers
+
+### `GET /api/brand-profiles/:id/prompt-context`
+Response excerpt:
+```json
+{
+  "brand_profile_id": "uuid",
+  "context_markdown": "# Brand Context: Creator Lab...",
+  "context_json": {
+    "identity": {
+      "channel_name": "Creator Lab",
+      "niche": "AI productivity"
+    },
+    "voice": {
+      "tone": "Direct and optimistic",
+      "hook_style": "Question-led hook",
+      "cta_style": "Invite discussion"
+    },
+    "output_defaults": {
+      "aspect_ratio": "9:16"
+    }
+  }
+}
+```
+
+Behavior note:
+- prompt context converts saved brand profile data into reusable AI-ready markdown and structured JSON
+- script prompt-pack responses include the same brand context under `brand_context`
 
 ### `POST /api/projects`
 ```json

@@ -4,18 +4,30 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BrandProfileForm } from "./brand-profile-form";
 import { updateBrandProfile } from "../lib/api";
-import type { BrandProfile, BrandProfilePayload } from "../types/api";
+import type {
+  BrandProfile,
+  BrandProfilePayload,
+  BrandProfileReadiness,
+  BrandPromptContext,
+} from "../types/api";
 
 type BrandProfileDetailProps = {
   brandProfile: BrandProfile | null;
   error: string | null;
+  promptContext: BrandPromptContext | null;
+  readiness: BrandProfileReadiness | null;
 };
 
 function formatTimestamp(value: string): string {
   return new Date(value).toLocaleString();
 }
 
-export function BrandProfileDetail({ brandProfile, error }: BrandProfileDetailProps) {
+export function BrandProfileDetail({
+  brandProfile,
+  error,
+  promptContext,
+  readiness,
+}: BrandProfileDetailProps) {
   const router = useRouter();
 
   async function handleSubmit(payload: BrandProfilePayload) {
@@ -80,6 +92,97 @@ export function BrandProfileDetail({ brandProfile, error }: BrandProfileDetailPr
               <p className="mt-3 text-sm text-slate-200">{formatTimestamp(brandProfile.updated_at)}</p>
             </div>
           </section>
+
+          {readiness ? (
+            <section
+              className={`rounded-[1.75rem] border p-6 ${
+                readiness.is_ready
+                  ? "border-emerald-300/20 bg-emerald-400/10"
+                  : "border-amber-300/20 bg-amber-400/10"
+              }`}
+            >
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold text-white">Onboarding readiness</h2>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-200">
+                    CreatorOS checks the profile before using it as generation context, so weak or
+                    missing setup does not quietly reduce output quality.
+                  </p>
+                </div>
+                <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
+                  {readiness.is_ready ? "Ready" : "Needs refinement"}
+                </span>
+              </div>
+
+              <div className="mt-5 grid gap-4 lg:grid-cols-3">
+                <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Missing fields
+                  </p>
+                  <p className="mt-3 text-2xl font-semibold text-white">
+                    {readiness.missing_fields.length}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Warnings
+                  </p>
+                  <p className="mt-3 text-2xl font-semibold text-white">
+                    {readiness.warnings.length}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Next steps
+                  </p>
+                  <p className="mt-3 text-2xl font-semibold text-white">
+                    {readiness.recommended_next_steps.length}
+                  </p>
+                </div>
+              </div>
+
+              {readiness.warnings.length > 0 || readiness.recommended_next_steps.length > 0 ? (
+                <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                    <p className="text-sm font-semibold text-white">Warnings</p>
+                    <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-200">
+                      {readiness.warnings.length === 0 ? (
+                        <p>No warnings.</p>
+                      ) : (
+                        readiness.warnings.map((warning) => <p key={warning}>{warning}</p>)
+                      )}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                    <p className="text-sm font-semibold text-white">Recommended next steps</p>
+                    <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-200">
+                      {readiness.recommended_next_steps.map((step) => (
+                        <p key={step}>{step}</p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          {promptContext ? (
+            <section className="rounded-[1.75rem] border border-white/10 bg-[var(--card)] p-6">
+              <h2 className="text-xl font-semibold text-white">AI prompt context</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+                This is the structured context CreatorOS can hand to idea, script, narration, and
+                visual generation without reinterpreting brand rules every time.
+              </p>
+              <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+                <pre className="max-h-[420px] overflow-auto rounded-2xl border border-white/8 bg-slate-950/60 p-4 text-sm leading-6 text-slate-200">
+                  {promptContext.context_markdown}
+                </pre>
+                <pre className="max-h-[420px] overflow-auto rounded-2xl border border-white/8 bg-slate-950/60 p-4 text-xs leading-5 text-slate-300">
+                  {JSON.stringify(promptContext.context_json, null, 2)}
+                </pre>
+              </div>
+            </section>
+          ) : null}
 
           <section className="rounded-[1.75rem] border border-white/10 bg-[var(--card)] p-6">
             <h2 className="text-xl font-semibold text-white">Brand rules</h2>

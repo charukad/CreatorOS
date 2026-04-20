@@ -39,6 +39,21 @@ export type BrandProfilePayload = {
   posting_preferences_json: Record<string, unknown>;
 };
 
+export type BrandProfileReadiness = {
+  brand_profile_id: string;
+  is_ready: boolean;
+  missing_fields: string[];
+  warnings: string[];
+  recommended_next_steps: string[];
+};
+
+export type BrandPromptContext = {
+  brand_profile_id: string;
+  readiness: BrandProfileReadiness;
+  context_markdown: string;
+  context_json: Record<string, unknown>;
+};
+
 export type Project = {
   id: string;
   user_id: string;
@@ -155,6 +170,7 @@ export type ScriptPromptPack = {
   script_id: string;
   project_id: string;
   brand_profile_id: string;
+  brand_context: Record<string, unknown>;
   channel_name: string;
   target_platform: string;
   objective: string;

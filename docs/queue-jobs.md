@@ -57,6 +57,9 @@ Persisted queue payload includes:
 - narration segments derived from the current prompt pack
 - a planned narration asset path with the generation attempt id embedded so regeneration does not overwrite older artifacts
 
+Prompt-pack note:
+- prompt packs include `brand_context`, a reusable structured context generated from the brand profile readiness/prompt-context service
+
 ### `generate_visuals_browser`
 Input:
 - project_id

@@ -182,6 +182,7 @@ def create_job_log(
     attempt: GenerationAttempt | None = None,
     metadata: dict[str, object] | None = None,
 ) -> JobLog:
+    now = datetime.now(UTC)
     log = JobLog(
         user_id=job.user_id,
         project_id=job.project_id,
@@ -192,6 +193,8 @@ def create_job_log(
         event_type=event_type,
         message=message,
         metadata_json=metadata or {},
+        created_at=now,
+        updated_at=now,
     )
     db.add(log)
     return log

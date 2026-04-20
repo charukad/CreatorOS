@@ -109,6 +109,7 @@ class ScriptPromptPackResponse(BaseModel):
     script_id: UUID
     project_id: UUID
     brand_profile_id: UUID
+    brand_context: dict[str, Any]
     channel_name: str
     target_platform: str
     objective: str

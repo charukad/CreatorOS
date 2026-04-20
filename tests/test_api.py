@@ -269,6 +269,80 @@ def test_brand_profiles_crud_flow() -> None:
     app.dependency_overrides.clear()
 
 
+def test_brand_profile_readiness_and_prompt_context() -> None:
+    client = _make_test_client()
+
+    create_response = client.post(
+        "/api/brand-profiles",
+        json={
+            "channel_name": " Creator Lab ",
+            "niche": "AI productivity",
+            "target_audience": "Solo founders building content systems",
+            "tone": "Direct and optimistic",
+            "hook_style": "Question first",
+            "cta_style": "Invite thoughtful comments",
+            "visual_style": "Fast screen recordings with warm overlays",
+            "posting_preferences_json": {
+                "platforms": [" youtube_shorts ", "tiktok"],
+                "default_platform": "youtube_shorts",
+                "output_defaults": {
+                    "aspect_ratio": "9:16",
+                    "target_duration_seconds": 35,
+                },
+            },
+        },
+    )
+
+    assert create_response.status_code == 201
+    brand_profile = create_response.json()
+    assert brand_profile["channel_name"] == "Creator Lab"
+    assert brand_profile["posting_preferences_json"]["platforms"] == [
+        "youtube_shorts",
+        "tiktok",
+    ]
+
+    readiness_response = client.get(f"/api/brand-profiles/{brand_profile['id']}/readiness")
+    assert readiness_response.status_code == 200
+    readiness = readiness_response.json()
+    assert readiness["is_ready"] is True
+    assert readiness["warnings"] == []
+
+    prompt_context_response = client.get(
+        f"/api/brand-profiles/{brand_profile['id']}/prompt-context"
+    )
+    assert prompt_context_response.status_code == 200
+    prompt_context = prompt_context_response.json()
+    assert prompt_context["readiness"]["is_ready"] is True
+    assert prompt_context["context_json"]["identity"]["channel_name"] == "Creator Lab"
+    assert prompt_context["context_json"]["output_defaults"]["aspect_ratio"] == "9:16"
+    assert "# Brand Context: Creator Lab" in prompt_context["context_markdown"]
+
+    app.dependency_overrides.clear()
+
+
+def test_brand_profile_preferences_validation_errors_are_clear() -> None:
+    client = _make_test_client()
+
+    create_response = client.post(
+        "/api/brand-profiles",
+        json={
+            "channel_name": "Creator Lab",
+            "niche": "AI productivity",
+            "target_audience": "Solo founders",
+            "tone": "Direct",
+            "hook_style": "Question first",
+            "cta_style": "Ask for comments",
+            "visual_style": "Screen recordings",
+            "posting_preferences_json": {"platforms": "youtube_shorts"},
+        },
+    )
+
+    assert create_response.status_code == 422
+    assert "platforms must be a list of strings" in str(create_response.json())
+
+    app.dependency_overrides.clear()
+
+
 def test_projects_crud_flow() -> None:
     client = _make_test_client()
     brand_profile_response = client.post(
@@ -783,6 +857,8 @@ def test_scene_updates_persist_and_prompt_pack_reflects_changes() -> None:
     assert prompt_pack_response.status_code == 200
     prompt_pack = prompt_pack_response.json()
     assert prompt_pack["source_idea_title"]
+    assert prompt_pack["brand_context"]["identity"]["channel_name"] == "Creator Lab"
+    assert prompt_pack["brand_context"]["platforms"] == ["youtube_shorts"]
     assert prompt_pack["scenes"][0]["overlay_text"] == "Updated overlay guidance"
     assert prompt_pack["scenes"][0]["estimated_duration_seconds"] == 9
     assert "Creator Lab" in prompt_pack["scenes"][0]["image_generation_prompt"]

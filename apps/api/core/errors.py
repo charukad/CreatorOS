@@ -91,7 +91,7 @@ def build_error_response(
         error=ErrorDetail(
             code=code,
             message=message,
-            details=details,
+            details=_sanitize_for_json(details),
             request_id=request_id,
         )
     )
@@ -109,3 +109,13 @@ def _status_phrase(status_code: int) -> str:
         return HTTPStatus(status_code).phrase
     except ValueError:
         return "HTTP error"
+
+
+def _sanitize_for_json(value: Any) -> Any:
+    if isinstance(value, BaseException):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _sanitize_for_json(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_sanitize_for_json(item) for item in value]
+    return value

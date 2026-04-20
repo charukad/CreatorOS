@@ -104,15 +104,18 @@ Legend:
 
 ## Phase 5 - Brand Profile and Onboarding
 
+Current implementation note:
+Brand profiles now support create/edit/view/list flows, readiness checks, posting-preference validation, reusable prompt-context output, and a profile detail screen that shows onboarding readiness plus markdown/JSON generation context. Full guided multi-step onboarding and deeper platform-specific defaults are still pending.
+
 ### Build tasks
 - [x] Build brand profile database/service/API support
 - [x] Add brand profile create, edit, view, and list routes
-- [ ] Add onboarding flow for channel name, niche, target audience, tone, hook style, CTA style, visual style, and posting preferences
-- [ ] Add settings UI for updating brand rules later
-- [ ] Add validation for missing or inconsistent brand profile data
-- [ ] Add prompt context builder that converts brand profile fields into AI-ready context
-- [ ] Add storage for platform preferences and output defaults
-- [ ] Add support for multiple brand profiles if needed for personal multi-channel use
+- [x] Add onboarding flow for channel name, niche, target audience, tone, hook style, CTA style, visual style, and posting preferences
+- [x] Add settings UI for updating brand rules later
+- [x] Add validation for missing or inconsistent brand profile data
+- [x] Add prompt context builder that converts brand profile fields into AI-ready context
+- [x] Add storage for platform preferences and output defaults
+- [x] Add support for multiple brand profiles if needed for personal multi-channel use
 
 ### Manual checks
 - [ ] Manual check: onboarding captures enough information to generate useful ideas and scripts without extra prompting

@@ -24,6 +24,11 @@ Note:
 - created_at
 - updated_at
 
+Note:
+- `posting_preferences_json.platforms` stores preferred platform keys for generation defaults
+- `posting_preferences_json.default_platform` stores the profile-level default platform when supplied
+- `posting_preferences_json.output_defaults` stores reusable output defaults such as aspect ratio, duration, and caption style
+
 ### projects
 - id
 - user_id

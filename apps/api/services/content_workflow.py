@@ -31,6 +31,7 @@ from apps.api.services.assets import (
     has_approved_asset_review,
     has_ready_rough_cut,
 )
+from apps.api.services.brand_profiles import build_brand_prompt_context
 
 
 def list_project_ideas(db: Session, project: Project) -> list[ContentIdea]:
@@ -390,6 +391,7 @@ def build_script_prompt_pack(
     approved_idea: ContentIdea,
     script: ProjectScript,
 ) -> ScriptPromptPackResponse:
+    brand_context = build_brand_prompt_context(brand_profile)
     narration_direction = (
         f"Read in a {brand_profile.tone.lower()} tone for {brand_profile.target_audience.lower()}. "
         f"Keep the pace suitable for {project.target_platform.replace('_', ' ')}."
@@ -422,6 +424,7 @@ def build_script_prompt_pack(
         script_id=script.id,
         project_id=project.id,
         brand_profile_id=brand_profile.id,
+        brand_context=brand_context.context_json,
         channel_name=brand_profile.channel_name,
         target_platform=project.target_platform,
         objective=project.objective,

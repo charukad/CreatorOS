@@ -11,6 +11,8 @@ import type {
   BackgroundJobDetail,
   BrandProfile,
   BrandProfilePayload,
+  BrandProfileReadiness,
+  BrandPromptContext,
   ContentIdea,
   IdeaApprovalPayload,
   Project,
@@ -127,6 +129,16 @@ export function createBrandProfile(payload: BrandProfilePayload): Promise<BrandP
 
 export function getBrandProfile(brandProfileId: string): Promise<BrandProfile> {
   return apiRequest<BrandProfile>(`/brand-profiles/${brandProfileId}`);
+}
+
+export function getBrandProfileReadiness(
+  brandProfileId: string,
+): Promise<BrandProfileReadiness> {
+  return apiRequest<BrandProfileReadiness>(`/brand-profiles/${brandProfileId}/readiness`);
+}
+
+export function getBrandPromptContext(brandProfileId: string): Promise<BrandPromptContext> {
+  return apiRequest<BrandPromptContext>(`/brand-profiles/${brandProfileId}/prompt-context`);
 }
 
 export function updateBrandProfile(
