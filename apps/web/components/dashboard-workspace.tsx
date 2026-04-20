@@ -13,6 +13,7 @@ import type {
   BackgroundJob,
   BrandProfile,
   BrandProfilePayload,
+  OperationsRecovery,
   Project,
   ProjectActivity,
   ProjectPayload,
@@ -40,6 +41,7 @@ type DashboardWorkspaceProps = {
   initialBrandProfiles: BrandProfile[];
   initialError: string | null;
   initialJobs: BackgroundJob[];
+  initialOperationsRecovery: OperationsRecovery | null;
   initialProjects: Project[];
 };
 
@@ -49,6 +51,7 @@ export function DashboardWorkspace({
   initialBrandProfiles,
   initialError,
   initialJobs,
+  initialOperationsRecovery,
   initialProjects,
 }: DashboardWorkspaceProps) {
   const router = useRouter();
@@ -85,6 +88,7 @@ export function DashboardWorkspace({
     ["queued", "running", "waiting_external"].includes(job.state),
   );
   const failedJobs = jobs.filter((job) => job.state === "failed");
+  const attentionItemCount = initialOperationsRecovery?.summary.total_attention_items ?? 0;
 
   async function handleCreateBrandProfile(payload: BrandProfilePayload) {
     await createBrandProfile(payload);
@@ -383,6 +387,27 @@ export function DashboardWorkspace({
                 <p className="mt-2 text-2xl font-semibold text-white">{failedJobs.length}</p>
               </article>
             </div>
+            <Link
+              className={`rounded-2xl border p-4 transition ${
+                attentionItemCount > 0
+                  ? "border-amber-300/30 bg-amber-400/10 hover:bg-amber-400/20"
+                  : "border-emerald-300/20 bg-emerald-400/10 hover:bg-emerald-400/20"
+              }`}
+              href="/operations"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-white">Operations recovery center</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                    Failed jobs, manual-intervention jobs, stale running work, quarantined
+                    downloads, and duplicate warnings now have one recovery view.
+                  </p>
+                </div>
+                <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
+                  {attentionItemCount} attention item{attentionItemCount === 1 ? "" : "s"}
+                </span>
+              </div>
+            </Link>
             {initialActivity.length === 0 ? (
               <p className="rounded-2xl border border-dashed border-white/10 bg-white/4 p-4 text-sm text-slate-300">
                 Recent approval, job, and project-event activity will appear here.

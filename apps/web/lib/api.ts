@@ -20,6 +20,7 @@ import type {
   ProjectScript,
   ManualPublishCompletePayload,
   ManualInterventionPayload,
+  OperationsRecovery,
   PublishJob,
   ProjectArchivePayload,
   PublishJobPreparePayload,
@@ -238,6 +239,10 @@ export function markJobManualIntervention(
 
 export function exportProject(projectId: string): Promise<ProjectExport> {
   return apiRequest<ProjectExport>(`/projects/${projectId}/export`);
+}
+
+export function getOperationsRecovery(): Promise<OperationsRecovery> {
+  return apiRequest<OperationsRecovery>("/operations/recovery");
 }
 
 export function listProjectAssets(projectId: string): Promise<Asset[]> {

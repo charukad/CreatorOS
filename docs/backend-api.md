@@ -25,6 +25,7 @@
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
 - after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, FFmpeg command-plan sidecar, and optionally a `video/mp4` rough-cut asset when FFmpeg rendering is enabled
 - job detail, project activity, job timeline logs, safe cancel, and safe retry endpoints are implemented for operator recovery
+- operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, and duplicate asset warnings in one API response
 - final-video approval and publish-job preparation are implemented with explicit publish approval before scheduling or manual published completion
 - manual analytics snapshots and first-pass insight generation are implemented for published jobs
 - Redis-backed execution, automated retry policy, and live worker progress updates are still planned
@@ -89,6 +90,9 @@
 - `POST /api/jobs/:id/cancel`
 - `POST /api/jobs/:id/manual-intervention`
 - `POST /api/jobs/:id/retry`
+
+### Operations
+- `GET /api/operations/recovery`
 
 ### Publish Jobs
 - `POST /api/publish-jobs/:id/approve`
@@ -474,6 +478,49 @@ Behavior note:
 - marks the job `waiting_external`
 - preserves the human-readable reason in `error_message`
 - writes a `manual_intervention_required` job log entry for project activity and recovery queues
+
+### `GET /api/operations/recovery`
+Query parameters:
+- `stale_after_minutes` defaults to `30`
+- `limit` defaults to `20`
+
+Response excerpt:
+```json
+{
+  "failed_jobs": [
+    {
+      "job": {
+        "id": "uuid",
+        "state": "failed",
+        "job_type": "generate_audio_browser"
+      },
+      "project_title": "3 AI automations I use daily",
+      "project_status": "asset_generation",
+      "latest_log_event_type": "job_failed",
+      "latest_log_message": "Provider timed out."
+    }
+  ],
+  "waiting_jobs": [],
+  "stale_running_jobs": [],
+  "quarantined_downloads": [],
+  "duplicate_asset_warnings": [],
+  "summary": {
+    "failed_jobs": 1,
+    "waiting_jobs": 0,
+    "stale_running_jobs": 0,
+    "quarantined_downloads": 0,
+    "duplicate_asset_warnings": 0,
+    "total_attention_items": 1
+  }
+}
+```
+
+Behavior note:
+- failed jobs are jobs in `failed`
+- waiting jobs are jobs in `waiting_external`
+- stale running jobs are `running` jobs whose `updated_at` is older than `stale_after_minutes`
+- quarantined downloads come from `downloads_quarantined` job logs
+- duplicate asset warnings come from `duplicate_asset_detected` job logs
 
 ### `GET /api/projects/:id/assets`
 - returns planned and produced asset records for the project, including placeholder records created before worker execution starts

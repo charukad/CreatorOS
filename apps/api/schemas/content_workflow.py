@@ -10,6 +10,7 @@ from apps.api.schemas.enums import (
     BackgroundJobState,
     BackgroundJobType,
     ContentIdeaStatus,
+    ProjectStatus,
     ProviderName,
     PublishJobStatus,
     ScriptStatus,
@@ -180,6 +181,37 @@ class BackgroundJobResponse(BaseModel):
     finished_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class RecoveryJobResponse(BaseModel):
+    job: BackgroundJobResponse
+    project_title: str
+    project_status: ProjectStatus
+    latest_log_event_type: str | None
+    latest_log_message: str | None
+    latest_log_created_at: datetime | None
+
+
+class RecoveryLogResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    project_title: str
+    background_job_id: UUID
+    generation_attempt_id: UUID | None
+    event_type: str
+    level: str
+    message: str
+    metadata_json: dict[str, Any]
+    created_at: datetime
+
+
+class OperationsRecoveryResponse(BaseModel):
+    failed_jobs: list[RecoveryJobResponse]
+    waiting_jobs: list[RecoveryJobResponse]
+    stale_running_jobs: list[RecoveryJobResponse]
+    quarantined_downloads: list[RecoveryLogResponse]
+    duplicate_asset_warnings: list[RecoveryLogResponse]
+    summary: dict[str, int]
 
 
 class GenerationAttemptResponse(BaseModel):

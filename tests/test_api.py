@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import apps.api.models  # noqa: F401
@@ -7,12 +8,24 @@ from apps.api.db.base import Base
 from apps.api.db.session import get_db
 from apps.api.main import app
 from apps.api.models.asset import Asset
+from apps.api.models.background_job import BackgroundJob
 from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
-from apps.api.schemas.enums import AssetStatus, AssetType, ProjectStatus, ProviderName
-from apps.api.services.background_jobs import get_background_job, mark_job_failed
+from apps.api.schemas.enums import (
+    AssetStatus,
+    AssetType,
+    BackgroundJobState,
+    ProjectStatus,
+    ProviderName,
+)
+from apps.api.services.background_jobs import (
+    create_job_log,
+    get_background_job,
+    mark_job_failed,
+    mark_job_manual_intervention_required,
+)
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, update
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -1031,6 +1044,101 @@ def test_job_manual_intervention_marks_waiting_external_and_logs_reason() -> Non
         entry["activity_type"] == "manual_intervention_required"
         for entry in activity_response.json()
     )
+
+    app.dependency_overrides.clear()
+
+
+def test_operations_recovery_snapshot_surfaces_jobs_and_ingest_warnings() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Recover blocked jobs",
+        objective="Validate the operations recovery dashboard data",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    failed_queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert failed_queue_response.status_code == 201
+    failed_job_id = failed_queue_response.json()["id"]
+
+    with session_factory() as session:
+        failed_job = get_background_job(session, UUID(failed_job_id))
+        assert failed_job is not None
+        mark_job_failed(session, failed_job, "Provider timed out while generating narration.")
+
+    waiting_queue_response = client.post(f"/api/projects/{project_id}/generate/visuals", json={})
+    assert waiting_queue_response.status_code == 201
+    waiting_job_id = waiting_queue_response.json()["id"]
+
+    with session_factory() as session:
+        waiting_job = get_background_job(session, UUID(waiting_job_id))
+        assert waiting_job is not None
+        mark_job_manual_intervention_required(
+            session,
+            waiting_job,
+            reason="Provider login expired.",
+        )
+        waiting_job = get_background_job(session, UUID(waiting_job_id))
+        assert waiting_job is not None
+        create_job_log(
+            session,
+            waiting_job,
+            event_type="downloads_quarantined",
+            message="Unexpected files were quarantined.",
+            level="warning",
+            metadata={
+                "expected_count": 1,
+                "actual_count": 2,
+                "quarantine_paths": ["storage/projects/example/quarantine/file.wav"],
+            },
+        )
+        create_job_log(
+            session,
+            waiting_job,
+            event_type="duplicate_asset_detected",
+            message="Generated asset checksum matches an existing asset.",
+            level="warning",
+            metadata={"duplicate_asset_ids": ["asset-1"]},
+        )
+        session.commit()
+
+    stale_queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert stale_queue_response.status_code == 201
+    stale_job_id = stale_queue_response.json()["id"]
+
+    with session_factory() as session:
+        stale_cutoff = datetime.now(UTC) - timedelta(hours=2)
+        session.execute(
+            update(BackgroundJob)
+            .where(BackgroundJob.id == UUID(stale_job_id))
+            .values(
+                state=BackgroundJobState.RUNNING,
+                updated_at=stale_cutoff,
+            )
+        )
+        session.commit()
+
+    recovery_response = client.get("/api/operations/recovery?stale_after_minutes=30&limit=10")
+    assert recovery_response.status_code == 200
+    recovery = recovery_response.json()
+
+    assert recovery["summary"]["failed_jobs"] == 1
+    assert recovery["summary"]["waiting_jobs"] == 1
+    assert recovery["summary"]["stale_running_jobs"] == 1
+    assert recovery["summary"]["quarantined_downloads"] == 1
+    assert recovery["summary"]["duplicate_asset_warnings"] == 1
+    assert recovery["summary"]["total_attention_items"] == 5
+
+    assert recovery["failed_jobs"][0]["job"]["id"] == failed_job_id
+    assert recovery["failed_jobs"][0]["project_title"] == "Recover blocked jobs"
+    assert recovery["failed_jobs"][0]["latest_log_event_type"] == "job_failed"
+    assert recovery["waiting_jobs"][0]["job"]["id"] == waiting_job_id
+    assert recovery["stale_running_jobs"][0]["job"]["id"] == stale_job_id
+    assert recovery["quarantined_downloads"][0]["event_type"] == "downloads_quarantined"
+    assert recovery["duplicate_asset_warnings"][0]["event_type"] == "duplicate_asset_detected"
 
     app.dependency_overrides.clear()
 

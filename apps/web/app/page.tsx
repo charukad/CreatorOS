@@ -8,13 +8,21 @@ import { DashboardWorkspace } from "../components/dashboard-workspace";
 import { StatusBadge } from "../components/status-badge";
 import {
   listBrandProfiles,
+  getOperationsRecovery,
   listProjectActivity,
   listProjectApprovals,
   listProjectJobs,
   listProjects,
 } from "../lib/api";
 import { apiBaseUrl } from "../lib/env";
-import type { ApprovalRecord, BackgroundJob, BrandProfile, Project, ProjectActivity } from "../types/api";
+import type {
+  ApprovalRecord,
+  BackgroundJob,
+  BrandProfile,
+  OperationsRecovery,
+  Project,
+  ProjectActivity,
+} from "../types/api";
 
 export const dynamic = "force-dynamic";
 
@@ -23,11 +31,16 @@ export default async function HomePage() {
   let approvals: ApprovalRecord[] = [];
   let brandProfiles: BrandProfile[] = [];
   let jobs: BackgroundJob[] = [];
+  let operationsRecovery: OperationsRecovery | null = null;
   let projects: Project[] = [];
   let recentActivity: ProjectActivity[] = [];
 
   try {
-    [brandProfiles, projects] = await Promise.all([listBrandProfiles(), listProjects()]);
+    [brandProfiles, projects, operationsRecovery] = await Promise.all([
+      listBrandProfiles(),
+      listProjects(),
+      getOperationsRecovery(),
+    ]);
     const [projectJobs, projectApprovals, projectActivity] = await Promise.all([
       Promise.all(projects.map((project) => listProjectJobs(project.id))),
       Promise.all(projects.map((project) => listProjectApprovals(project.id))),
@@ -76,6 +89,7 @@ export default async function HomePage() {
         initialBrandProfiles={brandProfiles}
         initialError={initialError}
         initialJobs={jobs}
+        initialOperationsRecovery={operationsRecovery}
         initialProjects={projects}
       />
 

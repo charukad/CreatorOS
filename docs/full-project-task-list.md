@@ -385,6 +385,9 @@ The repo now stores manual analytics snapshots for published jobs, exposes proje
 
 ## Phase 18 - Observability, Reliability, and Manual Override Tooling
 
+Current implementation note:
+The repo now has structured logs, API request correlation, job detail pages, project activity, safe cancel/retry, manual intervention state, project-level manual overrides, export/backup support, and an operations recovery page for failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, and duplicate asset warnings. Live-provider screenshots/HTML captures, resumable running-job recovery, and retention tooling are still pending.
+
 ### Build tasks
 - [x] Add structured logs across API, browser worker, and media worker
 - [x] Add API request correlation IDs and response headers
@@ -394,7 +397,7 @@ The repo now stores manual analytics snapshots for published jobs, exposes proje
 - [ ] Add manual retry and resume tools for browser and media jobs
 - [x] Add manual override controls for blocked workflow states
 - [x] Add explicit `manual_intervention_required` handling where needed
-- [ ] Add operator-facing status pages for failed jobs, stuck jobs, and quarantined assets
+- [x] Add operator-facing status pages for failed jobs, stuck jobs, and quarantined assets
 - [ ] Add cleanup and retention strategy for generated artifacts without destructive permanent deletion
 - [x] Add backup/export strategy for project metadata and approvals
 

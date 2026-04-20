@@ -239,6 +239,44 @@ export type BackgroundJob = {
   updated_at: string;
 };
 
+export type RecoveryJob = {
+  job: BackgroundJob;
+  project_title: string;
+  project_status: ProjectStatus;
+  latest_log_event_type: string | null;
+  latest_log_message: string | null;
+  latest_log_created_at: string | null;
+};
+
+export type RecoveryLog = {
+  id: string;
+  project_id: string;
+  project_title: string;
+  background_job_id: string;
+  generation_attempt_id: string | null;
+  event_type: string;
+  level: string;
+  message: string;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+};
+
+export type OperationsRecovery = {
+  failed_jobs: RecoveryJob[];
+  waiting_jobs: RecoveryJob[];
+  stale_running_jobs: RecoveryJob[];
+  quarantined_downloads: RecoveryLog[];
+  duplicate_asset_warnings: RecoveryLog[];
+  summary: {
+    failed_jobs: number;
+    waiting_jobs: number;
+    stale_running_jobs: number;
+    quarantined_downloads: number;
+    duplicate_asset_warnings: number;
+    total_attention_items: number;
+  };
+};
+
 export type PublishJob = {
   id: string;
   user_id: string;
