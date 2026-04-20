@@ -20,9 +20,11 @@ from apps.api.schemas.content_workflow import (
     IdeaApprovalRequest,
     InsightResponse,
     JobLogResponse,
+    ManualInterventionRequest,
     ManualPublishCompleteRequest,
     ProjectActivityResponse,
     ProjectAnalyticsResponse,
+    ProjectExportResponse,
     ProjectScriptResponse,
     PublishJobPrepareRequest,
     PublishJobResponse,
@@ -47,6 +49,7 @@ from apps.api.services.background_jobs import (
     list_job_logs,
     list_job_related_assets,
     list_project_job_logs,
+    mark_job_manual_intervention_required,
     retry_background_job,
 )
 from apps.api.services.content_workflow import (
@@ -72,6 +75,11 @@ from apps.api.services.generation_pipeline import (
     queue_visual_generation_job,
 )
 from apps.api.services.media_pipeline import queue_rough_cut_job
+from apps.api.services.project_events import list_project_events
+from apps.api.services.project_export import (
+    build_project_export_bundle,
+    encode_project_export_bundle,
+)
 from apps.api.services.projects import get_owned_brand_profile, get_project
 from apps.api.services.publishing import (
     approve_final_video,
@@ -160,9 +168,33 @@ def list_project_activity_route(project_id: UUID, db: DbSession) -> list[Project
         )
         for job_log in list_project_job_logs(db, project)
     ]
+    project_event_entries = [
+        ProjectActivityResponse(
+            source_id=project_event.id,
+            source_type="project_event",
+            activity_type=project_event.event_type,
+            title=project_event.title,
+            description=project_event.description,
+            level=project_event.level,
+            metadata_json=project_event.metadata_json,
+            created_at=project_event.created_at,
+        )
+        for project_event in list_project_events(db, project)
+    ]
 
-    activity = [*approval_entries, *job_log_entries]
+    activity = [*approval_entries, *job_log_entries, *project_event_entries]
     return sorted(activity, key=lambda entry: entry.created_at, reverse=True)[:80]
+
+
+@router.get("/projects/{project_id}/export", response_model=ProjectExportResponse)
+def export_project_route(project_id: UUID, db: DbSession) -> ProjectExportResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    bundle = encode_project_export_bundle(build_project_export_bundle(db, project))
+    return ProjectExportResponse.model_validate(bundle)
 
 
 @router.get("/projects/{project_id}/analytics", response_model=ProjectAnalyticsResponse)
@@ -231,6 +263,25 @@ def retry_job_route(job_id: UUID, db: DbSession) -> BackgroundJobDetailResponse:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return _job_detail_response(db, retried_job)
+
+
+@router.post("/jobs/{job_id}/manual-intervention", response_model=BackgroundJobDetailResponse)
+def mark_job_manual_intervention_route(
+    job_id: UUID,
+    payload: ManualInterventionRequest,
+    db: DbSession,
+) -> BackgroundJobDetailResponse:
+    user = get_or_create_default_user(db)
+    job = get_owned_background_job(db, user, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    try:
+        updated_job = mark_job_manual_intervention_required(db, job, reason=payload.reason)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return _job_detail_response(db, updated_job)
 
 
 @router.get("/projects/{project_id}/assets", response_model=list[AssetResponse])

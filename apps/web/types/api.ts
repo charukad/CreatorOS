@@ -60,6 +60,15 @@ export type ProjectPayload = {
   notes: string | null;
 };
 
+export type ProjectArchivePayload = {
+  reason?: string | null;
+};
+
+export type ProjectManualOverridePayload = {
+  target_status: ProjectStatus;
+  reason: string;
+};
+
 export type ContentIdea = {
   id: string;
   user_id: string;
@@ -343,6 +352,25 @@ export type BackgroundJobDetail = {
   generation_attempts: GenerationAttempt[];
   related_assets: Asset[];
   job_logs: JobLog[];
+};
+
+export type ManualInterventionPayload = {
+  reason: string;
+};
+
+export type ProjectExport = {
+  exported_at: string;
+  project: Record<string, unknown>;
+  brand_profile: Record<string, unknown>;
+  ideas: Record<string, unknown>[];
+  scripts: Record<string, unknown>[];
+  approvals: Record<string, unknown>[];
+  assets: Record<string, unknown>[];
+  background_jobs: Record<string, unknown>[];
+  publish_jobs: Record<string, unknown>[];
+  analytics_snapshots: Record<string, unknown>[];
+  insights: Record<string, unknown>[];
+  project_events: Record<string, unknown>[];
 };
 
 export type ProjectActivity = {

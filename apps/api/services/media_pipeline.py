@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -38,6 +40,7 @@ def queue_rough_cut_job(
     _ensure_no_active_rough_cut_job(db, project, script)
 
     duration_seconds = sum(scene.estimated_duration_seconds for scene in script.scenes)
+    correlation_id = str(uuid4())
     job = BackgroundJob(
         user_id=user.id,
         project_id=project.id,
@@ -51,6 +54,7 @@ def queue_rough_cut_job(
             "scene_count": len(script.scenes),
             "export_profile": "rough_cut_preview_v1",
             "duration_seconds": duration_seconds,
+            "correlation_id": correlation_id,
         },
     )
     db.add(job)
@@ -63,6 +67,7 @@ def queue_rough_cut_job(
         metadata={
             "duration_seconds": duration_seconds,
             "scene_count": len(script.scenes),
+            "correlation_id": correlation_id,
         },
     )
 

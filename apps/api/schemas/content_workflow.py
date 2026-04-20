@@ -146,6 +146,10 @@ class ManualPublishCompleteRequest(BaseModel):
     manual_publish_notes: str | None = Field(default=None, max_length=5000)
 
 
+class ManualInterventionRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
+
+
 class AnalyticsSnapshotRequest(BaseModel):
     views: int = Field(ge=0)
     likes: int = Field(default=0, ge=0)
@@ -314,3 +318,18 @@ class ProjectActivityResponse(BaseModel):
     level: str
     metadata_json: dict[str, Any]
     created_at: datetime
+
+
+class ProjectExportResponse(BaseModel):
+    exported_at: datetime
+    project: dict[str, Any]
+    brand_profile: dict[str, Any]
+    ideas: list[dict[str, Any]]
+    scripts: list[dict[str, Any]]
+    approvals: list[dict[str, Any]]
+    assets: list[dict[str, Any]]
+    background_jobs: list[dict[str, Any]]
+    publish_jobs: list[dict[str, Any]]
+    analytics_snapshots: list[dict[str, Any]]
+    insights: list[dict[str, Any]]
+    project_events: list[dict[str, Any]]

@@ -9,6 +9,7 @@ from apps.api.models.generation_attempt import GenerationAttempt
 from apps.api.models.insight import Insight
 from apps.api.models.job_log import JobLog
 from apps.api.models.project import Project
+from apps.api.models.project_event import ProjectEvent
 from apps.api.models.project_script import ProjectScript
 from apps.api.models.publish_job import PublishJob
 from apps.api.models.scene import Scene
@@ -26,6 +27,7 @@ __all__ = [
     "Insight",
     "JobLog",
     "Project",
+    "ProjectEvent",
     "ProjectScript",
     "PublishJob",
     "Scene",

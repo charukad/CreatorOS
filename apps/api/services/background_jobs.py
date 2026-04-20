@@ -276,6 +276,31 @@ def retry_background_job(db: Session, job: BackgroundJob) -> BackgroundJob:
     return get_background_job(db, job.id) or job
 
 
+def mark_job_manual_intervention_required(
+    db: Session,
+    job: BackgroundJob,
+    *,
+    reason: str,
+) -> BackgroundJob:
+    if job.state == BackgroundJobState.COMPLETED:
+        raise ValueError("Completed jobs cannot be moved back to manual intervention.")
+
+    previous_state = job.state.value
+    job.state = BackgroundJobState.WAITING_EXTERNAL
+    job.error_message = reason
+    db.add(job)
+    create_job_log(
+        db,
+        job,
+        event_type="manual_intervention_required",
+        message=reason,
+        level="warning",
+        metadata={"previous_state": previous_state},
+    )
+    db.commit()
+    return get_background_job(db, job.id) or job
+
+
 def mark_job_progress(db: Session, job: BackgroundJob, progress_percent: int) -> None:
     job.progress_percent = progress_percent
     db.add(job)

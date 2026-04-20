@@ -6,6 +6,7 @@
 - [Repository Structure](repo-structure.md)
 - [Build Plan](build-plan.md)
 - [Full Project Task List](full-project-task-list.md)
+- [Release Checklist](release-checklist.md)
 
 ## Backend and Data
 

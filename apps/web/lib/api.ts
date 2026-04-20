@@ -19,9 +19,13 @@ import type {
   ProjectPayload,
   ProjectScript,
   ManualPublishCompletePayload,
+  ManualInterventionPayload,
   PublishJob,
+  ProjectArchivePayload,
   PublishJobPreparePayload,
   PublishJobSchedulePayload,
+  ProjectExport,
+  ProjectManualOverridePayload,
   SceneUpdatePayload,
   ScriptPromptPack,
   ScriptGeneratePayload,
@@ -156,6 +160,26 @@ export function updateProject(projectId: string, payload: ProjectPayload): Promi
   });
 }
 
+export function archiveProject(
+  projectId: string,
+  payload: ProjectArchivePayload = {},
+): Promise<Project> {
+  return apiRequest<Project>(`/projects/${projectId}/archive`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function manualOverrideProjectStatus(
+  projectId: string,
+  payload: ProjectManualOverridePayload,
+): Promise<Project> {
+  return apiRequest<Project>(`/projects/${projectId}/manual-override`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function transitionProjectStatus(
   projectId: string,
   payload: ProjectTransitionPayload,
@@ -200,6 +224,20 @@ export function retryJob(jobId: string): Promise<BackgroundJobDetail> {
   return apiRequest<BackgroundJobDetail>(`/jobs/${jobId}/retry`, {
     method: "POST",
   });
+}
+
+export function markJobManualIntervention(
+  jobId: string,
+  payload: ManualInterventionPayload,
+): Promise<BackgroundJobDetail> {
+  return apiRequest<BackgroundJobDetail>(`/jobs/${jobId}/manual-intervention`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function exportProject(projectId: string): Promise<ProjectExport> {
+  return apiRequest<ProjectExport>(`/projects/${projectId}/export`);
 }
 
 export function listProjectAssets(projectId: string): Promise<Asset[]> {

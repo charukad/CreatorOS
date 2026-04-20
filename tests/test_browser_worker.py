@@ -157,7 +157,16 @@ def test_browser_worker_processes_queued_generation_jobs(tmp_path: Path, monkeyp
         event_types = {log["event_type"] for log in detail_response.json()["job_logs"]}
         assert "job_claimed" in event_types
         assert "job_completed" in event_types
+        assert "debug_artifacts_captured" in event_types
         assert "job_progress_updated" in event_types
+        debug_logs = [
+            log
+            for log in detail_response.json()["job_logs"]
+            if log["event_type"] == "debug_artifacts_captured"
+        ]
+        assert debug_logs
+        for debug_path in debug_logs[0]["metadata_json"]["debug_artifact_paths"]:
+            assert (tmp_path / debug_path).exists()
 
     assets_response = client.get(f"/api/projects/{project_id}/assets")
     assert assets_response.status_code == 200

@@ -6,16 +6,20 @@ from sqlalchemy.orm import Session
 
 from apps.api.db.session import get_db
 from apps.api.schemas.projects import (
+    ProjectArchiveRequest,
     ProjectCreate,
+    ProjectManualOverrideRequest,
     ProjectResponse,
     ProjectTransitionRequest,
     ProjectUpdate,
 )
 from apps.api.services.projects import (
+    archive_project,
     create_project,
     get_owned_brand_profile,
     get_project,
     list_projects,
+    manual_override_project_status,
     transition_project_status,
     update_project,
 )
@@ -78,6 +82,49 @@ def update_project_route(
             )
 
     updated_project = update_project(db, project, payload, brand_profile=brand_profile)
+    return ProjectResponse.model_validate(updated_project)
+
+
+@router.post("/{project_id}/archive", response_model=ProjectResponse)
+def archive_project_route(
+    project_id: UUID,
+    payload: ProjectArchiveRequest,
+    db: DbSession,
+) -> ProjectResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        archived_project = archive_project(db, project, reason=payload.reason)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return ProjectResponse.model_validate(archived_project)
+
+
+@router.post("/{project_id}/manual-override", response_model=ProjectResponse)
+def manual_override_project_route(
+    project_id: UUID,
+    payload: ProjectManualOverrideRequest,
+    db: DbSession,
+) -> ProjectResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        updated_project = manual_override_project_status(
+            db,
+            project,
+            target_status=payload.target_status,
+            reason=payload.reason,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
     return ProjectResponse.model_validate(updated_project)
 
 

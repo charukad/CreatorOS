@@ -7,6 +7,8 @@
 - `compose_rough_cut` can now be queued after asset approval and consumed by the media worker
 - the media worker currently probes WAV narration duration, validates contiguous timeline data, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, an FFmpeg command-plan sidecar with scene overlay text, trim/loop handling, and fade transitions, and optionally renders/registers a `video/mp4` rough cut when `MEDIA_ENABLE_FFMPEG_RENDER=true`
 - job detail, job timeline logs, safe cancel, and safe retry operations are available through the API, dedicated job detail screen, and project page
+- queued browser/media job payloads include a `correlation_id` that is also copied into queue log metadata
+- browser provider debug artifacts are captured into per-provider debug folders and linked from job logs
 - analytics snapshots can now be manually synced for published jobs through the API and project analytics panel, with first-pass insights persisted for review
 - actual Redis-backed execution, automated retry policy, and live worker progress updates are still pending
 - automated analytics platform polling through `sync_analytics` is still pending
@@ -170,3 +172,7 @@ Logs include:
 - `message` for human-readable diagnosis
 - `metadata_json` for structured details such as progress, worker type, scene id, or previous state
 - project, script, background job, and optional generation attempt identifiers
+
+Additional current recovery events:
+- `debug_artifacts_captured`
+- `manual_intervention_required`

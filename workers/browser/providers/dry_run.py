@@ -10,7 +10,9 @@ from workers.browser.providers.base import BrowserProvider, ProviderJobPayload
 class DryRunElevenLabsProvider(BrowserProvider):
     def __init__(self, download_root: Path) -> None:
         self._download_root = download_root / "elevenlabs"
+        self._debug_root = download_root / "debug" / "elevenlabs"
         self._download_root.mkdir(parents=True, exist_ok=True)
+        self._debug_root.mkdir(parents=True, exist_ok=True)
         self._submitted_jobs: dict[str, ProviderJobPayload] = {}
 
     def ensure_session(self) -> None:
@@ -35,22 +37,25 @@ class DryRunElevenLabsProvider(BrowserProvider):
         _write_sine_wave(output_path, duration_seconds)
         return [str(output_path)]
 
-    def capture_debug_artifacts(self, job_id: str) -> None:
+    def capture_debug_artifacts(self, job_id: str) -> list[str]:
         payload = self._submitted_jobs.get(job_id)
         if payload is None:
-            return
+            return []
 
-        artifact_path = self._download_root / f"{job_id}.txt"
+        artifact_path = self._debug_root / f"{job_id}-prompt.txt"
         artifact_path.write_text(
             payload.prompt or "No prompt captured for this dry-run narration job.",
             encoding="utf-8",
         )
+        return [str(artifact_path)]
 
 
 class DryRunFlowProvider(BrowserProvider):
     def __init__(self, download_root: Path) -> None:
         self._download_root = download_root / "flow"
+        self._debug_root = download_root / "debug" / "flow"
         self._download_root.mkdir(parents=True, exist_ok=True)
+        self._debug_root.mkdir(parents=True, exist_ok=True)
         self._submitted_jobs: dict[str, ProviderJobPayload] = {}
 
     def ensure_session(self) -> None:
@@ -82,16 +87,17 @@ class DryRunFlowProvider(BrowserProvider):
         )
         return [str(output_path)]
 
-    def capture_debug_artifacts(self, job_id: str) -> None:
+    def capture_debug_artifacts(self, job_id: str) -> list[str]:
         payload = self._submitted_jobs.get(job_id)
         if payload is None:
-            return
+            return []
 
-        artifact_path = self._download_root / f"{job_id}.txt"
+        artifact_path = self._debug_root / f"{job_id}-prompt.txt"
         artifact_path.write_text(
             payload.prompt or "No prompt captured for this dry-run visual job.",
             encoding="utf-8",
         )
+        return [str(artifact_path)]
 
 
 def _write_sine_wave(output_path: Path, duration_seconds: int) -> None:

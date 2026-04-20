@@ -1,5 +1,5 @@
 import re
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -64,6 +64,7 @@ def queue_audio_generation_job(
 ) -> BackgroundJob:
     _validate_generation_queue(project, script)
     _ensure_no_active_job(db, project, script, BackgroundJobType.GENERATE_AUDIO_BROWSER)
+    correlation_id = str(uuid4())
 
     narration_segments = [
         {
@@ -90,6 +91,7 @@ def queue_audio_generation_job(
             "voice_label": payload.voice_label,
             "estimated_duration_seconds": script.estimated_duration_seconds,
             "scene_count": len(narration_segments),
+            "correlation_id": correlation_id,
             "narration_segments": narration_segments,
         },
     )
@@ -103,6 +105,7 @@ def queue_audio_generation_job(
         metadata={
             "scene_count": len(narration_segments),
             "voice_label": payload.voice_label,
+            "correlation_id": correlation_id,
         },
     )
 
@@ -161,6 +164,7 @@ def queue_visual_generation_job(
 ) -> BackgroundJob:
     _validate_generation_queue(project, script)
     _ensure_no_active_job(db, project, script, BackgroundJobType.GENERATE_VISUALS_BROWSER)
+    correlation_id = str(uuid4())
 
     selected_scenes = _select_prompt_pack_scenes(prompt_pack.scenes, payload.scene_ids)
     if not selected_scenes:
@@ -177,6 +181,7 @@ def queue_visual_generation_job(
             "script_id": str(script.id),
             "script_version": script.version_number,
             "scene_count": len(selected_scenes),
+            "correlation_id": correlation_id,
             "scene_ids": [str(scene.scene_id) for scene in selected_scenes],
             "scenes": [
                 {
@@ -201,6 +206,7 @@ def queue_visual_generation_job(
         metadata={
             "scene_count": len(selected_scenes),
             "scene_ids": [str(scene.scene_id) for scene in selected_scenes],
+            "correlation_id": correlation_id,
         },
     )
 

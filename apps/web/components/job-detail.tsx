@@ -8,7 +8,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
-import { cancelJob, retryJob } from "../lib/api";
+import { cancelJob, markJobManualIntervention, retryJob } from "../lib/api";
 import type { BackgroundJob, BackgroundJobDetail } from "../types/api";
 
 type JobDetailProps = {
@@ -48,6 +48,7 @@ function logLevelClassName(level: string): string {
 export function JobDetail({ detail }: JobDetailProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [manualReason, setManualReason] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const { job } = detail;
 
@@ -65,6 +66,17 @@ export function JobDetail({ detail }: JobDetailProps) {
           setPendingAction(null);
         });
     });
+  }
+
+  function handleManualIntervention() {
+    if (manualReason.trim().length === 0) {
+      setError("Add a reason before marking this job for manual intervention.");
+      return;
+    }
+
+    runAction("manual-intervention", () =>
+      markJobManualIntervention(job.id, { reason: manualReason.trim() }),
+    );
   }
 
   return (
@@ -131,6 +143,7 @@ export function JobDetail({ detail }: JobDetailProps) {
             <h2 className="text-xl font-semibold text-white">Safe operations</h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">
               Cancel only before active execution; retry only after failed or cancelled states.
+              Manual intervention keeps the job visible in recovery queues.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -151,6 +164,27 @@ export function JobDetail({ detail }: JobDetailProps) {
               {pendingAction === "retry" ? "Retrying..." : "Retry job"}
             </button>
           </div>
+        </div>
+        <div className="mt-5 rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4">
+          <label className="grid gap-2 text-sm font-semibold text-amber-50">
+            Manual intervention note
+            <textarea
+              className="min-h-20 rounded-2xl border border-amber-200/20 bg-slate-950/60 px-4 py-3 text-sm font-normal text-white outline-none transition placeholder:text-slate-500 focus:border-amber-200/50"
+              onChange={(event) => setManualReason(event.target.value)}
+              placeholder="What should the operator check before this job can continue?"
+              value={manualReason}
+            />
+          </label>
+          <button
+            className="mt-3 rounded-full border border-amber-200/30 bg-amber-300/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-amber-50 transition hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={job.state === "completed" || pendingAction !== null}
+            onClick={handleManualIntervention}
+            type="button"
+          >
+            {pendingAction === "manual-intervention"
+              ? "Marking..."
+              : "Mark manual intervention required"}
+          </button>
         </div>
       </section>
 

@@ -40,9 +40,12 @@
 - `GET /api/projects/:id`
 - `PATCH /api/projects/:id`
 - `GET /api/projects`
+- `POST /api/projects/:id/archive`
+- `POST /api/projects/:id/manual-override`
 - `POST /api/projects/:id/transition`
 - `GET /api/projects/:id/ideas`
 - `GET /api/projects/:id/activity`
+- `GET /api/projects/:id/export`
 - `GET /api/projects/:id/analytics`
 - `GET /api/projects/:id/approvals`
 - `GET /api/projects/:id/jobs`
@@ -79,6 +82,7 @@
 ### Jobs
 - `GET /api/jobs/:id`
 - `POST /api/jobs/:id/cancel`
+- `POST /api/jobs/:id/manual-intervention`
 - `POST /api/jobs/:id/retry`
 
 ### Publish Jobs
@@ -121,6 +125,24 @@
   "target_status": "idea_pending_approval"
 }
 ```
+
+### `POST /api/projects/:id/archive`
+```json
+{
+  "reason": "Project is complete and no longer needs active workflow controls."
+}
+```
+
+### `POST /api/projects/:id/manual-override`
+```json
+{
+  "target_status": "failed",
+  "reason": "Browser provider changed and the project needs operator recovery."
+}
+```
+
+Behavior note:
+- manual overrides bypass guarded transition prerequisites but require a reason and leave a project-event audit trail
 
 ### `POST /api/projects/:id/ideas/generate`
 Request body:
@@ -348,8 +370,31 @@ Response excerpt:
 ```
 
 Behavior note:
-- returns the newest approval and job-log activity for the project
+- returns the newest approval, job-log, and project-event activity for the project
 - job-log entries include a `background_job_id` in metadata so the web app can link to the job detail screen
+
+### `GET /api/projects/:id/export`
+Response excerpt:
+```json
+{
+  "exported_at": "2026-04-20T09:00:00Z",
+  "project": {},
+  "brand_profile": {},
+  "ideas": [],
+  "scripts": [],
+  "approvals": [],
+  "assets": [],
+  "background_jobs": [],
+  "publish_jobs": [],
+  "analytics_snapshots": [],
+  "insights": [],
+  "project_events": []
+}
+```
+
+Behavior note:
+- export bundles are intended for local backup, debugging, and handoff
+- generated artifact files are referenced by path; binary media is not embedded in the JSON response
 
 ### `GET /api/jobs/:id`
 Response excerpt:
@@ -412,6 +457,18 @@ Behavior note:
 - retry resets job state to `queued`, clears job errors, clears stale timestamps, and resets related assets to `planned`
 - retry is blocked if another active job of the same type already exists for the same script
 - completed jobs cannot be retried
+
+### `POST /api/jobs/:id/manual-intervention`
+```json
+{
+  "reason": "Provider login expired and needs a browser session refresh."
+}
+```
+
+Behavior note:
+- marks the job `waiting_external`
+- preserves the human-readable reason in `error_message`
+- writes a `manual_intervention_required` job log entry for project activity and recovery queues
 
 ### `GET /api/projects/:id/assets`
 - returns planned and produced asset records for the project, including placeholder records created before worker execution starts

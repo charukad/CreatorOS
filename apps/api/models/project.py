@@ -79,6 +79,11 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    project_events = relationship(
+        "ProjectEvent",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
     publish_jobs = relationship(
         "PublishJob",
         back_populates="project",

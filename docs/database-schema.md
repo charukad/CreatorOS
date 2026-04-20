@@ -194,6 +194,22 @@ Note:
 - finished_at
 - error_message
 
+### project_events
+- id
+- user_id
+- project_id
+- event_type
+- title
+- description nullable
+- level
+- metadata_json
+- created_at
+- updated_at
+
+Note:
+- project events record project creation, settings updates, guarded status transitions, manual overrides, archive decisions, publish milestones, and demo seeding
+- project events are operator-facing audit records and are included in project activity and export bundles
+
 ### job_logs
 - id
 - user_id
@@ -209,7 +225,7 @@ Note:
 - updated_at
 
 Note:
-- job logs persist operator-visible lifecycle events such as queue, claim, progress, attempt start/completion, failure, cancellation, and retry
+- job logs persist operator-visible lifecycle events such as queue, claim, progress, attempt start/completion, debug artifact capture, failure, cancellation, retry, and manual intervention required
 - every log remains traceable to the owning project, script, and background job, with optional generation-attempt linkage
 
 ## Important Enums

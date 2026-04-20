@@ -24,6 +24,7 @@ from apps.api.schemas.enums import (
     PublishJobStatus,
 )
 from apps.api.services.approvals import create_approval_record, get_latest_stage_approval
+from apps.api.services.project_events import create_project_event
 
 ACTIVE_PUBLISH_JOB_STATUSES = {
     PublishJobStatus.PENDING_APPROVAL,
@@ -155,6 +156,21 @@ def prepare_publish_job(
         },
     )
     db.add(publish_job)
+    db.flush()
+    create_project_event(
+        db,
+        project,
+        event_type="publish_job_prepared",
+        title="Publish job prepared",
+        description=payload.title,
+        metadata={
+            "publish_job_id": str(publish_job.id),
+            "platform": payload.platform,
+            "scheduled_for": payload.scheduled_for.isoformat()
+            if payload.scheduled_for is not None
+            else None,
+        },
+    )
     db.commit()
     db.refresh(publish_job)
     return publish_job
@@ -186,6 +202,14 @@ def approve_publish_job(
     )
     publish_job.status = PublishJobStatus.APPROVED
     db.add(publish_job)
+    create_project_event(
+        db,
+        project,
+        event_type="publish_job_approved",
+        title="Publish job approved",
+        description=feedback_notes,
+        metadata={"publish_job_id": str(publish_job.id), "platform": publish_job.platform},
+    )
     db.commit()
     db.refresh(publish_job)
     return publish_job
@@ -209,6 +233,17 @@ def schedule_publish_job(
     project.status = ProjectStatus.SCHEDULED
     db.add(publish_job)
     db.add(project)
+    create_project_event(
+        db,
+        project,
+        event_type="publish_job_scheduled",
+        title="Publish job scheduled",
+        metadata={
+            "publish_job_id": str(publish_job.id),
+            "platform": publish_job.platform,
+            "scheduled_for": payload.scheduled_for.isoformat(),
+        },
+    )
     db.commit()
     db.refresh(publish_job)
     return publish_job
@@ -233,6 +268,18 @@ def mark_publish_job_published(
     project.status = ProjectStatus.PUBLISHED
     db.add(publish_job)
     db.add(project)
+    create_project_event(
+        db,
+        project,
+        event_type="publish_job_marked_published",
+        title="Publish job marked published",
+        description=payload.manual_publish_notes,
+        metadata={
+            "publish_job_id": str(publish_job.id),
+            "platform": publish_job.platform,
+            "external_post_id": payload.external_post_id,
+        },
+    )
     db.commit()
     db.refresh(publish_job)
     return publish_job

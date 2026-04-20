@@ -386,6 +386,60 @@ def test_project_transitions_block_invalid_jump() -> None:
     app.dependency_overrides.clear()
 
 
+def test_project_archive_manual_override_activity_and_export() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Manual recovery project",
+        objective="Validate archive, override, activity, and export",
+        notes=None,
+    )
+
+    override_response = client.post(
+        f"/api/projects/{project_id}/manual-override",
+        json={
+            "target_status": "failed",
+            "reason": "Browser provider changed and needs operator review.",
+        },
+    )
+    assert override_response.status_code == 200
+    assert override_response.json()["status"] == "failed"
+
+    activity_response = client.get(f"/api/projects/{project_id}/activity")
+    assert activity_response.status_code == 200
+    activity = activity_response.json()
+    assert any(entry["activity_type"] == "manual_status_override" for entry in activity)
+    assert any(entry["activity_type"] == "project_created" for entry in activity)
+
+    export_response = client.get(f"/api/projects/{project_id}/export")
+    assert export_response.status_code == 200
+    export_bundle = export_response.json()
+    assert export_bundle["project"]["id"] == project_id
+    assert export_bundle["brand_profile"]["id"] == brand_profile_id
+    assert any(
+        event["event_type"] == "manual_status_override"
+        for event in export_bundle["project_events"]
+    )
+
+    archive_response = client.post(
+        f"/api/projects/{project_id}/archive",
+        json={"reason": "Demo recovery check complete."},
+    )
+    assert archive_response.status_code == 200
+    assert archive_response.json()["status"] == "archived"
+
+    blocked_override_response = client.post(
+        f"/api/projects/{project_id}/manual-override",
+        json={"target_status": "draft", "reason": "Should stay archived."},
+    )
+    assert blocked_override_response.status_code == 409
+    assert "Archived projects" in _error_message(blocked_override_response)
+
+    app.dependency_overrides.clear()
+
+
 def test_generate_project_ideas_updates_project_status() -> None:
     client = _make_test_client()
     brand_profile_response = client.post(
@@ -925,6 +979,7 @@ def test_job_detail_includes_attempts_and_related_assets() -> None:
     detail = detail_response.json()
     assert detail["job"]["id"] == job_id
     assert detail["job"]["state"] == "queued"
+    assert isinstance(detail["job"]["payload_json"]["correlation_id"], str)
     assert len(detail["generation_attempts"]) == 1
     assert detail["generation_attempts"][0]["background_job_id"] == job_id
     assert len(detail["related_assets"]) == 1
@@ -937,6 +992,45 @@ def test_job_detail_includes_attempts_and_related_assets() -> None:
     assert activity_response.status_code == 200
     activity = activity_response.json()
     assert any(entry["activity_type"] == "job_queued" for entry in activity)
+
+    app.dependency_overrides.clear()
+
+
+def test_job_manual_intervention_marks_waiting_external_and_logs_reason() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Manual intervention job",
+        objective="Expose manual intervention job state",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    intervention_response = client.post(
+        f"/api/jobs/{job_id}/manual-intervention",
+        json={"reason": "Login expired and the browser session needs operator action."},
+    )
+    assert intervention_response.status_code == 200
+    detail = intervention_response.json()
+    assert detail["job"]["state"] == "waiting_external"
+    assert "Login expired" in detail["job"]["error_message"]
+    assert any(
+        log["event_type"] == "manual_intervention_required"
+        for log in detail["job_logs"]
+    )
+
+    activity_response = client.get(f"/api/projects/{project_id}/activity")
+    assert activity_response.status_code == 200
+    assert any(
+        entry["activity_type"] == "manual_intervention_required"
+        for entry in activity_response.json()
+    )
 
     app.dependency_overrides.clear()
 

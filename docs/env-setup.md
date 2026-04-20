@@ -65,6 +65,14 @@
 7. Run database migrations.
 8. Start frontend, backend, and workers.
 
+## Local Demo Data
+After migrations, create a safe demo brand profile and project with:
+```bash
+.venv/bin/python -m scripts.seed_demo
+```
+
+The script is idempotent by demo title/channel name and creates audit activity for manual QA.
+
 ## Target Commands
 ```bash
 pnpm install

@@ -8,6 +8,7 @@ from apps.api.models.generation_attempt import GenerationAttempt
 from apps.api.schemas.enums import BackgroundJobType
 from apps.api.services.background_jobs import (
     claim_next_browser_job,
+    create_job_log,
     get_attempt_assets,
     mark_attempt_completed,
     mark_attempt_running,
@@ -73,7 +74,20 @@ def _process_job(session: Session, settings: BrowserWorkerSettings, job: Backgro
         provider_payload = _build_provider_payload(job, attempt)
         provider_job_id = provider.submit_job(provider_payload)
         provider.wait_for_completion(provider_job_id)
-        provider.capture_debug_artifacts(provider_job_id)
+        debug_artifact_paths = provider.capture_debug_artifacts(provider_job_id)
+        if debug_artifact_paths:
+            create_job_log(
+                session,
+                job,
+                event_type="debug_artifacts_captured",
+                message="Browser provider debug artifacts were captured.",
+                attempt=attempt,
+                metadata={
+                    "provider_job_id": provider_job_id,
+                    "debug_artifact_paths": debug_artifact_paths,
+                },
+            )
+            session.commit()
         download_paths = provider.collect_downloads(provider_job_id)
 
         _refresh_attempt(session, attempt)

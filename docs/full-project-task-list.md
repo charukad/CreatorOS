@@ -57,7 +57,7 @@ Legend:
 - [ ] Add audit-friendly approval history persistence
 - [ ] Add checksum persistence for ingested files
 - [ ] Add migration scripts for the full initial schema
-- [ ] Add seed data helpers for local development
+- [x] Add seed data helpers for local development
 - [x] Add repository/service-layer persistence helpers for the main domain entities
 
 ### Manual checks
@@ -90,10 +90,11 @@ Legend:
 - [ ] Add global layout, navigation, and project-level routing
 - [x] Add API client layer and typed response handling
 - [x] Add shared UI states for loading, empty, error, and retry flows
-- [ ] Add notification/toast pattern for asynchronous job updates
+- [x] Add dashboard notification pattern for items awaiting approval
+- [ ] Add toast pattern for asynchronous job updates
 - [ ] Add reusable cards, tables, status badges, forms, dialogs, and approval components
-- [ ] Add application-wide status color mapping for project, asset, job, approval, and publish states
-- [ ] Add basic dashboard home page showing projects, jobs, approvals, and recent activity
+- [x] Add application-wide status color mapping for project, asset, job, approval, and publish states
+- [x] Add basic dashboard home page showing projects, jobs, approvals, and recent activity
 - [ ] Add route guards or session checks as needed for personal-use auth
 - [ ] Add frontend test and typecheck setup
 
@@ -120,14 +121,14 @@ Legend:
 ## Phase 6 - Project CRUD and Workflow State Machine
 
 ### Build tasks
-- [ ] Build project create, edit, view, archive, and list APIs
+- [x] Build project create, edit, view, archive, and list APIs
 - [x] Build project list and project detail pages in the web app
 - [x] Add project fields for title, target platform, objective, notes, and linked brand profile
 - [x] Implement the project state machine from `draft` through `published` and `archived`
 - [x] Add explicit transition guards for every state-changing action
-- [ ] Add visible project timeline/status history in the UI
-- [ ] Add manual override notes for admin/user interventions
-- [ ] Add project activity log capturing approvals, jobs, failures, retries, and publish actions
+- [x] Add visible project timeline/status history in the UI
+- [x] Add manual override notes for admin/user interventions
+- [x] Add project activity log capturing approvals, jobs, failures, retries, and publish actions
 - [x] Add project filtering and search in the UI
 - [x] Add tests for valid and invalid project status transitions
 - [x] Add current-resource project activity timeline for approvals and job events
@@ -186,8 +187,8 @@ The repo now has a synchronous local script generator, scene persistence, script
 - [x] Add reusable approval UI components for idea and script stages
 - [x] Add approval comments/feedback capture
 - [x] Add rules so downstream jobs cannot start unless the current stage is approved
-- [ ] Add clear pending-approval inbox views for the dashboard
-- [ ] Add notifications for items awaiting approval
+- [x] Add clear pending-approval inbox views for the dashboard
+- [x] Add notifications for items awaiting approval
 - [x] Add tests for approval gating across the implemented workflow
 
 ### Manual checks
@@ -387,14 +388,15 @@ The repo now stores manual analytics snapshots for published jobs, exposes proje
 ### Build tasks
 - [x] Add structured logs across API, browser worker, and media worker
 - [x] Add API request correlation IDs and response headers
-- [ ] Add error reporting and correlation IDs across job chains
-- [ ] Add per-provider debug artifact storage for screenshots, HTML snapshots, and failure notes
+- [x] Add error reporting and correlation IDs across job chains
+- [x] Add per-provider dry-run debug artifact storage for prompt and failure notes
+- [ ] Add live-provider screenshot and HTML snapshot capture for browser failures
 - [ ] Add manual retry and resume tools for browser and media jobs
-- [ ] Add manual override controls for blocked workflow states
-- [ ] Add explicit `manual_intervention_required` handling where needed
+- [x] Add manual override controls for blocked workflow states
+- [x] Add explicit `manual_intervention_required` handling where needed
 - [ ] Add operator-facing status pages for failed jobs, stuck jobs, and quarantined assets
 - [ ] Add cleanup and retention strategy for generated artifacts without destructive permanent deletion
-- [ ] Add backup/export strategy for project metadata and approvals
+- [x] Add backup/export strategy for project metadata and approvals
 
 ### Manual checks
 - [ ] Manual check: a failed job can be debugged without reading raw code
@@ -409,7 +411,7 @@ The API readiness response and shared JSON log formatter now redact URL credenti
 - [x] Add env validation for all services
 - [ ] Ensure no secrets are hardcoded anywhere in code, docs, or tests
 - [ ] Add safe secret-loading patterns for local development
-- [ ] Add storage permission checks for downloads, profiles, temp files, and exports
+- [x] Add storage permission checks for downloads, profiles, temp files, and exports
 - [ ] Add config separation for development, testing, and production-like local environments
 - [x] Add safe logging redaction for tokens, cookies, and provider credentials
 - [x] Redact connection credentials from readiness responses
@@ -425,13 +427,13 @@ The API readiness response and shared JSON log formatter now redact URL credenti
 ### Build tasks
 - [ ] Add unit tests for schemas, services, state transitions, and helpers
 - [ ] Add API integration tests for project, idea, script, approval, asset, publish, and analytics routes
-- [ ] Add browser worker smoke tests and replay-friendly debug fixtures
+- [x] Add browser worker smoke tests and replay-friendly debug fixtures
 - [ ] Add media pipeline smoke tests with sample assets
 - [ ] Add end-to-end happy-path test from project creation to final export
 - [ ] Add end-to-end failure-path tests for rejected approvals, selector failures, download mismatch, and FFmpeg failure
 - [x] Add CI workflow for lint, typecheck, tests, and migration checks
-- [ ] Add release checklist for docs, env samples, migrations, and smoke tests
-- [ ] Add sample demo project data for manual validation
+- [x] Add release checklist for docs, env samples, migrations, and smoke tests
+- [x] Add sample demo project data for manual validation
 
 ### Manual checks
 - [ ] Manual check: full workflow succeeds on a real sample project from idea to export
