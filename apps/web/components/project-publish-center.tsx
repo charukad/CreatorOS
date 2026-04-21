@@ -10,6 +10,7 @@ import {
   preparePublishJob,
   rejectFinalVideo,
   schedulePublishJob,
+  updatePublishJobMetadata,
 } from "../lib/api";
 import type {
   ApprovalRecord,
@@ -27,8 +28,22 @@ type ProjectPublishCenterProps = {
   publishJobs: PublishJob[];
 };
 
+type PublishJobMetadataDraft = {
+  title: string;
+  description: string;
+  hashtags: string;
+  scheduledFor: string;
+  thumbnailAssetId: string;
+  platformSettingsJson: string;
+  changeNotes: string;
+};
+
 function formatTimestamp(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "Not set";
+}
+
+function fromIsoDateTime(value: string | null): string {
+  return value ? new Date(value).toISOString().slice(0, 16) : "";
 }
 
 function defaultScheduleValue(): string {
@@ -40,6 +55,57 @@ function defaultScheduleValue(): string {
 
 function toIsoDateTime(value: string): string {
   return new Date(value).toISOString();
+}
+
+function formatHashtags(hashtags: string[]): string {
+  return hashtags.join(", ");
+}
+
+function parseHashtags(value: string): string[] {
+  return value
+    .split(/[,\n]+/)
+    .map((hashtag) => hashtag.trim())
+    .filter(Boolean);
+}
+
+function parsePlatformSettings(value: string): Record<string, unknown> | null {
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return null;
+  }
+
+  const parsedValue = JSON.parse(trimmedValue) as unknown;
+  if (
+    parsedValue === null ||
+    typeof parsedValue !== "object" ||
+    Array.isArray(parsedValue)
+  ) {
+    throw new Error("Platform settings must be a JSON object.");
+  }
+
+  return parsedValue as Record<string, unknown>;
+}
+
+function createPublishJobMetadataDraft(job: PublishJob): PublishJobMetadataDraft {
+  const thumbnailAssetId =
+    typeof job.metadata_json.thumbnail_asset_id === "string"
+      ? job.metadata_json.thumbnail_asset_id
+      : "";
+  const platformSettings =
+    job.metadata_json.platform_settings &&
+    typeof job.metadata_json.platform_settings === "object"
+      ? JSON.stringify(job.metadata_json.platform_settings, null, 2)
+      : "";
+
+  return {
+    title: job.title,
+    description: job.description,
+    hashtags: formatHashtags(job.hashtags_json),
+    scheduledFor: fromIsoDateTime(job.scheduled_for),
+    thumbnailAssetId,
+    platformSettingsJson: platformSettings,
+    changeNotes: "",
+  };
 }
 
 export function ProjectPublishCenter({
@@ -55,6 +121,9 @@ export function ProjectPublishCenter({
   const [scheduledFor, setScheduledFor] = useState(defaultScheduleValue);
   const [externalPostId, setExternalPostId] = useState("");
   const [manualPublishNotes, setManualPublishNotes] = useState("");
+  const [metadataDrafts, setMetadataDrafts] = useState<Record<string, PublishJobMetadataDraft>>(
+    {},
+  );
 
   const currentScriptAssets =
     currentScript === null
@@ -87,7 +156,8 @@ export function ProjectPublishCenter({
     setError(null);
     setPendingAction(actionKey);
     startTransition(() => {
-      void callback()
+      void Promise.resolve()
+        .then(callback)
         .then(() => {
           router.refresh();
           setPendingAction(null);
@@ -99,6 +169,21 @@ export function ProjectPublishCenter({
           setPendingAction(null);
         });
     });
+  }
+
+  function getMetadataDraft(job: PublishJob): PublishJobMetadataDraft {
+    return metadataDrafts[job.id] ?? createPublishJobMetadataDraft(job);
+  }
+
+  function updateMetadataDraft(job: PublishJob, patch: Partial<PublishJobMetadataDraft>) {
+    setMetadataDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [job.id]: {
+        ...createPublishJobMetadataDraft(job),
+        ...currentDrafts[job.id],
+        ...patch,
+      },
+    }));
   }
 
   return (
@@ -207,8 +292,21 @@ export function ProjectPublishCenter({
             No publish jobs prepared yet.
           </div>
         ) : (
-          publishJobs.map((job) => (
-            <article className="rounded-2xl border border-white/8 bg-slate-950/40 p-5" key={job.id}>
+          publishJobs.map((job) => {
+            const metadataDraft = getMetadataDraft(job);
+            const canEditMetadata = ["pending_approval", "approved"].includes(job.status);
+            const thumbnailOptions = assets.filter(
+              (asset) =>
+                asset.script_id === job.script_id &&
+                ["thumbnail", "scene_image"].includes(asset.asset_type) &&
+                asset.status === "ready",
+            );
+
+            return (
+              <article
+                className="rounded-2xl border border-white/8 bg-slate-950/40 p-5"
+                key={job.id}
+              >
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
                   <span className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-amber-100">
@@ -233,14 +331,161 @@ export function ProjectPublishCenter({
                 ))}
               </div>
 
+              <div className="mt-5 rounded-2xl border border-cyan-300/10 bg-cyan-400/5 p-4">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-cyan-50">Metadata editor</p>
+                    <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-400">
+                      This is the approval-safe draft of what will be posted. Saving changes to an
+                      approved job sends it back to pending approval.
+                    </p>
+                  </div>
+                  {!canEditMetadata ? (
+                    <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-300">
+                      Locked after scheduling
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    Title
+                    <input
+                      className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300/50 disabled:opacity-50"
+                      disabled={!canEditMetadata || pendingAction !== null}
+                      onChange={(event) =>
+                        updateMetadataDraft(job, { title: event.target.value })
+                      }
+                      value={metadataDraft.title}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    Planned time
+                    <input
+                      className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300/50 disabled:opacity-50"
+                      disabled={!canEditMetadata || pendingAction !== null}
+                      onChange={(event) =>
+                        updateMetadataDraft(job, { scheduledFor: event.target.value })
+                      }
+                      type="datetime-local"
+                      value={metadataDraft.scheduledFor}
+                    />
+                  </label>
+                </div>
+
+                <label className="mt-3 grid gap-2 text-sm text-slate-300">
+                  Description
+                  <textarea
+                    className="min-h-28 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300/50 disabled:opacity-50"
+                    disabled={!canEditMetadata || pendingAction !== null}
+                    onChange={(event) =>
+                      updateMetadataDraft(job, { description: event.target.value })
+                    }
+                    value={metadataDraft.description}
+                  />
+                </label>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    Hashtags
+                    <input
+                      className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300/50 disabled:opacity-50"
+                      disabled={!canEditMetadata || pendingAction !== null}
+                      onChange={(event) =>
+                        updateMetadataDraft(job, { hashtags: event.target.value })
+                      }
+                      placeholder="#CreatorOS, #Shorts"
+                      value={metadataDraft.hashtags}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    Thumbnail asset
+                    <select
+                      className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300/50 disabled:opacity-50"
+                      disabled={!canEditMetadata || pendingAction !== null}
+                      onChange={(event) =>
+                        updateMetadataDraft(job, { thumbnailAssetId: event.target.value })
+                      }
+                      value={metadataDraft.thumbnailAssetId}
+                    >
+                      <option value="">No thumbnail selected</option>
+                      {thumbnailOptions.map((asset) => (
+                        <option key={asset.id} value={asset.id}>
+                          {asset.asset_type} - {asset.file_path ?? asset.id}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <label className="mt-3 grid gap-2 text-sm text-slate-300">
+                  Platform settings JSON
+                  <textarea
+                    className="min-h-24 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 font-mono text-xs text-white outline-none transition focus:border-cyan-300/50 disabled:opacity-50"
+                    disabled={!canEditMetadata || pendingAction !== null}
+                    onChange={(event) =>
+                      updateMetadataDraft(job, {
+                        platformSettingsJson: event.target.value,
+                      })
+                    }
+                    placeholder={'{"privacy": "private", "playlist_id": "optional"}'}
+                    value={metadataDraft.platformSettingsJson}
+                  />
+                </label>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    Change notes
+                    <input
+                      className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300/50 disabled:opacity-50"
+                      disabled={!canEditMetadata || pendingAction !== null}
+                      onChange={(event) =>
+                        updateMetadataDraft(job, { changeNotes: event.target.value })
+                      }
+                      placeholder="Why this metadata changed"
+                      value={metadataDraft.changeNotes}
+                    />
+                  </label>
+                  <button
+                    className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!canEditMetadata || pendingAction !== null}
+                    onClick={() =>
+                      runAction(`update-publish-metadata-${job.id}`, () =>
+                        updatePublishJobMetadata(job.id, {
+                          change_notes: metadataDraft.changeNotes.trim() || null,
+                          description: metadataDraft.description.trim(),
+                          hashtags: parseHashtags(metadataDraft.hashtags),
+                          platform_settings: parsePlatformSettings(
+                            metadataDraft.platformSettingsJson,
+                          ),
+                          scheduled_for: metadataDraft.scheduledFor
+                            ? toIsoDateTime(metadataDraft.scheduledFor)
+                            : null,
+                          thumbnail_asset_id: metadataDraft.thumbnailAssetId || null,
+                          title: metadataDraft.title.trim(),
+                        }),
+                      )
+                    }
+                    type="button"
+                  >
+                    {pendingAction === `update-publish-metadata-${job.id}`
+                      ? "Saving..."
+                      : "Save metadata"}
+                  </button>
+                </div>
+              </div>
+
               <div className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
                 <label className="grid gap-2 text-sm text-slate-300">
                   Schedule time
                   <input
                     className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300/50"
-                    onChange={(event) => setScheduledFor(event.target.value)}
+                    onChange={(event) => {
+                      setScheduledFor(event.target.value);
+                      updateMetadataDraft(job, { scheduledFor: event.target.value });
+                    }}
                     type="datetime-local"
-                    value={scheduledFor}
+                    value={metadataDraft.scheduledFor || scheduledFor}
                   />
                 </label>
                 <label className="grid gap-2 text-sm text-slate-300">
@@ -268,7 +513,7 @@ export function ProjectPublishCenter({
                   onClick={() =>
                     runAction(`schedule-publish-${job.id}`, () =>
                       schedulePublishJob(job.id, {
-                        scheduled_for: toIsoDateTime(scheduledFor),
+                        scheduled_for: toIsoDateTime(metadataDraft.scheduledFor || scheduledFor),
                       }),
                     )
                   }
@@ -306,8 +551,9 @@ export function ProjectPublishCenter({
                   Mark published
                 </button>
               </div>
-            </article>
-          ))
+              </article>
+            );
+          })
         )}
       </div>
 

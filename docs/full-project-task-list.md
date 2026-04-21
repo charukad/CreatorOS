@@ -342,12 +342,12 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 ## Phase 16 - Final Approval and Publishing Center
 
 Current implementation note:
-The repo now has final-video approve/reject routes, publish job persistence, approval-gated publish preparation, publish-job approval, schedule, and manual-published completion flows. The project page includes a v1 publishing center, but real platform upload adapters, thumbnails, and calendar views are still pending.
+The repo now has final-video approve/reject routes, publish job persistence, approval-gated publish preparation, approval-safe metadata editing, publish-job approval, schedule, and manual-published completion flows. The project page includes a v1 publishing center, but real platform upload adapters and calendar views are still pending.
 
 ### Build tasks
 - [x] Build publish job persistence and APIs
 - [x] Add publish preparation flow from approved final video
-- [ ] Add metadata editor for title, description, hashtags, thumbnails, and platform-specific settings
+- [x] Add metadata editor for title, description, hashtags, thumbnails, and platform-specific settings
 - [x] Add schedule flow with state validation
 - [x] Add manual published-completion flow with state validation
 - [x] Add publish approval stage before any upload action

@@ -100,6 +100,7 @@
 
 ### Publish Jobs
 - `POST /api/publish-jobs/:id/approve`
+- `PATCH /api/publish-jobs/:id/metadata`
 - `POST /api/publish-jobs/:id/schedule`
 - `POST /api/publish-jobs/:id/mark-published`
 - `POST /api/publish-jobs/:id/sync-analytics`
@@ -752,6 +753,31 @@ Behavior note:
 - records a `publish` approval against the publish job
 - moves the publish job from `pending_approval` to `approved`
 - does not publish or schedule content by itself
+
+### `PATCH /api/publish-jobs/:id/metadata`
+```json
+{
+  "title": "Sharper publish title",
+  "description": "Updated publish description.",
+  "hashtags": ["CreatorOS", "#Workflow"],
+  "scheduled_for": "2030-01-02T03:00:00+00:00",
+  "thumbnail_asset_id": "uuid-or-null",
+  "platform_settings": {
+    "privacy": "private",
+    "playlist_id": "optional"
+  },
+  "change_notes": "Tightened the hook before publish approval."
+}
+```
+
+Behavior note:
+- allows edits only while a publish job is `pending_approval` or `approved`
+- normalizes hashtags by adding missing `#` prefixes and dropping blanks/duplicates
+- stores selected ready thumbnail or scene-image asset IDs from the same script in `metadata_json.thumbnail_asset_id`
+- stores platform-specific upload settings in `metadata_json.platform_settings`
+- records a project activity event for metadata edits
+- moves an already `approved` publish job back to `pending_approval` when posted metadata changes
+- blocks metadata edits after the job is `scheduled`, `published`, `failed`, or `cancelled`
 
 ### `POST /api/publish-jobs/:id/schedule`
 ```json

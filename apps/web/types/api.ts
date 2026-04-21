@@ -225,6 +225,16 @@ export type PublishJobPreparePayload = {
   idempotency_key?: string | null;
 };
 
+export type PublishJobMetadataPayload = {
+  title?: string;
+  description?: string;
+  hashtags?: string[];
+  scheduled_for?: string | null;
+  thumbnail_asset_id?: string | null;
+  platform_settings?: Record<string, unknown> | null;
+  change_notes?: string | null;
+};
+
 export type PublishJobSchedulePayload = {
   scheduled_for: string;
 };

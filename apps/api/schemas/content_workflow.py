@@ -152,6 +152,16 @@ class PublishJobScheduleRequest(BaseModel):
     scheduled_for: datetime
 
 
+class PublishJobMetadataUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, min_length=1)
+    hashtags: list[str] | None = None
+    scheduled_for: datetime | None = None
+    thumbnail_asset_id: UUID | None = None
+    platform_settings: dict[str, Any] | None = None
+    change_notes: str | None = Field(default=None, max_length=5000)
+
+
 class ManualPublishCompleteRequest(BaseModel):
     external_post_id: str | None = Field(default=None, max_length=255)
     manual_publish_notes: str | None = Field(default=None, max_length=5000)

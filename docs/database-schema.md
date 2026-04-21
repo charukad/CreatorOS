@@ -159,6 +159,11 @@ Note:
 - created_at
 - updated_at
 
+Note:
+- `metadata_json.thumbnail_asset_id` stores the selected ready thumbnail or scene-image asset from the same script for publish metadata
+- `metadata_json.platform_settings` stores provider-specific upload options such as privacy, playlist, or caption toggles
+- `metadata_json.last_metadata_update` and `metadata_json.metadata_revision_history` track publish metadata edits and re-approval handoffs
+
 ### analytics_snapshots
 - id
 - user_id

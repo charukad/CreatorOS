@@ -27,6 +27,7 @@ from apps.api.schemas.content_workflow import (
     ProjectAnalyticsResponse,
     ProjectExportResponse,
     ProjectScriptResponse,
+    PublishJobMetadataUpdateRequest,
     PublishJobPrepareRequest,
     PublishJobResponse,
     PublishJobScheduleRequest,
@@ -97,6 +98,7 @@ from apps.api.services.publishing import (
     prepare_publish_job,
     reject_final_video,
     schedule_publish_job,
+    update_publish_job_metadata,
 )
 from apps.api.services.users import get_or_create_default_user
 
@@ -947,6 +949,35 @@ def approve_publish_job_route(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return PublishJobResponse.model_validate(approved_job)
+
+
+@router.patch("/publish-jobs/{publish_job_id}/metadata", response_model=PublishJobResponse)
+def update_publish_job_metadata_route(
+    publish_job_id: UUID,
+    payload: PublishJobMetadataUpdateRequest,
+    db: DbSession,
+) -> PublishJobResponse:
+    user = get_or_create_default_user(db)
+    publish_job = get_owned_publish_job(db, user, publish_job_id)
+    if publish_job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publish job not found")
+
+    project = get_project(db, user, publish_job.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        updated_job = update_publish_job_metadata(
+            db,
+            user=user,
+            project=project,
+            publish_job=publish_job,
+            payload=payload,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return PublishJobResponse.model_validate(updated_job)
 
 
 @router.post("/publish-jobs/{publish_job_id}/schedule", response_model=PublishJobResponse)

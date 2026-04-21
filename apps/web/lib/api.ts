@@ -25,6 +25,7 @@ import type {
   ManualInterventionPayload,
   OperationsRecovery,
   PublishJob,
+  PublishJobMetadataPayload,
   ProjectArchivePayload,
   PublishJobPreparePayload,
   PublishJobSchedulePayload,
@@ -375,6 +376,16 @@ export function approvePublishJob(
 ): Promise<PublishJob> {
   return apiRequest<PublishJob>(`/publish-jobs/${publishJobId}/approve`, {
     method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updatePublishJobMetadata(
+  publishJobId: string,
+  payload: PublishJobMetadataPayload,
+): Promise<PublishJob> {
+  return apiRequest<PublishJob>(`/publish-jobs/${publishJobId}/metadata`, {
+    method: "PATCH",
     body: JSON.stringify(payload),
   });
 }
