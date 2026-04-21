@@ -29,7 +29,7 @@ export const approvalDecisions = ["approved", "rejected"] as const;
 
 export type ApprovalDecision = (typeof approvalDecisions)[number];
 
-export const approvalTargetTypes = ["content_idea", "script"] as const;
+export const approvalTargetTypes = ["content_idea", "script", "asset", "publish_job"] as const;
 
 export type ApprovalTargetType = (typeof approvalTargetTypes)[number];
 
@@ -62,6 +62,8 @@ export const providerNames = ["elevenlabs_web", "flow_web", "local_media"] as co
 export type ProviderName = (typeof providerNames)[number];
 
 export const backgroundJobTypes = [
+  "generate_ideas",
+  "generate_script",
   "generate_audio_browser",
   "generate_visuals_browser",
   "compose_rough_cut",
@@ -79,6 +81,17 @@ export const backgroundJobStates = [
 ] as const;
 
 export type BackgroundJobState = (typeof backgroundJobStates)[number];
+
+export const publishJobStatuses = [
+  "pending_approval",
+  "approved",
+  "scheduled",
+  "published",
+  "failed",
+  "cancelled",
+] as const;
+
+export type PublishJobStatus = (typeof publishJobStatuses)[number];
 
 export const projectStatusLabels: Record<ProjectStatus, string> = {
   draft: "Draft",
@@ -145,6 +158,8 @@ export const assetStatusLabels: Record<AssetStatus, string> = {
 };
 
 export const backgroundJobTypeLabels: Record<BackgroundJobType, string> = {
+  generate_ideas: "Idea Generation",
+  generate_script: "Script Generation",
   generate_audio_browser: "Audio Generation",
   generate_visuals_browser: "Visual Generation",
   compose_rough_cut: "Rough Cut Composition",
@@ -155,6 +170,15 @@ export const backgroundJobStateLabels: Record<BackgroundJobState, string> = {
   running: "Running",
   waiting_external: "Waiting External",
   completed: "Completed",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+export const publishJobStatusLabels: Record<PublishJobStatus, string> = {
+  pending_approval: "Pending Approval",
+  approved: "Approved",
+  scheduled: "Scheduled",
+  published: "Published",
   failed: "Failed",
   cancelled: "Cancelled",
 };

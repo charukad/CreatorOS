@@ -24,6 +24,11 @@ Note:
 - created_at
 - updated_at
 
+Note:
+- `posting_preferences_json.platforms` stores preferred platform keys for generation defaults
+- `posting_preferences_json.default_platform` stores the profile-level default platform when supplied
+- `posting_preferences_json.output_defaults` stores reusable output defaults such as aspect ratio, duration, and caption style
+
 ### projects
 - id
 - user_id
@@ -45,6 +50,7 @@ Note:
 - angle
 - rationale
 - score
+- source_feedback_notes nullable
 - status
 - feedback_notes
 - created_at
@@ -118,6 +124,10 @@ Note:
 - created_at
 - updated_at
 
+Note:
+- browser-generated asset paths include the generation attempt id segment so regenerated files do not overwrite older artifacts
+- checksum is populated when the worker materializes a downloaded file into canonical project storage
+
 ### approvals
 - id
 - user_id
@@ -131,18 +141,28 @@ Note:
 
 ### publish_jobs
 - id
+- user_id
 - project_id
+- script_id
+- final_asset_id
 - platform
 - title
 - description
 - hashtags_json
 - scheduled_for
 - status
+- idempotency_key nullable
 - external_post_id nullable
+- manual_publish_notes nullable
+- error_message nullable
+- metadata_json
 - created_at
+- updated_at
 
 ### analytics_snapshots
 - id
+- user_id
+- project_id
 - publish_job_id
 - views
 - likes
@@ -158,6 +178,9 @@ Note:
 ### insights
 - id
 - user_id
+- project_id
+- publish_job_id
+- analytics_snapshot_id
 - insight_type
 - summary
 - evidence_json
@@ -168,7 +191,7 @@ Note:
 - id
 - user_id
 - project_id
-- script_id
+- script_id nullable for project-level jobs before a script exists
 - job_type
 - provider_name nullable
 - payload_json
@@ -180,6 +203,41 @@ Note:
 - started_at
 - finished_at
 - error_message
+
+### project_events
+- id
+- user_id
+- project_id
+- event_type
+- title
+- description nullable
+- level
+- metadata_json
+- created_at
+- updated_at
+
+Note:
+- project events record project creation, settings updates, guarded status transitions, manual overrides, archive decisions, publish milestones, and demo seeding
+- project events are operator-facing audit records and are included in project activity and export bundles
+
+### job_logs
+- id
+- user_id
+- project_id
+- script_id nullable for project-level jobs before a script exists
+- background_job_id
+- generation_attempt_id nullable
+- level
+- event_type
+- message
+- metadata_json
+- created_at
+- updated_at
+
+Note:
+- job logs persist operator-visible lifecycle events such as queue, claim, progress, attempt start/completion, debug artifact capture, failure, cancellation, retry, and manual intervention required
+- download mismatch and duplicate checksum events are logged as `downloads_quarantined` and `duplicate_asset_detected`
+- every log remains traceable to the owning project, script, and background job, with optional generation-attempt linkage
 
 ## Important Enums
 ### project.status
@@ -238,8 +296,12 @@ Note:
 ### approval.target_type
 - content_idea
 - script
+- asset
+- publish_job
 
 ### background_jobs.job_type
+- generate_ideas
+- generate_script
 - generate_audio_browser
 - generate_visuals_browser
 - compose_rough_cut
@@ -249,6 +311,14 @@ Note:
 - running
 - waiting_external
 - completed
+- failed
+- cancelled
+
+### publish_jobs.status
+- pending_approval
+- approved
+- scheduled
+- published
 - failed
 - cancelled
 

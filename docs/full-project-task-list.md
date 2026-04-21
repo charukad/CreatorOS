@@ -32,14 +32,14 @@ Legend:
 ### Build tasks
 - [x] Create `packages/shared` for cross-service enums, types, schemas, and helpers
 - [x] Define enums for project status, approval stage, asset type, provider type, job status, publish status, and analytics types
-- [ ] Define shared identifiers and metadata contracts for project, scene, asset, generation attempt, approval, publish job, and analytics snapshot records
-- [ ] Define queue payload schemas for every long-running job in `docs/queue-jobs.md`
-- [ ] Define API request and response schemas for core resources in `docs/backend-api.md`
-- [ ] Define scene manifest schema for media assembly
-- [ ] Define prompt pack schema for idea, script, narration, and visual generation inputs
+- [x] Define shared identifiers and metadata contracts for project, scene, asset, generation attempt, approval, publish job, and analytics snapshot records
+- [x] Define queue payload schemas for every long-running job in `docs/queue-jobs.md`
+- [x] Define API request and response schemas for core resources in `docs/backend-api.md`
+- [x] Define scene manifest schema for media assembly
+- [x] Define prompt pack schema for idea, script, narration, and visual generation inputs
 - [x] Define storage path helper contracts so all artifacts remain traceable to project, scene, and attempt
 - [x] Add validation helpers for state transitions and approval gating
-- [ ] Add test fixtures and factories for shared schema validation
+- [x] Add test fixtures and factories for shared schema validation
 
 ### Manual checks
 - [ ] Manual check: every artifact-related schema includes project, scene, and attempt traceability
@@ -55,9 +55,9 @@ Legend:
 - [ ] Add created/updated timestamps consistently
 - [ ] Add immutable versioning strategy for scripts and generation attempts
 - [ ] Add audit-friendly approval history persistence
-- [ ] Add checksum persistence for ingested files
+- [x] Add checksum persistence for ingested files
 - [ ] Add migration scripts for the full initial schema
-- [ ] Add seed data helpers for local development
+- [x] Add seed data helpers for local development
 - [x] Add repository/service-layer persistence helpers for the main domain entities
 
 ### Manual checks
@@ -72,10 +72,10 @@ Legend:
 - [x] Add database session management and dependency injection
 - [ ] Add Redis connection setup
 - [x] Add structured logging and request correlation IDs
-- [ ] Add global error model matching `docs/backend-api.md`
+- [x] Add global error model matching `docs/backend-api.md`
 - [x] Add API router registration and versioned route structure
 - [x] Add auth/session placeholder or personal-user auth implementation appropriate for v1
-- [ ] Add background job submission helpers
+- [x] Add background job submission helpers
 - [x] Add service layer boundaries so routes stay thin
 - [x] Add API test harness with database and Redis fixtures
 
@@ -90,10 +90,11 @@ Legend:
 - [ ] Add global layout, navigation, and project-level routing
 - [x] Add API client layer and typed response handling
 - [x] Add shared UI states for loading, empty, error, and retry flows
-- [ ] Add notification/toast pattern for asynchronous job updates
+- [x] Add dashboard notification pattern for items awaiting approval
+- [ ] Add toast pattern for asynchronous job updates
 - [ ] Add reusable cards, tables, status badges, forms, dialogs, and approval components
-- [ ] Add application-wide status color mapping for project, asset, job, approval, and publish states
-- [ ] Add basic dashboard home page showing projects, jobs, approvals, and recent activity
+- [x] Add application-wide status color mapping for project, asset, job, approval, and publish states
+- [x] Add basic dashboard home page showing projects, jobs, approvals, and recent activity
 - [ ] Add route guards or session checks as needed for personal-use auth
 - [ ] Add frontend test and typecheck setup
 
@@ -103,15 +104,18 @@ Legend:
 
 ## Phase 5 - Brand Profile and Onboarding
 
+Current implementation note:
+Brand profiles now support create/edit/view/list flows, readiness checks, posting-preference validation, reusable prompt-context output, and a profile detail screen that shows onboarding readiness plus markdown/JSON generation context. Full guided multi-step onboarding and deeper platform-specific defaults are still pending.
+
 ### Build tasks
 - [x] Build brand profile database/service/API support
 - [x] Add brand profile create, edit, view, and list routes
-- [ ] Add onboarding flow for channel name, niche, target audience, tone, hook style, CTA style, visual style, and posting preferences
-- [ ] Add settings UI for updating brand rules later
-- [ ] Add validation for missing or inconsistent brand profile data
-- [ ] Add prompt context builder that converts brand profile fields into AI-ready context
-- [ ] Add storage for platform preferences and output defaults
-- [ ] Add support for multiple brand profiles if needed for personal multi-channel use
+- [x] Add onboarding flow for channel name, niche, target audience, tone, hook style, CTA style, visual style, and posting preferences
+- [x] Add settings UI for updating brand rules later
+- [x] Add validation for missing or inconsistent brand profile data
+- [x] Add prompt context builder that converts brand profile fields into AI-ready context
+- [x] Add storage for platform preferences and output defaults
+- [x] Add support for multiple brand profiles if needed for personal multi-channel use
 
 ### Manual checks
 - [ ] Manual check: onboarding captures enough information to generate useful ideas and scripts without extra prompting
@@ -120,16 +124,17 @@ Legend:
 ## Phase 6 - Project CRUD and Workflow State Machine
 
 ### Build tasks
-- [ ] Build project create, edit, view, archive, and list APIs
+- [x] Build project create, edit, view, archive, and list APIs
 - [x] Build project list and project detail pages in the web app
 - [x] Add project fields for title, target platform, objective, notes, and linked brand profile
 - [x] Implement the project state machine from `draft` through `published` and `archived`
 - [x] Add explicit transition guards for every state-changing action
-- [ ] Add visible project timeline/status history in the UI
-- [ ] Add manual override notes for admin/user interventions
-- [ ] Add project activity log capturing approvals, jobs, failures, retries, and publish actions
+- [x] Add visible project timeline/status history in the UI
+- [x] Add manual override notes for admin/user interventions
+- [x] Add project activity log capturing approvals, jobs, failures, retries, and publish actions
 - [x] Add project filtering and search in the UI
 - [x] Add tests for valid and invalid project status transitions
+- [x] Add current-resource project activity timeline for approvals and job events
 
 ### Manual checks
 - [ ] Manual check: invalid state transitions are blocked in both API and UI
@@ -138,16 +143,16 @@ Legend:
 ## Phase 7 - Idea Generation and Research Workflow
 
 Current implementation note:
-The repo now has a synchronous local idea generator, persisted idea records, explicit approve/reject actions, and project-page approval history UI. Queue-backed job submission and richer research/regeneration are still pending.
+The repo now has an inline-local `generate_ideas` background job record with lifecycle logs, a deterministic local idea generator, persisted idea records with source feedback notes, explicit approve/reject actions with review comments, and project-page approval history UI. Optional external research is still pending.
 
 ### Build tasks
-- [ ] Implement idea generation job submission from a project
+- [x] Implement idea generation job submission from a project
 - [x] Add idea generation service using brand context and topic constraints
 - [ ] Add optional research step for trends, competitor angles, and posting strategies
 - [x] Persist generated content ideas with title, hook, angle, rationale, score, and approval status
 - [ ] Persist generated content ideas with score, rationale, topic, and angle
 - [x] Add UI for idea review, comparison, approval, rejection, and regeneration
-- [ ] Add revision notes and regenerate-with-feedback flow
+- [x] Add revision notes and regenerate-with-feedback flow
 - [ ] Update project status when ideas are pending approval or approved
 - [x] Add tests for idea generation payload creation and approval gating
 
@@ -158,19 +163,19 @@ The repo now has a synchronous local idea generator, persisted idea records, exp
 ## Phase 8 - Script Generation, Scene Planning, and Prompt Packs
 
 Current implementation note:
-The repo now has a synchronous local script generator, scene persistence, script version numbers, explicit script approve/reject actions, a project-page script viewer with approval history, scene editing, and prompt-pack output for downstream workers. Queue jobs and richer editing ergonomics are still pending.
+The repo now has an inline-local `generate_script` background job record with lifecycle logs, a deterministic local script generator, source feedback notes for regenerated versions, scene persistence, script version numbers, explicit script approve/reject actions with review comments, a project-page script viewer with approval history, scene editing and reordering, prompt-pack validation, and prompt-pack output for downstream workers. Redis-backed script worker execution is still pending.
 
 ### Build tasks
-- [ ] Implement script generation job submission from an approved idea
+- [x] Implement script generation job submission from an approved idea
 - [x] Build script generation service to produce hook, full script, estimated duration, titles, captions, and hashtags
 - [x] Persist script versions without overwriting previous approved or rejected versions
 - [x] Build scene breakdown generation with narration text, duration, overlay text, image prompt, video prompt, and notes
 - [x] Add script view UI
 - [x] Add scene editor UI
-- [ ] Add scene reorder, edit, and validation behavior
+- [x] Add scene reorder, edit, and validation behavior
 - [x] Add regenerate script flow while preserving version history
 - [x] Add prompt-pack generation for narration and visual tools
-- [ ] Add tests for scene JSON validation and script versioning
+- [x] Add tests for scene JSON validation and script versioning
 
 ### Manual checks
 - [ ] Manual check: script approval clearly shows the hook, full script, scene plan, and platform metadata
@@ -185,8 +190,8 @@ The repo now has a synchronous local script generator, scene persistence, script
 - [x] Add reusable approval UI components for idea and script stages
 - [x] Add approval comments/feedback capture
 - [x] Add rules so downstream jobs cannot start unless the current stage is approved
-- [ ] Add clear pending-approval inbox views for the dashboard
-- [ ] Add notifications for items awaiting approval
+- [x] Add clear pending-approval inbox views for the dashboard
+- [x] Add notifications for items awaiting approval
 - [x] Add tests for approval gating across the implemented workflow
 
 ### Manual checks
@@ -196,23 +201,30 @@ The repo now has a synchronous local script generator, scene persistence, script
 ## Phase 10 - Queue System, Background Jobs, and Progress Tracking
 
 Current implementation note:
-The repo now persists queued narration/visual job plans, per-attempt records, and planned asset placeholders from the project page. The browser worker can execute those jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, retries, logs, and live progress updates are still pending.
+The repo now persists inline-local idea/script generation jobs, queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, and safe cancel/retry operations from the project page and dedicated job detail screen. The browser worker can execute queued browser jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, automated retry policy, and live progress updates are still pending.
 
 ### Build tasks
 - [ ] Choose and implement the job runner architecture backed by Redis
 - [x] Add `background_jobs` persistence and job lifecycle tracking
 - [x] Implement job states `queued`, `running`, `waiting_external`, `completed`, `failed`, and `cancelled`
 - [ ] Implement retry policy per job type as defined in `docs/queue-jobs.md`
-- [ ] Add progress update hooks for long-running tasks
+- [x] Add progress update hooks for long-running tasks
 - [ ] Add idempotency handling for publish scheduling and file ingestion
-- [ ] Add job logs and per-attempt error capture
-- [ ] Add job detail API and UI screens
-- [ ] Add cancel/retry controls where safe
-- [ ] Add tests for retry, resume, and failure state behavior
+- [x] Add persisted job logs and per-attempt error capture
+- [x] Add job detail API with generation attempt and related asset visibility
+- [x] Add project-page job operation controls for the current script queue
+- [x] Add safe queued/waiting-external job cancellation
+- [x] Add failed/cancelled job retry without duplicate asset placeholders
+- [x] Add tests for job detail, cancel, retry, failed recovery, and invalid state guards
+- [x] Add dedicated job detail UI screens beyond the project-page job cards
+- [x] Add project activity timeline entries for approvals and job lifecycle events
+- [x] Add tests for persisted job logs and project activity visibility
+- [ ] Add worker-aware resume support for interrupted running jobs
 
 ### Manual checks
 - [ ] Manual check: long-running jobs visibly update progress in the UI
 - [ ] Manual check: retrying a failed job does not duplicate assets or corrupt state
+- [ ] Manual check: cancelling or retrying a real browser/media job is clear from the project page
 
 ## Phase 11 - Browser Worker Foundation
 
@@ -268,7 +280,7 @@ There is now a dry-run Flow-style provider that produces local SVG scene artifac
 - [ ] Add scene prompt submission for single-scene and batch flows
 - [ ] Add completion detection for generated visuals
 - [ ] Add clip/image download handling
-- [ ] Map downloaded outputs back to project, scene, and generation attempt records
+- [x] Map downloaded outputs back to project, scene, and generation attempt records
 - [ ] Add retry and timeout handling
 - [ ] Add selector fallback strategy where reasonable
 - [x] Add smoke tests or dry-run scripts for Flow automation
@@ -281,18 +293,18 @@ There is now a dry-run Flow-style provider that produces local SVG scene artifac
 ## Phase 14 - Download Manager and Asset Registry
 
 Current implementation note:
-The worker now moves dry-run outputs into canonical project storage paths, and the project page can preview and approve or reject the current asset set. File hashing, quarantine handling, and asset-level regeneration are still pending.
+The worker now moves dry-run outputs into canonical project storage paths, computes checksums, logs duplicate checksums, quarantines mismatched download counts, and the project page can preview, approve, reject, or regenerate individual assets. Live-provider download watcher/interception is still pending.
 
 ### Build tasks
 - [ ] Implement download watcher or explicit ingest flow for browser outputs
-- [ ] Add file hash calculation and duplicate detection
+- [x] Add file hash calculation and duplicate detection
 - [x] Add canonical storage path generation under `storage/projects/{project_id}`
 - [x] Move files from temporary download folders into permanent storage
-- [ ] Register assets with metadata including file path, mime type, duration, resolution, checksum, scene link, and attempt link
-- [ ] Add quarantine path for unknown or mismatched downloads
-- [ ] Add asset approval/rejection/regeneration APIs
+- [x] Register assets with metadata including file path, mime type, duration, resolution, checksum, scene link, and attempt link
+- [x] Add quarantine path for unknown or mismatched downloads
+- [x] Add asset approval/rejection/regeneration APIs
 - [x] Add asset gallery and preview UI
-- [ ] Add tests for download ingestion mapping and duplicate handling
+- [x] Add tests for download ingestion mapping and duplicate handling
 
 ### Manual checks
 - [ ] Manual check: files are stored in predictable project folders and can be traced back to their source attempt
@@ -300,7 +312,7 @@ The worker now moves dry-run outputs into canonical project storage paths, and t
 
 ## Phase 15 - Media Composer, Timeline Builder, and Exports
 
-The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, WAV narration duration probing, deterministic audio-anchored timeline manifest generation, HTML rough-cut preview artifacts, SRT subtitle sidecar generation, FFmpeg command-plan sidecars, API/UI rough-cut queueing, and smoke tests. Actual FFmpeg video rendering, final exports, and real sample QA are still pending.
+The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, WAV narration duration probing, deterministic audio-anchored timeline manifest generation, HTML rough-cut preview artifacts, SRT subtitle sidecar generation, FFmpeg command-plan sidecars, optional FFmpeg MP4 rendering behind `MEDIA_ENABLE_FFMPEG_RENDER`, API/UI rough-cut queueing, and smoke tests. Real local FFmpeg install/manual MP4 QA, final exports, and real sample QA are still pending.
 
 ### Build tasks
 - [x] Create the media worker entrypoint and job execution pipeline
@@ -308,11 +320,14 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 - [x] Resolve approved assets per scene
 - [x] Use narration audio as the primary timing anchor with real audio-duration inspection
 - [x] Build timeline assembly logic from ordered scenes and target durations
-- [ ] Add trim/loop/fallback behavior for scene duration mismatches
+- [x] Add trim/loop/fallback command planning for scene duration mismatches
 - [x] Add first-pass SRT subtitle generation pipeline
-- [ ] Add overlay and transition support
+- [x] Add overlay text support to FFmpeg command planning
+- [x] Add first-pass fade transition support to FFmpeg command planning
 - [x] Implement FFmpeg helper modules for concat, audio overlay, subtitle burn-in, and export command planning
+- [x] Add optional FFmpeg MP4 render execution behind a feature flag
 - [x] Export first-pass rough cut preview artifacts
+- [ ] Manually verify MP4 rough-cut rendering with FFmpeg installed
 - [ ] Export final cut artifacts
 - [x] Persist timeline manifests for every rough-cut attempt
 - [x] Add rough cut preview views in the UI
@@ -326,17 +341,23 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 
 ## Phase 16 - Final Approval and Publishing Center
 
+Current implementation note:
+The repo now has final-video approve/reject routes, publish job persistence, approval-gated publish preparation, publish-job approval, schedule, and manual-published completion flows. The project page includes a v1 publishing center, but real platform upload adapters, thumbnails, and calendar views are still pending.
+
 ### Build tasks
-- [ ] Build publish job persistence and APIs
-- [ ] Add publish preparation flow from approved final video
+- [x] Build publish job persistence and APIs
+- [x] Add publish preparation flow from approved final video
 - [ ] Add metadata editor for title, description, hashtags, thumbnails, and platform-specific settings
-- [ ] Add schedule and publish-now flows with state validation
-- [ ] Add publish approval stage before any upload action
+- [x] Add schedule flow with state validation
+- [x] Add manual published-completion flow with state validation
+- [x] Add publish approval stage before any upload action
 - [ ] Implement platform adapter abstraction for YouTube, Facebook, TikTok, and manual publish fallback
-- [ ] Add publish safety checks so only explicitly approved publish jobs can run
-- [ ] Add idempotency keys for scheduling requests
+- [x] Add manual publish fallback record path
+- [x] Add publish safety checks so only explicitly approved publish jobs can run
+- [x] Add idempotency keys for publish preparation requests
 - [ ] Add publishing calendar and queue views in the UI
-- [ ] Add tests for publish job safety and state transitions
+- [x] Add project-page publishing center for final review, publish approval, scheduling, and manual completion
+- [x] Add tests for publish job safety and state transitions
 
 ### Manual checks
 - [ ] Manual check: publish actions are blocked until the final approval and publish approval stages are complete
@@ -345,16 +366,21 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 
 ## Phase 17 - Analytics Sync and Learning Loop
 
+Current implementation note:
+The repo now stores manual analytics snapshots for published jobs, exposes project analytics through the API, generates first-pass engagement/duration insights, and shows an analytics panel on the project page. Real platform API sync, account-level analytics, and feeding insights back into generation prompts are still pending.
+
 ### Build tasks
-- [ ] Implement analytics snapshot persistence and APIs
+- [x] Implement analytics snapshot persistence and APIs
 - [ ] Add analytics sync job flow for published content
-- [ ] Store views, likes, comments, shares, saves, watch time, CTR, average view duration, and retention data
-- [ ] Build project analytics screens and account-level insights views
+- [x] Add manual analytics sync flow for published content
+- [x] Store views, likes, comments, shares, saves, watch time, CTR, average view duration, and retention data
+- [x] Build project analytics screen
+- [ ] Build account-level insights views
 - [ ] Add performance summaries by hook, duration, posting time, voice, and content type
-- [ ] Build insight generation and recommendation persistence
-- [ ] Add recommendation UI for strategy updates and future prompt guidance
+- [x] Build first-pass insight generation and recommendation persistence
+- [x] Add project-level recommendation UI for strategy updates
 - [ ] Feed analytics-derived learnings back into idea and script generation context
-- [ ] Add tests for analytics ingestion and insight generation behavior
+- [x] Add tests for analytics ingestion and insight generation behavior
 
 ### Manual checks
 - [ ] Manual check: analytics are clearly tied back to the originating project and publish job
@@ -362,16 +388,21 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 
 ## Phase 18 - Observability, Reliability, and Manual Override Tooling
 
+Current implementation note:
+The repo now has structured logs, API request correlation, job detail pages, project activity, safe cancel/retry, manual intervention state, project-level manual overrides, export/backup support, and an operations recovery page for failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, and duplicate asset warnings. Live-provider screenshots/HTML captures, resumable running-job recovery, and retention tooling are still pending.
+
 ### Build tasks
-- [ ] Add structured logs across API, browser worker, and media worker
-- [ ] Add error reporting and correlation IDs across job chains
-- [ ] Add per-provider debug artifact storage for screenshots, HTML snapshots, and failure notes
+- [x] Add structured logs across API, browser worker, and media worker
+- [x] Add API request correlation IDs and response headers
+- [x] Add error reporting and correlation IDs across job chains
+- [x] Add per-provider dry-run debug artifact storage for prompt and failure notes
+- [ ] Add live-provider screenshot and HTML snapshot capture for browser failures
 - [ ] Add manual retry and resume tools for browser and media jobs
-- [ ] Add manual override controls for blocked workflow states
-- [ ] Add explicit `manual_intervention_required` handling where needed
-- [ ] Add operator-facing status pages for failed jobs, stuck jobs, and quarantined assets
+- [x] Add manual override controls for blocked workflow states
+- [x] Add explicit `manual_intervention_required` handling where needed
+- [x] Add operator-facing status pages for failed jobs, stuck jobs, and quarantined assets
 - [ ] Add cleanup and retention strategy for generated artifacts without destructive permanent deletion
-- [ ] Add backup/export strategy for project metadata and approvals
+- [x] Add backup/export strategy for project metadata and approvals
 
 ### Manual checks
 - [ ] Manual check: a failed job can be debugged without reading raw code
@@ -379,13 +410,17 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 
 ## Phase 19 - Security, Config, and Environment Hardening
 
+Current implementation note:
+The API readiness response and shared JSON log formatter now redact URL credentials plus common token, cookie, password, secret, session, and API-key fields. API/browser/media settings also validate unsafe production defaults, empty critical paths, browser worker path separation, browser provider mode, max jobs, and FFmpeg binary configuration. Full secret scanning and provider debug artifact redaction are still pending.
+
 ### Build tasks
-- [ ] Add env validation for all services
+- [x] Add env validation for all services
 - [ ] Ensure no secrets are hardcoded anywhere in code, docs, or tests
 - [ ] Add safe secret-loading patterns for local development
-- [ ] Add storage permission checks for downloads, profiles, temp files, and exports
+- [x] Add storage permission checks for downloads, profiles, temp files, and exports
 - [ ] Add config separation for development, testing, and production-like local environments
-- [ ] Add safe logging redaction for tokens, cookies, and provider credentials
+- [x] Add safe logging redaction for tokens, cookies, and provider credentials
+- [x] Redact connection credentials from readiness responses
 - [ ] Add validation for external file paths before ingest or processing
 - [ ] Add dependency audit and update workflow
 
@@ -398,13 +433,13 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 ### Build tasks
 - [ ] Add unit tests for schemas, services, state transitions, and helpers
 - [ ] Add API integration tests for project, idea, script, approval, asset, publish, and analytics routes
-- [ ] Add browser worker smoke tests and replay-friendly debug fixtures
+- [x] Add browser worker smoke tests and replay-friendly debug fixtures
 - [ ] Add media pipeline smoke tests with sample assets
 - [ ] Add end-to-end happy-path test from project creation to final export
 - [ ] Add end-to-end failure-path tests for rejected approvals, selector failures, download mismatch, and FFmpeg failure
-- [ ] Add CI workflow for lint, typecheck, tests, and migration checks
-- [ ] Add release checklist for docs, env samples, migrations, and smoke tests
-- [ ] Add sample demo project data for manual validation
+- [x] Add CI workflow for lint, typecheck, tests, and migration checks
+- [x] Add release checklist for docs, env samples, migrations, and smoke tests
+- [x] Add sample demo project data for manual validation
 
 ### Manual checks
 - [ ] Manual check: full workflow succeeds on a real sample project from idea to export

@@ -1,8 +1,11 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Self
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from apps.api.core.config_validation import validate_non_empty_path, validate_secret_key
 
 
 class Settings(BaseSettings):
@@ -32,6 +35,15 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def validate_runtime_settings(self) -> Self:
+        validate_secret_key(self.app_env, self.secret_key)
+        validate_non_empty_path(self.storage_root, "STORAGE_ROOT")
+        validate_non_empty_path(self.downloads_root, "DOWNLOADS_ROOT")
+        if not self.cors_origins:
+            raise ValueError("CORS_ORIGINS must include at least one origin.")
+        return self
 
 
 @lru_cache

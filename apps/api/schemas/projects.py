@@ -30,6 +30,15 @@ class ProjectTransitionRequest(BaseModel):
     target_status: ProjectStatus
 
 
+class ProjectArchiveRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class ProjectManualOverrideRequest(BaseModel):
+    target_status: ProjectStatus
+    reason: str = Field(min_length=1, max_length=2000)
+
+
 class ProjectResponse(ProjectBase):
     model_config = ConfigDict(from_attributes=True)
 

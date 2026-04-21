@@ -1,5 +1,7 @@
 import logging
 
+from apps.api.core.logging import configure_logging
+
 from workers.media.config import get_settings
 from workers.media.runtime import run_pending_jobs
 
@@ -8,10 +10,7 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     settings = get_settings()
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    )
+    configure_logging(service_name="media-worker")
     logger.info("CreatorOS media worker starting")
     logger.info("Storage root: %s", settings.storage_root)
     logger.info("Downloads root: %s", settings.downloads_root)

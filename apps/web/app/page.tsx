@@ -6,19 +6,52 @@ import {
 } from "@creatoros/shared";
 import { DashboardWorkspace } from "../components/dashboard-workspace";
 import { StatusBadge } from "../components/status-badge";
-import { listBrandProfiles, listProjects } from "../lib/api";
+import {
+  listBrandProfiles,
+  getOperationsRecovery,
+  listProjectActivity,
+  listProjectApprovals,
+  listProjectJobs,
+  listProjects,
+} from "../lib/api";
 import { apiBaseUrl } from "../lib/env";
-import type { BrandProfile, Project } from "../types/api";
+import type {
+  ApprovalRecord,
+  BackgroundJob,
+  BrandProfile,
+  OperationsRecovery,
+  Project,
+  ProjectActivity,
+} from "../types/api";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   let initialError: string | null = null;
+  let approvals: ApprovalRecord[] = [];
   let brandProfiles: BrandProfile[] = [];
+  let jobs: BackgroundJob[] = [];
+  let operationsRecovery: OperationsRecovery | null = null;
   let projects: Project[] = [];
+  let recentActivity: ProjectActivity[] = [];
 
   try {
-    [brandProfiles, projects] = await Promise.all([listBrandProfiles(), listProjects()]);
+    [brandProfiles, projects, operationsRecovery] = await Promise.all([
+      listBrandProfiles(),
+      listProjects(),
+      getOperationsRecovery(),
+    ]);
+    const [projectJobs, projectApprovals, projectActivity] = await Promise.all([
+      Promise.all(projects.map((project) => listProjectJobs(project.id))),
+      Promise.all(projects.map((project) => listProjectApprovals(project.id))),
+      Promise.all(projects.slice(0, 6).map((project) => listProjectActivity(project.id))),
+    ]);
+    jobs = projectJobs.flat();
+    approvals = projectApprovals.flat();
+    recentActivity = projectActivity
+      .flat()
+      .sort((first, second) => Date.parse(second.created_at) - Date.parse(first.created_at))
+      .slice(0, 8);
   } catch (loadError) {
     initialError = loadError instanceof Error ? loadError.message : "Unable to load dashboard data.";
   }
@@ -51,8 +84,12 @@ export default async function HomePage() {
       </section>
 
       <DashboardWorkspace
+        initialActivity={recentActivity}
+        initialApprovals={approvals}
         initialBrandProfiles={brandProfiles}
         initialError={initialError}
+        initialJobs={jobs}
+        initialOperationsRecovery={operationsRecovery}
         initialProjects={projects}
       />
 

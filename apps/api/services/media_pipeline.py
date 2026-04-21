@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -15,6 +17,7 @@ from apps.api.schemas.enums import (
     ProviderName,
 )
 from apps.api.services.assets import has_approved_asset_review
+from apps.api.services.background_jobs import create_job_log
 from apps.api.services.storage_paths import build_project_storage_path
 
 ACTIVE_JOB_STATES = {
@@ -37,6 +40,7 @@ def queue_rough_cut_job(
     _ensure_no_active_rough_cut_job(db, project, script)
 
     duration_seconds = sum(scene.estimated_duration_seconds for scene in script.scenes)
+    correlation_id = str(uuid4())
     job = BackgroundJob(
         user_id=user.id,
         project_id=project.id,
@@ -50,10 +54,22 @@ def queue_rough_cut_job(
             "scene_count": len(script.scenes),
             "export_profile": "rough_cut_preview_v1",
             "duration_seconds": duration_seconds,
+            "correlation_id": correlation_id,
         },
     )
     db.add(job)
     db.flush()
+    create_job_log(
+        db,
+        job,
+        event_type="job_queued",
+        message="Rough-cut media composition job was queued.",
+        metadata={
+            "duration_seconds": duration_seconds,
+            "scene_count": len(script.scenes),
+            "correlation_id": correlation_id,
+        },
+    )
 
     short_job_id = str(job.id).split("-")[0]
     preview_path = build_project_storage_path(

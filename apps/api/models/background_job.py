@@ -18,11 +18,11 @@ class BackgroundJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
         nullable=False,
     )
-    script_id: Mapped[UUID] = mapped_column(
+    script_id: Mapped[UUID | None] = mapped_column(
         Uuid,
         ForeignKey("scripts.id"),
         index=True,
-        nullable=False,
+        nullable=True,
     )
     job_type: Mapped[BackgroundJobType] = mapped_column(
         Enum(
@@ -66,4 +66,10 @@ class BackgroundJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         "GenerationAttempt",
         back_populates="background_job",
         cascade="all, delete-orphan",
+    )
+    job_logs = relationship(
+        "JobLog",
+        back_populates="background_job",
+        cascade="all, delete-orphan",
+        order_by="JobLog.created_at",
     )

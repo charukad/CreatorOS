@@ -9,10 +9,13 @@ import {
   contentIdeaStatusLabels,
   scriptStatusLabels,
 } from "@creatoros/shared";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import {
+  approveAsset,
   approveProjectAssets,
+  cancelJob,
   queueAudioGeneration,
   queueVisualGeneration,
   approveIdea,
@@ -21,9 +24,13 @@ import {
   getAssetContentUrl,
   generateProjectScript,
   queueRoughCut,
+  regenerateAsset,
+  rejectAsset,
   rejectProjectAssets,
   rejectIdea,
   rejectScript,
+  reorderScriptScenes,
+  retryJob,
   updateScene,
 } from "../lib/api";
 import { SceneEditorCard } from "./scene-editor-card";
@@ -83,6 +90,18 @@ function jobStateClassName(state: BackgroundJob["state"]): string {
   }
 }
 
+function canCancelJobState(state: BackgroundJob["state"]): boolean {
+  return state === "queued" || state === "waiting_external";
+}
+
+function canRetryJobState(state: BackgroundJob["state"]): boolean {
+  return state === "failed" || state === "cancelled";
+}
+
+function isPlanningJob(job: BackgroundJob): boolean {
+  return job.job_type === "generate_ideas" || job.job_type === "generate_script";
+}
+
 function assetStatusClassName(status: Asset["status"]): string {
   switch (status) {
     case "planned":
@@ -112,6 +131,10 @@ function assetSortPriority(assetType: Asset["asset_type"]): number {
   }
 }
 
+function canRegenerateAssetType(assetType: Asset["asset_type"]): boolean {
+  return assetType === "narration_audio" || assetType === "scene_image";
+}
+
 function formatWorkflowValue(value: string): string {
   return value
     .replaceAll("_", " ")
@@ -130,7 +153,11 @@ export function ProjectContentStudio({
 }: ProjectContentStudioProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [ideaGenerationNotes, setIdeaGenerationNotes] = useState("");
+  const [ideaReviewNotes, setIdeaReviewNotes] = useState<Record<string, string>>({});
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [scriptGenerationNotes, setScriptGenerationNotes] = useState("");
+  const [scriptReviewNotes, setScriptReviewNotes] = useState("");
 
   const approvedIdea = ideas.find((idea) => idea.status === "approved") ?? null;
   const canGenerateIdeas =
@@ -156,6 +183,12 @@ export function ProjectContentStudio({
       : assets.filter((asset) => asset.script_id === currentScript.id);
   const currentScriptJobs =
     currentScript === null ? [] : jobs.filter((job) => job.script_id === currentScript.id);
+  const visibleWorkflowJobs = jobs
+    .filter((job) => isPlanningJob(job) || job.script_id === currentScript?.id)
+    .sort(
+      (left, right) =>
+        new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
+    );
   const canQueueGeneration =
     currentScript !== null &&
     currentScript.status === "approved" &&
@@ -242,6 +275,11 @@ export function ProjectContentStudio({
     });
   }
 
+  function optionalNotes(value: string): string | null {
+    const trimmedValue = value.trim();
+    return trimmedValue.length > 0 ? trimmedValue : null;
+  }
+
   async function handleSceneSave(sceneId: string, payload: SceneUpdatePayload) {
     setError(null);
     setPendingAction(`scene-${sceneId}`);
@@ -255,6 +293,27 @@ export function ProjectContentStudio({
       setPendingAction(null);
       throw actionError;
     }
+  }
+
+  function handleSceneMove(sceneIndex: number, direction: -1 | 1) {
+    if (currentScript === null) {
+      return;
+    }
+
+    const targetIndex = sceneIndex + direction;
+    if (targetIndex < 0 || targetIndex >= currentScript.scenes.length) {
+      return;
+    }
+
+    const reorderedScenes = [...currentScript.scenes];
+    const [movedScene] = reorderedScenes.splice(sceneIndex, 1);
+    reorderedScenes.splice(targetIndex, 0, movedScene);
+
+    runAction(`scene-reorder-${currentScript.id}`, () =>
+      reorderScriptScenes(currentScript.id, {
+        scene_ids: reorderedScenes.map((scene) => scene.id),
+      }),
+    );
   }
 
   return (
@@ -294,7 +353,14 @@ export function ProjectContentStudio({
             <button
               className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canGenerateIdeas || pendingAction !== null}
-              onClick={() => runAction("generate-ideas", () => generateProjectIdeas(project.id))}
+              onClick={() =>
+                runAction("generate-ideas", async () => {
+                  await generateProjectIdeas(project.id, {
+                    source_feedback_notes: optionalNotes(ideaGenerationNotes),
+                  });
+                  setIdeaGenerationNotes("");
+                })
+              }
               type="button"
             >
               {pendingAction === "generate-ideas"
@@ -303,6 +369,23 @@ export function ProjectContentStudio({
                   ? "Generate ideas"
                   : "Regenerate ideas"}
             </button>
+          </div>
+
+          <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-4">
+            <label
+              className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
+              htmlFor="idea-generation-notes"
+            >
+              Idea regeneration notes
+            </label>
+            <textarea
+              className="mt-3 min-h-24 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/50"
+              disabled={pendingAction !== null}
+              id="idea-generation-notes"
+              onChange={(event) => setIdeaGenerationNotes(event.target.value)}
+              placeholder="Optional: ask for sharper hooks, a different angle, more practical examples, or a stronger niche focus."
+              value={ideaGenerationNotes}
+            />
           </div>
 
           {ideas.length === 0 ? (
@@ -341,6 +424,12 @@ export function ProjectContentStudio({
                     <p className="mt-4 text-sm leading-6 text-slate-200">{idea.angle}</p>
                     <p className="mt-4 text-sm leading-6 text-slate-300">{idea.rationale}</p>
 
+                    {idea.source_feedback_notes ? (
+                      <p className="mt-4 rounded-2xl border border-cyan-300/20 bg-cyan-400/10 px-4 py-3 text-sm text-cyan-50">
+                        Generated from notes: {idea.source_feedback_notes}
+                      </p>
+                    ) : null}
+
                     {idea.feedback_notes ? (
                       <p className="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-slate-300">
                         {idea.feedback_notes}
@@ -352,27 +441,57 @@ export function ProjectContentStudio({
                         Saved {formatTimestamp(idea.updated_at)}
                       </p>
                       {canReviewIdea ? (
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                        <div className="grid gap-3">
+                          <textarea
+                            className="min-h-20 rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/50"
                             disabled={pendingAction !== null}
-                            onClick={() =>
-                              runAction(`approve-${idea.id}`, () => approveIdea(idea.id, {}))
+                            onChange={(event) =>
+                              setIdeaReviewNotes((currentNotes) => ({
+                                ...currentNotes,
+                                [idea.id]: event.target.value,
+                              }))
                             }
-                            type="button"
-                          >
-                            {pendingAction === `approve-${idea.id}` ? "Approving..." : "Approve"}
-                          </button>
-                          <button
-                            className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
-                            disabled={pendingAction !== null}
-                            onClick={() =>
-                              runAction(`reject-${idea.id}`, () => rejectIdea(idea.id, {}))
-                            }
-                            type="button"
-                          >
-                            {pendingAction === `reject-${idea.id}` ? "Rejecting..." : "Reject"}
-                          </button>
+                            placeholder="Optional review notes for approval or rejection."
+                            value={ideaReviewNotes[idea.id] ?? ""}
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={pendingAction !== null}
+                              onClick={() =>
+                                runAction(`approve-${idea.id}`, async () => {
+                                  await approveIdea(idea.id, {
+                                    feedback_notes: optionalNotes(ideaReviewNotes[idea.id] ?? ""),
+                                  });
+                                  setIdeaReviewNotes((currentNotes) => ({
+                                    ...currentNotes,
+                                    [idea.id]: "",
+                                  }));
+                                })
+                              }
+                              type="button"
+                            >
+                              {pendingAction === `approve-${idea.id}` ? "Approving..." : "Approve"}
+                            </button>
+                            <button
+                              className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={pendingAction !== null}
+                              onClick={() =>
+                                runAction(`reject-${idea.id}`, async () => {
+                                  await rejectIdea(idea.id, {
+                                    feedback_notes: optionalNotes(ideaReviewNotes[idea.id] ?? ""),
+                                  });
+                                  setIdeaReviewNotes((currentNotes) => ({
+                                    ...currentNotes,
+                                    [idea.id]: "",
+                                  }));
+                                })
+                              }
+                              type="button"
+                            >
+                              {pendingAction === `reject-${idea.id}` ? "Rejecting..." : "Reject"}
+                            </button>
+                          </div>
                         </div>
                       ) : null}
                     </div>
@@ -395,7 +514,14 @@ export function ProjectContentStudio({
             <button
               className="rounded-full border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-amber-100 transition hover:border-amber-200/50 hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canGenerateScript || pendingAction !== null}
-              onClick={() => runAction("generate-script", () => generateProjectScript(project.id))}
+              onClick={() =>
+                runAction("generate-script", async () => {
+                  await generateProjectScript(project.id, {
+                    source_feedback_notes: optionalNotes(scriptGenerationNotes),
+                  });
+                  setScriptGenerationNotes("");
+                })
+              }
               type="button"
             >
               {pendingAction === "generate-script"
@@ -404,6 +530,23 @@ export function ProjectContentStudio({
                   ? "Regenerate script"
                   : "Generate script"}
             </button>
+          </div>
+
+          <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-4">
+            <label
+              className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
+              htmlFor="script-generation-notes"
+            >
+              Script regeneration notes
+            </label>
+            <textarea
+              className="mt-3 min-h-24 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-amber-300/50"
+              disabled={pendingAction !== null || !approvedIdea}
+              id="script-generation-notes"
+              onChange={(event) => setScriptGenerationNotes(event.target.value)}
+              placeholder="Optional: ask for a tighter hook, more proof, shorter pacing, different scene structure, or stronger CTA."
+              value={scriptGenerationNotes}
+            />
           </div>
 
           {!approvedIdea ? (
@@ -460,16 +603,33 @@ export function ProjectContentStudio({
                   </div>
                 ) : null}
 
+                {currentScript.source_feedback_notes ? (
+                  <div className="mt-5 rounded-2xl border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-50">
+                    Generated from notes: {currentScript.source_feedback_notes}
+                  </div>
+                ) : null}
+
                 {canApproveCurrentScript || canRejectCurrentScript ? (
-                  <div className="mt-5 flex flex-wrap gap-3">
+                  <div className="mt-5 grid gap-3">
+                    <textarea
+                      className="min-h-24 rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-amber-300/50"
+                      disabled={pendingAction !== null}
+                      onChange={(event) => setScriptReviewNotes(event.target.value)}
+                      placeholder="Optional approval/rejection notes. If rejected, reuse the useful parts as script regeneration notes."
+                      value={scriptReviewNotes}
+                    />
+                    <div className="flex flex-wrap gap-3">
                     {canApproveCurrentScript ? (
                       <button
                         className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={pendingAction !== null}
                         onClick={() =>
-                          runAction(`approve-script-${currentScript.id}`, () =>
-                            approveScript(currentScript.id, {}),
-                          )
+                          runAction(`approve-script-${currentScript.id}`, async () => {
+                            await approveScript(currentScript.id, {
+                              feedback_notes: optionalNotes(scriptReviewNotes),
+                            });
+                            setScriptReviewNotes("");
+                          })
                         }
                         type="button"
                       >
@@ -483,17 +643,22 @@ export function ProjectContentStudio({
                         className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={pendingAction !== null}
                         onClick={() =>
-                          runAction(`reject-script-${currentScript.id}`, () =>
-                            rejectScript(currentScript.id, {}),
-                          )
+                          runAction(`reject-script-${currentScript.id}`, async () => {
+                            await rejectScript(currentScript.id, {
+                              feedback_notes: optionalNotes(scriptReviewNotes),
+                            });
+                            setScriptGenerationNotes(scriptReviewNotes);
+                            setScriptReviewNotes("");
+                          })
                         }
                         type="button"
                       >
                         {pendingAction === `reject-script-${currentScript.id}`
                           ? "Rejecting..."
                           : "Reject script"}
-                      </button>
-                    ) : null}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
 
@@ -579,15 +744,64 @@ export function ProjectContentStudio({
                 ) : null}
 
                 <div className="mt-5 grid gap-4">
-                  {currentScript.scenes.map((scene) => (
-                    <SceneEditorCard
-                      canEdit={canEditScenes}
-                      isSaving={pendingAction === `scene-${scene.id}`}
-                      key={`${scene.id}-${scene.updated_at}`}
-                      onSave={(payload) => handleSceneSave(scene.id, payload)}
-                      scene={scene}
-                    />
-                  ))}
+                  {currentScript.scenes.map((scene, sceneIndex) => {
+                    const isReordering = pendingAction === `scene-reorder-${currentScript.id}`;
+
+                    return (
+                      <div
+                        className="rounded-[1.35rem] border border-white/8 bg-slate-950/20 p-3"
+                        key={`${scene.id}-${scene.updated_at}-${scene.scene_order}`}
+                      >
+                        <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
+                              Scene position {sceneIndex + 1} of {currentScript.scenes.length}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-400">
+                              Reordering updates the saved scene order used by prompt packs and
+                              rough-cut assembly.
+                            </p>
+                          </div>
+
+                          {canEditScenes ? (
+                            <div className="flex gap-2">
+                              <button
+                                aria-label={`Move scene ${scene.scene_order} up`}
+                                className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:border-cyan-200/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
+                                disabled={
+                                  isReordering || sceneIndex === 0 || pendingAction !== null
+                                }
+                                onClick={() => handleSceneMove(sceneIndex, -1)}
+                                type="button"
+                              >
+                                Move up
+                              </button>
+                              <button
+                                aria-label={`Move scene ${scene.scene_order} down`}
+                                className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:border-cyan-200/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
+                                disabled={
+                                  isReordering ||
+                                  sceneIndex === currentScript.scenes.length - 1 ||
+                                  pendingAction !== null
+                                }
+                                onClick={() => handleSceneMove(sceneIndex, 1)}
+                                type="button"
+                              >
+                                Move down
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <SceneEditorCard
+                          canEdit={canEditScenes}
+                          isSaving={pendingAction === `scene-${scene.id}`}
+                          onSave={(payload) => handleSceneSave(scene.id, payload)}
+                          scene={scene}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </article>
 
@@ -775,69 +989,117 @@ export function ProjectContentStudio({
                 <article className="rounded-2xl border border-white/8 bg-white/4 p-5">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h4 className="text-lg font-semibold text-white">Queued jobs</h4>
+                      <h4 className="text-lg font-semibold text-white">Workflow jobs</h4>
                       <p className="mt-2 text-sm leading-6 text-slate-300">
-                        Each long-running generation step is now represented as a persisted job
-                        before any browser worker starts.
+                        Planning, browser, and media work are represented as persisted jobs with
+                        logs before the next stage depends on them.
                       </p>
                     </div>
                     <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-100">
-                      {currentScriptJobs.length} current
+                      {visibleWorkflowJobs.length} visible
                     </span>
                   </div>
 
-                  {currentScriptJobs.length === 0 ? (
+                  {visibleWorkflowJobs.length === 0 ? (
                     <div className="mt-5 rounded-2xl border border-dashed border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
-                      No jobs queued yet. Queue narration or visuals to create the first worker plan.
+                      No jobs recorded yet. Generate ideas to create the first project-level job.
                     </div>
                   ) : (
                     <div className="mt-5 grid gap-4">
-                      {currentScriptJobs.map((job) => (
-                        <article
-                          className="rounded-2xl border border-white/8 bg-slate-950/40 p-4"
-                          key={job.id}
-                        >
-                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                            <div>
-                              <div className="flex flex-wrap gap-2">
-                                <span
-                                  className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${jobStateClassName(job.state)}`}
-                                >
-                                  {backgroundJobStateLabels[job.state]}
-                                </span>
-                                <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
-                                  {backgroundJobTypeLabels[job.job_type]}
-                                </span>
+                      {visibleWorkflowJobs.map((job) => {
+                        const canCancelThisJob = canCancelJobState(job.state);
+                        const canRetryThisJob = canRetryJobState(job.state);
+                        const scriptVersion =
+                          typeof job.payload_json["script_version"] === "number"
+                            ? `Script version: ${job.payload_json["script_version"] as number}`
+                            : "Project-level planning job";
+                        const plannedOutputs =
+                          typeof job.payload_json["idea_count"] === "number"
+                            ? `${job.payload_json["idea_count"] as number} ideas`
+                            : typeof job.payload_json["scene_count"] === "number"
+                              ? `${job.payload_json["scene_count"] as number} scene units`
+                              : "Not provided";
+
+                        return (
+                          <article
+                            className="rounded-2xl border border-white/8 bg-slate-950/40 p-4"
+                            key={job.id}
+                          >
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                              <div>
+                                <div className="flex flex-wrap gap-2">
+                                  <span
+                                    className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${jobStateClassName(job.state)}`}
+                                  >
+                                    {backgroundJobStateLabels[job.state]}
+                                  </span>
+                                  <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
+                                    {backgroundJobTypeLabels[job.job_type]}
+                                  </span>
+                                </div>
+                                <p className="mt-3 text-sm text-slate-200">
+                                  {job.provider_name
+                                    ? formatWorkflowValue(job.provider_name)
+                                    : "Manual provider"}
+                                </p>
                               </div>
-                              <p className="mt-3 text-sm text-slate-200">
-                                {job.provider_name
-                                  ? formatWorkflowValue(job.provider_name)
-                                  : "Manual provider"}
+                              <div className="text-right text-xs uppercase tracking-[0.16em] text-slate-500">
+                                <p>{formatTimestamp(job.created_at)}</p>
+                                <p className="mt-2">Progress {job.progress_percent}%</p>
+                              </div>
+                            </div>
+
+                            <div className="mt-4 grid gap-3 text-sm text-slate-300">
+                              <p>{scriptVersion}</p>
+                              <p>Planned outputs: {plannedOutputs}</p>
+                            </div>
+
+                            {job.error_message ? (
+                              <p className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+                                {job.error_message}
                               </p>
-                            </div>
-                            <div className="text-right text-xs uppercase tracking-[0.16em] text-slate-500">
-                              <p>{formatTimestamp(job.created_at)}</p>
-                              <p className="mt-2">Progress {job.progress_percent}%</p>
-                            </div>
-                          </div>
+                            ) : null}
 
-                          <div className="mt-4 grid gap-3 text-sm text-slate-300">
-                            <p>Script version: {job.payload_json["script_version"] as number}</p>
-                            <p>
-                              Planned outputs:{" "}
-                              {typeof job.payload_json["scene_count"] === "number"
-                                ? `${job.payload_json["scene_count"] as number} scene units`
-                                : "Not provided"}
-                            </p>
-                          </div>
-
-                          {job.error_message ? (
-                            <p className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-                              {job.error_message}
-                            </p>
-                          ) : null}
-                        </article>
-                      ))}
+                            <div className="mt-4 flex flex-wrap gap-3">
+                              <Link
+                                className="rounded-full border border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10"
+                                href={`/jobs/${job.id}`}
+                              >
+                                Open detail
+                              </Link>
+                              <button
+                                className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-100 transition hover:border-amber-200/50 hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                disabled={!canCancelThisJob || pendingAction !== null}
+                                onClick={() =>
+                                  runAction(`cancel-job-${job.id}`, () => cancelJob(job.id))
+                                }
+                                type="button"
+                              >
+                                {pendingAction === `cancel-job-${job.id}`
+                                  ? "Cancelling..."
+                                  : "Cancel job"}
+                              </button>
+                              <button
+                                className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                disabled={!canRetryThisJob || pendingAction !== null}
+                                onClick={() =>
+                                  runAction(`retry-job-${job.id}`, () => retryJob(job.id))
+                                }
+                                type="button"
+                              >
+                                {pendingAction === `retry-job-${job.id}`
+                                  ? "Retrying..."
+                                  : "Retry job"}
+                              </button>
+                              {!canCancelThisJob && !canRetryThisJob ? (
+                                <span className="rounded-full border border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                  No safe manual action
+                                </span>
+                              ) : null}
+                            </div>
+                          </article>
+                        );
+                      })}
                     </div>
                   )}
                 </article>
@@ -942,7 +1204,9 @@ export function ProjectContentStudio({
                             : currentScript.scenes.find((scene) => scene.id === asset.scene_id) ??
                               null;
                         const assetLabel =
-                          asset.asset_type === "rough_cut"
+                          asset.asset_type === "rough_cut" && asset.mime_type?.startsWith("video/")
+                            ? "Rough cut video"
+                            : asset.asset_type === "rough_cut"
                             ? "Rough cut preview"
                             : linkedScene
                               ? `Scene ${linkedScene.scene_order}: ${linkedScene.title}`
@@ -951,6 +1215,16 @@ export function ProjectContentStudio({
                                 : asset.asset_type === "subtitle_file"
                                   ? "Subtitle sidecar"
                                   : "Project-level asset";
+                        const activeRegenerationJob =
+                          asset.asset_type === "narration_audio" ? activeAudioJob : activeVisualJob;
+                        const canApproveThisAsset = canReviewAssets && asset.status === "ready";
+                        const canRejectThisAsset = canReviewAssets && asset.status === "ready";
+                        const canRegenerateThisAsset =
+                          canRegenerateAssetType(asset.asset_type) &&
+                          (asset.status === "ready" || asset.status === "rejected") &&
+                          (project.status === "asset_pending_approval" ||
+                            project.status === "asset_generation") &&
+                          activeRegenerationJob === null;
 
                         return (
                           <article
@@ -1000,6 +1274,13 @@ export function ProjectContentStudio({
                                     src={getAssetContentUrl(asset.id)}
                                     title={assetLabel}
                                   />
+                                ) : asset.mime_type?.startsWith("video/") ? (
+                                  <video
+                                    className="w-full bg-slate-950"
+                                    controls
+                                    preload="metadata"
+                                    src={getAssetContentUrl(asset.id)}
+                                  />
                                 ) : asset.mime_type === "application/x-subrip" ||
                                   asset.mime_type?.startsWith("text/") ? (
                                   <iframe
@@ -1026,7 +1307,68 @@ export function ProjectContentStudio({
                               {asset.duration_seconds ? (
                                 <p>Duration target: {asset.duration_seconds}s</p>
                               ) : null}
+                              {asset.width && asset.height ? (
+                                <p>
+                                  Resolution target: {asset.width}x{asset.height}
+                                </p>
+                              ) : null}
+                              {asset.checksum ? (
+                                <p>Checksum: {asset.checksum.slice(0, 16)}...</p>
+                              ) : null}
                             </div>
+
+                            {canApproveThisAsset || canRejectThisAsset || canRegenerateThisAsset ? (
+                              <div className="mt-4 flex flex-wrap gap-3">
+                                {canApproveThisAsset ? (
+                                  <button
+                                    className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                    disabled={pendingAction !== null}
+                                    onClick={() =>
+                                      runAction(`approve-asset-${asset.id}`, () =>
+                                        approveAsset(asset.id),
+                                      )
+                                    }
+                                    type="button"
+                                  >
+                                    {pendingAction === `approve-asset-${asset.id}`
+                                      ? "Approving..."
+                                      : "Approve asset"}
+                                  </button>
+                                ) : null}
+                                {canRejectThisAsset ? (
+                                  <button
+                                    className="rounded-full border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                    disabled={pendingAction !== null}
+                                    onClick={() =>
+                                      runAction(`reject-asset-${asset.id}`, () =>
+                                        rejectAsset(asset.id),
+                                      )
+                                    }
+                                    type="button"
+                                  >
+                                    {pendingAction === `reject-asset-${asset.id}`
+                                      ? "Rejecting..."
+                                      : "Reject asset"}
+                                  </button>
+                                ) : null}
+                                {canRegenerateThisAsset ? (
+                                  <button
+                                    className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                    disabled={pendingAction !== null}
+                                    onClick={() =>
+                                      runAction(`regenerate-asset-${asset.id}`, () =>
+                                        regenerateAsset(asset.id),
+                                      )
+                                    }
+                                    type="button"
+                                  >
+                                    {pendingAction === `regenerate-asset-${asset.id}`
+                                      ? "Queueing..."
+                                      : "Regenerate asset"}
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </article>
                         );
                       })}

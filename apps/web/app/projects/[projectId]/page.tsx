@@ -2,12 +2,15 @@ import { ProjectDetail } from "../../../components/project-detail";
 import {
   getCurrentProjectScript,
   getProject,
+  getProjectAnalytics,
   getScriptPromptPack,
+  listProjectActivity,
   listProjectAssets,
   listBrandProfiles,
   listProjectApprovals,
   listProjectIdeas,
   listProjectJobs,
+  listProjectPublishJobs,
 } from "../../../lib/api";
 import type {
   Asset,
@@ -16,6 +19,9 @@ import type {
   BrandProfile,
   ContentIdea,
   Project,
+  ProjectActivity,
+  ProjectAnalytics,
+  PublishJob,
   ProjectScript,
   ScriptPromptPack,
 } from "../../../types/api";
@@ -33,21 +39,41 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   let project: Project | null = null;
   let brandProfiles: BrandProfile[] = [];
   let ideas: ContentIdea[] = [];
+  let activity: ProjectActivity[] = [];
+  let analytics: ProjectAnalytics = {
+    insights: [],
+    snapshots: [],
+  };
   let approvals: ApprovalRecord[] = [];
   let assets: Asset[] = [];
   let jobs: BackgroundJob[] = [];
+  let publishJobs: PublishJob[] = [];
   let currentScript: ProjectScript | null = null;
   let promptPack: ScriptPromptPack | null = null;
   let error: string | null = null;
 
   try {
-    [project, brandProfiles, ideas, approvals, jobs, assets, currentScript] = await Promise.all([
+    [
+      project,
+      brandProfiles,
+      ideas,
+      activity,
+      analytics,
+      approvals,
+      jobs,
+      assets,
+      publishJobs,
+      currentScript,
+    ] = await Promise.all([
       getProject(projectId),
       listBrandProfiles(),
       listProjectIdeas(projectId),
+      listProjectActivity(projectId),
+      getProjectAnalytics(projectId),
       listProjectApprovals(projectId),
       listProjectJobs(projectId),
       listProjectAssets(projectId),
+      listProjectPublishJobs(projectId),
       getCurrentProjectScript(projectId),
     ]);
 
@@ -60,6 +86,8 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
   return (
     <ProjectDetail
+      activity={activity}
+      analytics={analytics}
       assets={assets}
       approvals={approvals}
       brandProfiles={brandProfiles}
@@ -69,6 +97,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       jobs={jobs}
       promptPack={promptPack}
       project={project}
+      publishJobs={publishJobs}
     />
   );
 }

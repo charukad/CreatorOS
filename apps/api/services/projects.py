@@ -9,6 +9,7 @@ from apps.api.models.user import User
 from apps.api.schemas.enums import ProjectStatus
 from apps.api.schemas.projects import ProjectCreate, ProjectUpdate
 from apps.api.services.content_workflow import validate_project_transition_prerequisites
+from apps.api.services.project_events import create_project_event
 
 project_status_transitions: dict[ProjectStatus, set[ProjectStatus]] = {
     ProjectStatus.DRAFT: {ProjectStatus.IDEA_PENDING_APPROVAL, ProjectStatus.ARCHIVED},
@@ -79,6 +80,18 @@ def create_project(
         notes=payload.notes,
     )
     db.add(project)
+    db.flush()
+    create_project_event(
+        db,
+        project,
+        event_type="project_created",
+        title="Project created",
+        description=payload.objective,
+        metadata={
+            "brand_profile_id": str(brand_profile.id),
+            "target_platform": payload.target_platform,
+        },
+    )
     db.commit()
     db.refresh(project)
     return project
@@ -112,6 +125,13 @@ def update_project(
     payload: ProjectUpdate,
     brand_profile: BrandProfile | None = None,
 ) -> Project:
+    previous_values = {
+        "brand_profile_id": str(project.brand_profile_id),
+        "title": project.title,
+        "target_platform": project.target_platform,
+        "objective": project.objective,
+        "notes": project.notes,
+    }
     update_data = payload.model_dump(exclude_unset=True)
     if brand_profile is not None:
         update_data["brand_profile_id"] = brand_profile.id
@@ -120,6 +140,21 @@ def update_project(
         setattr(project, field, value)
 
     db.add(project)
+    if update_data:
+        create_project_event(
+            db,
+            project,
+            event_type="project_updated",
+            title="Project settings updated",
+            metadata={
+                "changed_fields": sorted(update_data),
+                "previous_values": previous_values,
+                "new_values": {
+                    key: str(value) if key == "brand_profile_id" else value
+                    for key, value in update_data.items()
+                },
+            },
+        )
     db.commit()
     db.refresh(project)
     return project
@@ -130,6 +165,7 @@ def transition_project_status(
     project: Project,
     target_status: ProjectStatus,
 ) -> Project:
+    previous_status = project.status
     allowed_transitions = project_status_transitions[project.status]
     if target_status not in allowed_transitions:
         allowed_values = ", ".join(sorted(status.value for status in allowed_transitions)) or "none"
@@ -142,6 +178,72 @@ def transition_project_status(
 
     project.status = target_status
     db.add(project)
+    create_project_event(
+        db,
+        project,
+        event_type="project_status_changed",
+        title=f"Project moved to {target_status.value.replace('_', ' ')}",
+        metadata={
+            "previous_status": previous_status.value,
+            "target_status": target_status.value,
+            "transition_type": "guarded",
+        },
+    )
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+def archive_project(db: Session, project: Project, *, reason: str | None = None) -> Project:
+    if project.status == ProjectStatus.ARCHIVED:
+        raise ValueError("Project is already archived.")
+
+    previous_status = project.status
+    project.status = ProjectStatus.ARCHIVED
+    db.add(project)
+    create_project_event(
+        db,
+        project,
+        event_type="project_archived",
+        title="Project archived",
+        description=reason,
+        level="warning",
+        metadata={
+            "previous_status": previous_status.value,
+            "target_status": ProjectStatus.ARCHIVED.value,
+        },
+    )
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+def manual_override_project_status(
+    db: Session,
+    project: Project,
+    *,
+    target_status: ProjectStatus,
+    reason: str,
+) -> Project:
+    if project.status == ProjectStatus.ARCHIVED:
+        raise ValueError("Archived projects cannot be manually overridden.")
+
+    previous_status = project.status
+    project.status = target_status
+    db.add(project)
+    create_project_event(
+        db,
+        project,
+        event_type="manual_status_override",
+        title=f"Manual override to {target_status.value.replace('_', ' ')}",
+        description=reason,
+        level="warning",
+        metadata={
+            "previous_status": previous_status.value,
+            "target_status": target_status.value,
+            "transition_type": "manual_override",
+        },
+    )
     db.commit()
     db.refresh(project)
     return project

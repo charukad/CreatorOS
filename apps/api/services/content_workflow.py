@@ -1,5 +1,6 @@
 import re
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import desc, select
@@ -31,6 +32,7 @@ from apps.api.services.assets import (
     has_approved_asset_review,
     has_ready_rough_cut,
 )
+from apps.api.services.brand_profiles import build_brand_prompt_context
 
 
 def list_project_ideas(db: Session, project: Project) -> list[ContentIdea]:
@@ -93,6 +95,8 @@ def generate_content_ideas(
     user: User,
     project: Project,
     brand_profile: BrandProfile,
+    *,
+    source_feedback_notes: str | None = None,
 ) -> list[ContentIdea]:
     if project.status not in {ProjectStatus.DRAFT, ProjectStatus.IDEA_PENDING_APPROVAL}:
         raise ValueError(
@@ -108,8 +112,9 @@ def generate_content_ideas(
             angle=idea["angle"],
             rationale=idea["rationale"],
             score=idea["score"],
+            source_feedback_notes=source_feedback_notes,
         )
-        for idea in _build_idea_candidates(project, brand_profile)
+        for idea in _build_idea_candidates(project, brand_profile, source_feedback_notes)
     ]
 
     project.status = ProjectStatus.IDEA_PENDING_APPROVAL
@@ -117,7 +122,10 @@ def generate_content_ideas(
     db.add_all(generated_ideas)
     db.commit()
 
-    return list_project_ideas(db, project)
+    for idea in generated_ideas:
+        db.refresh(idea)
+
+    return generated_ideas
 
 
 def approve_content_idea(
@@ -363,24 +371,69 @@ def update_scene(
     scene: Scene,
     payload: SceneUpdate,
 ) -> Scene:
-    current_script = get_current_script(db, project)
-    if current_script is None or current_script.id != script.id:
-        raise ValueError("Only scenes on the current script can be edited.")
-
-    if project.status != ProjectStatus.SCRIPT_PENDING_APPROVAL:
-        raise ValueError("Scenes can only be edited while the project is in script approval.")
-
-    if script.status not in {ScriptStatus.DRAFT, ScriptStatus.REJECTED}:
-        raise ValueError("Scenes can only be edited while the current script is draft or rejected.")
+    _ensure_scene_plan_is_editable(db, project=project, script=script)
 
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(scene, field, value)
 
+    _sync_script_duration(script)
+    _touch_script(script)
     db.add(scene)
+    db.add(script)
     db.commit()
     db.refresh(scene)
     return scene
+
+
+def reorder_script_scenes(
+    db: Session,
+    *,
+    project: Project,
+    script: ProjectScript,
+    scene_ids: Sequence[UUID],
+) -> ProjectScript:
+    _ensure_scene_plan_is_editable(db, project=project, script=script)
+
+    existing_scenes = {scene.id: scene for scene in script.scenes}
+    requested_scene_ids = list(scene_ids)
+
+    if (
+        len(requested_scene_ids) != len(existing_scenes)
+        or len(set(requested_scene_ids)) != len(requested_scene_ids)
+        or set(requested_scene_ids) != set(existing_scenes)
+    ):
+        raise ValueError("Scene reorder must include every current scene exactly once.")
+
+    for scene_order, scene_id in enumerate(requested_scene_ids, start=1):
+        scene = existing_scenes[scene_id]
+        scene.scene_order = scene_order
+        db.add(scene)
+
+    _sync_script_duration(script)
+    _touch_script(script)
+    db.add(script)
+    db.commit()
+    db.expire(script, ["scenes"])
+    db.refresh(script)
+    validate_script_scene_plan(script)
+    return script
+
+
+def validate_script_scene_plan(script: ProjectScript) -> list[Scene]:
+    scenes = sorted(script.scenes, key=lambda scene: scene.scene_order)
+    if not scenes:
+        raise ValueError("A script must include at least one scene.")
+
+    expected_scene_orders = list(range(1, len(scenes) + 1))
+    actual_scene_orders = [scene.scene_order for scene in scenes]
+    if actual_scene_orders != expected_scene_orders:
+        raise ValueError("Script scenes must use contiguous scene_order values starting at 1.")
+
+    if any(scene.estimated_duration_seconds < 1 for scene in scenes):
+        raise ValueError("Script scenes must use positive estimated durations.")
+
+    return scenes
 
 
 def build_script_prompt_pack(
@@ -390,6 +443,7 @@ def build_script_prompt_pack(
     approved_idea: ContentIdea,
     script: ProjectScript,
 ) -> ScriptPromptPackResponse:
+    brand_context = build_brand_prompt_context(brand_profile)
     narration_direction = (
         f"Read in a {brand_profile.tone.lower()} tone for {brand_profile.target_audience.lower()}. "
         f"Keep the pace suitable for {project.target_platform.replace('_', ' ')}."
@@ -415,13 +469,14 @@ def build_script_prompt_pack(
             ),
             notes=scene.notes,
         )
-        for scene in script.scenes
+        for scene in validate_script_scene_plan(script)
     ]
 
     return ScriptPromptPackResponse(
         script_id=script.id,
         project_id=project.id,
         brand_profile_id=brand_profile.id,
+        brand_context=brand_context.context_json,
         channel_name=brand_profile.channel_name,
         target_platform=project.target_platform,
         objective=project.objective,
@@ -485,9 +540,84 @@ def validate_project_transition_prerequisites(
                 "created a rough-cut artifact for the current script."
             )
 
+    if target_status == ProjectStatus.FINAL_PENDING_APPROVAL:
+        if current_script is None:
+            raise ValueError(
+                f"Project cannot transition to '{target_status.value}' without a generated script."
+            )
+        if not has_ready_rough_cut(db, current_script):
+            raise ValueError(
+                "Project cannot transition to 'final_pending_approval' until a rough-cut "
+                "artifact is ready for final review."
+            )
+
+    if target_status == ProjectStatus.READY_TO_PUBLISH:
+        if current_script is None:
+            raise ValueError(
+                f"Project cannot transition to '{target_status.value}' without a generated script."
+            )
+        from apps.api.services.publishing import (
+            get_latest_ready_final_review_asset,
+            has_final_video_approval,
+        )
+
+        final_asset = get_latest_ready_final_review_asset(db, current_script)
+        if final_asset is None or not has_final_video_approval(db, project, final_asset):
+            raise ValueError(
+                "Project cannot transition to 'ready_to_publish' until the final video has "
+                "explicit approval."
+            )
+
+    if target_status == ProjectStatus.SCHEDULED:
+        from apps.api.services.publishing import has_scheduled_publish_job
+
+        if not has_scheduled_publish_job(db, project):
+            raise ValueError(
+                "Project cannot transition to 'scheduled' until an approved publish job "
+                "has been scheduled."
+            )
+
+    if target_status == ProjectStatus.PUBLISHED:
+        from apps.api.services.publishing import has_published_publish_job
+
+        if not has_published_publish_job(db, project):
+            raise ValueError(
+                "Project cannot transition to 'published' until a publish job has been "
+                "marked as published."
+            )
+
+
+def _ensure_scene_plan_is_editable(
+    db: Session,
+    *,
+    project: Project,
+    script: ProjectScript,
+) -> None:
+    current_script = get_current_script(db, project)
+    if current_script is None or current_script.id != script.id:
+        raise ValueError("Only scenes on the current script can be edited.")
+
+    if project.status != ProjectStatus.SCRIPT_PENDING_APPROVAL:
+        raise ValueError("Scenes can only be edited while the project is in script approval.")
+
+    if script.status not in {ScriptStatus.DRAFT, ScriptStatus.REJECTED}:
+        raise ValueError("Scenes can only be edited while the current script is draft or rejected.")
+
+
+def _sync_script_duration(script: ProjectScript) -> None:
+    script.estimated_duration_seconds = sum(
+        scene.estimated_duration_seconds for scene in script.scenes
+    )
+
+
+def _touch_script(script: ProjectScript) -> None:
+    script.updated_at = datetime.now(UTC)
+
 
 def _build_idea_candidates(
-    project: Project, brand_profile: BrandProfile
+    project: Project,
+    brand_profile: BrandProfile,
+    source_feedback_notes: str | None = None,
 ) -> Sequence[dict[str, str | int]]:
     topic = _normalize_phrase(project.title)
     objective = _normalize_phrase(project.objective)
@@ -498,13 +628,18 @@ def _build_idea_candidates(
     visual_style = _normalize_phrase(brand_profile.visual_style)
     platform = _normalize_phrase(project.target_platform)
     notes = _normalize_phrase(project.notes or "Keep the advice concrete and immediately usable.")
+    revision_note = _normalize_phrase(source_feedback_notes or "")
+    revision_guidance = f" Responds to revision note: {revision_note}." if revision_note else ""
 
     question_open = "?" if "question" in hook_style.lower() else ""
     audience_short = audience.split(",")[0]
+    revised_prefix = "Revised: " if revision_note else ""
 
     return [
         {
-            "suggested_title": f"3 ways {audience_short} can apply {topic} this week",
+            "suggested_title": (
+                f"{revised_prefix}3 ways {audience_short} can apply {topic} this week"
+            ),
             "hook": (
                 f"What if {topic.lower()} could save {audience_short.lower()} hours this week"
                 f"{question_open}"
@@ -512,38 +647,41 @@ def _build_idea_candidates(
             "angle": (
                 f"Turn {objective.lower()} into a practical three-step playbook tailored to "
                 f"{audience_short.lower()}."
+                + (f" Use the revision focus: {revision_note}." if revision_note else "")
             ),
             "rationale": (
                 f"Fits the {tone.lower()} tone, gives {platform} viewers a fast payoff, and leaves "
-                f"room for a {cta_style.lower()} ending."
+                f"room for a {cta_style.lower()} ending.{revision_guidance}"
             ),
             "score": 91,
         },
         {
-            "suggested_title": f"The biggest {topic} mistake creators still make",
+            "suggested_title": f"{revised_prefix}The biggest {topic} mistake creators still make",
             "hook": f"Most creators overcomplicate {topic.lower()} before they ever get results.",
             "angle": (
                 "Lead with the common mistake, then reframe the workflow into a lighter, more "
                 "repeatable process."
+                + (f" Fold in this requested direction: {revision_note}." if revision_note else "")
             ),
             "rationale": (
                 f"Good for {platform} because it creates tension quickly and matches the brand's "
-                f"{hook_style.lower()} hook instinct."
+                f"{hook_style.lower()} hook instinct.{revision_guidance}"
             ),
             "score": 87,
         },
         {
-            "suggested_title": f"My {topic} workflow in 4 fast shots",
+            "suggested_title": f"{revised_prefix}My {topic} workflow in 4 fast shots",
             "hook": (
                 f"Here is the {visual_style.lower()} version of how I approach {topic.lower()}."
             ),
             "angle": (
                 "Show the workflow as a short behind-the-scenes sequence with on-screen proof "
                 "and simple narration."
+                + (f" Shape the proof around: {revision_note}." if revision_note else "")
             ),
             "rationale": (
                 f"Plays well with {visual_style.lower()} visuals and supports the project note: "
-                f"{notes}"
+                f"{notes}.{revision_guidance}"
             ),
             "score": 84,
         },

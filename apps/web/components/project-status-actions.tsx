@@ -7,8 +7,20 @@ import {
 } from "@creatoros/shared";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
-import { transitionProjectStatus } from "../lib/api";
-import type { ApprovalRecord, Asset, BackgroundJob, Project, ProjectScript } from "../types/api";
+import {
+  archiveProject,
+  exportProject,
+  manualOverrideProjectStatus,
+  transitionProjectStatus,
+} from "../lib/api";
+import type {
+  ApprovalRecord,
+  Asset,
+  BackgroundJob,
+  Project,
+  ProjectScript,
+  PublishJob,
+} from "../types/api";
 
 type ProjectStatusActionsProps = {
   approvals: ApprovalRecord[];
@@ -16,6 +28,7 @@ type ProjectStatusActionsProps = {
   currentScript: ProjectScript | null;
   jobs: BackgroundJob[];
   project: Project;
+  publishJobs: PublishJob[];
 };
 
 function buttonClassName(status: Project["status"]): string {
@@ -46,10 +59,14 @@ export function ProjectStatusActions({
   currentScript,
   jobs,
   project,
+  publishJobs,
 }: ProjectStatusActionsProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [manualReason, setManualReason] = useState("");
+  const [manualTarget, setManualTarget] = useState<Project["status"]>("failed");
   const [pendingTarget, setPendingTarget] = useState<Project["status"] | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const availableTransitions = getAvailableProjectStatusTransitions(project.status);
   const hasQueuedGenerationPlan =
@@ -74,12 +91,22 @@ export function ProjectStatusActions({
   const hasReadyRoughCutAsset = currentScriptAssets.some(
     (asset) => asset.status === "ready" && asset.asset_type === "rough_cut",
   );
+  const readyRoughCutAssetIds = currentScriptAssets
+    .filter((asset) => asset.status === "ready" && asset.asset_type === "rough_cut")
+    .map((asset) => asset.id);
   const latestAssetApproval =
     currentScript === null
       ? null
       : approvals.find(
           (approval) => approval.stage === "assets" && approval.target_id === currentScript.id,
         ) ?? null;
+  const latestFinalApproval =
+    approvals.find(
+      (approval) =>
+        approval.stage === "final_video" && readyRoughCutAssetIds.includes(approval.target_id),
+    ) ?? null;
+  const hasScheduledPublishJob = publishJobs.some((job) => job.status === "scheduled");
+  const hasPublishedPublishJob = publishJobs.some((job) => job.status === "published");
 
   function getBlockedReason(targetStatus: Project["status"]): string | null {
     if (targetStatus === "asset_generation" && currentScript?.status !== "approved") {
@@ -108,11 +135,31 @@ export function ProjectStatusActions({
       return "Queue and run the rough-cut media worker before marking the rough cut ready.";
     }
 
+    if (targetStatus === "final_pending_approval" && !hasReadyRoughCutAsset) {
+      return "Create a ready rough cut before starting final approval.";
+    }
+
+    if (
+      targetStatus === "ready_to_publish" &&
+      latestFinalApproval?.decision !== "approved"
+    ) {
+      return "Approve the final video before moving into publish readiness.";
+    }
+
+    if (targetStatus === "scheduled" && !hasScheduledPublishJob) {
+      return "Schedule an approved publish job before marking the project scheduled.";
+    }
+
+    if (targetStatus === "published" && !hasPublishedPublishJob) {
+      return "Mark a publish job as published before moving the project to published.";
+    }
+
     return null;
   }
 
   function handleTransition(targetStatus: Project["status"]) {
     setError(null);
+    setNotice(null);
     setPendingTarget(targetStatus);
 
     startTransition(() => {
@@ -127,6 +174,79 @@ export function ProjectStatusActions({
               : "Unable to update project status.",
           );
           setPendingTarget(null);
+        });
+    });
+  }
+
+  function handleArchive() {
+    setError(null);
+    setNotice(null);
+    setPendingTarget("archived");
+
+    startTransition(() => {
+      void archiveProject(project.id, {
+        reason: manualReason.trim() || "Archived from the project workflow controls.",
+      })
+        .then(() => {
+          router.refresh();
+        })
+        .catch((archiveError) => {
+          setError(
+            archiveError instanceof Error
+              ? archiveError.message
+              : "Unable to archive this project.",
+          );
+          setPendingTarget(null);
+        });
+    });
+  }
+
+  function handleManualOverride() {
+    setError(null);
+    setNotice(null);
+
+    if (manualReason.trim().length === 0) {
+      setError("Add a manual override reason before forcing a workflow status.");
+      return;
+    }
+
+    setPendingTarget(manualTarget);
+    startTransition(() => {
+      void manualOverrideProjectStatus(project.id, {
+        target_status: manualTarget,
+        reason: manualReason.trim(),
+      })
+        .then(() => {
+          router.refresh();
+        })
+        .catch((overrideError) => {
+          setError(
+            overrideError instanceof Error
+              ? overrideError.message
+              : "Unable to apply the manual override.",
+          );
+          setPendingTarget(null);
+        });
+    });
+  }
+
+  function handleExport() {
+    setError(null);
+    setNotice(null);
+    startTransition(() => {
+      void exportProject(project.id)
+        .then((bundle) => {
+          const byteSize = new Blob([JSON.stringify(bundle)]).size;
+          setNotice(
+            `Project export is ready: ${bundle.ideas.length} ideas, ${bundle.scripts.length} scripts, ${bundle.assets.length} assets, ${byteSize.toLocaleString()} bytes.`,
+          );
+        })
+        .catch((exportError) => {
+          setError(
+            exportError instanceof Error
+              ? exportError.message
+              : "Unable to export this project.",
+          );
         });
     });
   }
@@ -209,6 +329,62 @@ export function ProjectStatusActions({
           {error}
         </p>
       ) : null}
+
+      {notice ? (
+        <p className="mt-6 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+          {notice}
+        </p>
+      ) : null}
+
+      <div className="mt-6 rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4">
+        <p className="text-sm font-semibold text-amber-100">Manual recovery controls</p>
+        <p className="mt-2 text-sm leading-6 text-amber-50/80">
+          Use these only when the guarded workflow is blocked and you want the audit trail to show
+          exactly why the project was moved manually.
+        </p>
+        <textarea
+          className="mt-4 min-h-24 w-full rounded-2xl border border-amber-200/20 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-amber-200/50"
+          onChange={(event) => setManualReason(event.target.value)}
+          placeholder="Manual reason, recovery notes, or archive rationale..."
+          value={manualReason}
+        />
+        <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center">
+          <select
+            className="rounded-full border border-amber-200/20 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-amber-200/50"
+            onChange={(event) => setManualTarget(event.target.value as Project["status"])}
+            value={manualTarget}
+          >
+            {Object.keys(projectStatusLabels).map((status) => (
+              <option key={status} value={status}>
+                {projectStatusLabels[status as Project["status"]]}
+              </option>
+            ))}
+          </select>
+          <button
+            className="rounded-full border border-amber-200/30 bg-amber-300/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-amber-50 transition hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={pendingTarget !== null || project.status === "archived"}
+            onClick={handleManualOverride}
+            type="button"
+          >
+            Force status with audit note
+          </button>
+          <button
+            className="rounded-full border border-slate-300/20 bg-slate-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100 transition hover:bg-slate-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={pendingTarget !== null || project.status === "archived"}
+            onClick={handleArchive}
+            type="button"
+          >
+            Archive with note
+          </button>
+          <button
+            className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:bg-cyan-400/20"
+            onClick={handleExport}
+            type="button"
+          >
+            Validate export bundle
+          </button>
+        </div>
+      </div>
     </section>
   );
 }

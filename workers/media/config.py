@@ -1,7 +1,9 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Self
 
-from pydantic import Field
+from apps.api.core.config_validation import validate_non_empty_path
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,7 +18,16 @@ class MediaWorkerSettings(BaseSettings):
         env_file=("workers/media/.env", ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
+
+    @model_validator(mode="after")
+    def validate_runtime_settings(self) -> Self:
+        validate_non_empty_path(self.storage_root, "STORAGE_ROOT")
+        validate_non_empty_path(self.downloads_root, "DOWNLOADS_ROOT")
+        if self.ffmpeg_binary.strip() == "":
+            raise ValueError("FFMPEG_BINARY must not be empty.")
+        return self
 
 
 @lru_cache

@@ -6,6 +6,7 @@ ProjectStorageSection = Literal[
     "audio",
     "scenes",
     "rough-cuts",
+    "quarantine",
     "final",
     "subtitles",
     "metadata",

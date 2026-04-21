@@ -10,8 +10,18 @@ type BrandProfileFormProps = {
   submitLabel: string;
 };
 
+const DEFAULT_POSTING_PREFERENCES = {
+  default_platform: "youtube_shorts",
+  output_defaults: {
+    aspect_ratio: "9:16",
+    caption_style: "short educational",
+    target_duration_seconds: 35,
+  },
+  platforms: ["youtube_shorts"],
+};
+
 function toJsonString(preferences: unknown): string {
-  return JSON.stringify(preferences ?? {}, null, 2);
+  return JSON.stringify(preferences ?? DEFAULT_POSTING_PREFERENCES, null, 2);
 }
 
 export function BrandProfileForm({
@@ -42,7 +52,7 @@ export function BrandProfileForm({
     setHookStyle("");
     setCtaStyle("");
     setVisualStyle("");
-    setPostingPreferences("{}");
+    setPostingPreferences(toJsonString(DEFAULT_POSTING_PREFERENCES));
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -167,6 +177,10 @@ export function BrandProfileForm({
           onChange={(event) => setPostingPreferences(event.target.value)}
           value={postingPreferences}
         />
+        <span className="text-xs leading-5 text-slate-400">
+          Include `platforms`, `default_platform`, and `output_defaults` so future jobs can inherit
+          sensible defaults without hardcoding them.
+        </span>
       </label>
 
       {error ? (

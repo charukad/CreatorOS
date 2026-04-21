@@ -10,6 +10,7 @@ creatoros/
 │  ├─ build-plan.md
 │  ├─ backend-api.md
 │  ├─ database-schema.md
+│  ├─ shared-contracts.md
 │  ├─ queue-jobs.md
 │  ├─ browser-automation-spec.md
 │  ├─ media-pipeline.md
@@ -49,9 +50,10 @@ creatoros/
 │     └─ exporters/
 ├─ packages/
 │  └─ shared/
-│     ├─ schemas/
-│     ├─ enums/
-│     └─ utils/
+│     ├─ src/contracts.ts
+│     ├─ src/contract-fixtures.ts
+│     ├─ src/storage.ts
+│     └─ src/workflow.ts
 ├─ storage/
 │  ├─ projects/
 │  ├─ downloads/

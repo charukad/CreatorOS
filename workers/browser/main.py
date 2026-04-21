@@ -1,5 +1,7 @@
 import logging
 
+from apps.api.core.logging import configure_logging
+
 from workers.browser.config import get_settings
 from workers.browser.runtime import run_pending_jobs
 
@@ -8,10 +10,7 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     settings = get_settings()
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    )
+    configure_logging(service_name="browser-worker")
     logger.info("CreatorOS browser worker bootstrap ready")
     logger.info("Provider mode: %s", settings.browser_provider_mode)
     logger.info("Headless mode: %s", settings.playwright_headless)

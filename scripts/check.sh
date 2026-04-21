@@ -2,6 +2,6 @@
 set -euo pipefail
 
 pnpm --filter web lint
-pnpm --filter web typecheck
+pnpm typecheck
 .venv/bin/ruff check .
 .venv/bin/pytest

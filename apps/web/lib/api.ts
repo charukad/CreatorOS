@@ -1,29 +1,73 @@
 import { apiBaseUrl } from "./env";
 import type {
+  ApiErrorEnvelope,
   Asset,
+  AnalyticsSnapshot,
+  AnalyticsSnapshotPayload,
   ApprovalDecisionPayload,
   ApprovalRecord,
   AudioGenerationPayload,
   BackgroundJob,
+  BackgroundJobDetail,
   BrandProfile,
   BrandProfilePayload,
+  BrandProfileReadiness,
+  BrandPromptContext,
   ContentIdea,
   IdeaApprovalPayload,
+  IdeaGeneratePayload,
   Project,
+  ProjectActivity,
+  ProjectAnalytics,
   ProjectPayload,
   ProjectScript,
+  ManualPublishCompletePayload,
+  ManualInterventionPayload,
+  OperationsRecovery,
+  PublishJob,
+  ProjectArchivePayload,
+  PublishJobPreparePayload,
+  PublishJobSchedulePayload,
+  ProjectExport,
+  ProjectManualOverridePayload,
+  SceneReorderPayload,
   SceneUpdatePayload,
   ScriptPromptPack,
   ScriptGeneratePayload,
   VisualGenerationPayload,
 } from "../types/api";
 
-type ApiErrorShape = {
+type LegacyApiErrorShape = {
   detail?: string;
-  error?: {
-    message?: string;
-  };
 };
+
+export class ApiRequestError extends Error {
+  code: string;
+  details: Record<string, unknown>;
+  requestId: string | null;
+  status: number;
+
+  constructor({
+    code,
+    details,
+    message,
+    requestId,
+    status,
+  }: {
+    code: string;
+    details: Record<string, unknown>;
+    message: string;
+    requestId: string | null;
+    status: number;
+  }) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.code = code;
+    this.details = details;
+    this.requestId = requestId;
+    this.status = status;
+  }
+}
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}/api${path}`, {
@@ -36,10 +80,10 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   const rawBody = await response.text();
-  let parsedBody: (ApiErrorShape & T) | null = null;
+  let parsedBody: (Partial<ApiErrorEnvelope> & LegacyApiErrorShape & T) | null = null;
   if (rawBody) {
     try {
-      parsedBody = JSON.parse(rawBody) as ApiErrorShape & T;
+      parsedBody = JSON.parse(rawBody) as Partial<ApiErrorEnvelope> & LegacyApiErrorShape & T;
     } catch {
       if (!response.ok) {
         throw new Error(rawBody);
@@ -48,11 +92,23 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    const message =
-      parsedBody?.error?.message ??
-      parsedBody?.detail ??
-      `API request failed with status ${response.status}`;
-    throw new Error(message);
+    if (parsedBody?.error) {
+      throw new ApiRequestError({
+        code: parsedBody.error.code,
+        details: parsedBody.error.details,
+        message: parsedBody.error.message,
+        requestId: parsedBody.error.request_id,
+        status: response.status,
+      });
+    }
+
+    throw new ApiRequestError({
+      code: `HTTP_${response.status}`,
+      details: {},
+      message: parsedBody?.detail ?? `API request failed with status ${response.status}`,
+      requestId: response.headers.get("X-Request-ID"),
+      status: response.status,
+    });
   }
 
   return parsedBody as T;
@@ -75,6 +131,16 @@ export function createBrandProfile(payload: BrandProfilePayload): Promise<BrandP
 
 export function getBrandProfile(brandProfileId: string): Promise<BrandProfile> {
   return apiRequest<BrandProfile>(`/brand-profiles/${brandProfileId}`);
+}
+
+export function getBrandProfileReadiness(
+  brandProfileId: string,
+): Promise<BrandProfileReadiness> {
+  return apiRequest<BrandProfileReadiness>(`/brand-profiles/${brandProfileId}/readiness`);
+}
+
+export function getBrandPromptContext(brandProfileId: string): Promise<BrandPromptContext> {
+  return apiRequest<BrandPromptContext>(`/brand-profiles/${brandProfileId}/prompt-context`);
 }
 
 export function updateBrandProfile(
@@ -109,6 +175,26 @@ export function updateProject(projectId: string, payload: ProjectPayload): Promi
   });
 }
 
+export function archiveProject(
+  projectId: string,
+  payload: ProjectArchivePayload = {},
+): Promise<Project> {
+  return apiRequest<Project>(`/projects/${projectId}/archive`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function manualOverrideProjectStatus(
+  projectId: string,
+  payload: ProjectManualOverridePayload,
+): Promise<Project> {
+  return apiRequest<Project>(`/projects/${projectId}/manual-override`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function transitionProjectStatus(
   projectId: string,
   payload: ProjectTransitionPayload,
@@ -127,21 +213,75 @@ export function listProjectApprovals(projectId: string): Promise<ApprovalRecord[
   return apiRequest<ApprovalRecord[]>(`/projects/${projectId}/approvals`);
 }
 
+export function listProjectActivity(projectId: string): Promise<ProjectActivity[]> {
+  return apiRequest<ProjectActivity[]>(`/projects/${projectId}/activity`);
+}
+
+export function getProjectAnalytics(projectId: string): Promise<ProjectAnalytics> {
+  return apiRequest<ProjectAnalytics>(`/projects/${projectId}/analytics`);
+}
+
 export function listProjectJobs(projectId: string): Promise<BackgroundJob[]> {
   return apiRequest<BackgroundJob[]>(`/projects/${projectId}/jobs`);
+}
+
+export function getJob(jobId: string): Promise<BackgroundJobDetail> {
+  return apiRequest<BackgroundJobDetail>(`/jobs/${jobId}`);
+}
+
+export function cancelJob(jobId: string): Promise<BackgroundJobDetail> {
+  return apiRequest<BackgroundJobDetail>(`/jobs/${jobId}/cancel`, {
+    method: "POST",
+  });
+}
+
+export function retryJob(jobId: string): Promise<BackgroundJobDetail> {
+  return apiRequest<BackgroundJobDetail>(`/jobs/${jobId}/retry`, {
+    method: "POST",
+  });
+}
+
+export function markJobManualIntervention(
+  jobId: string,
+  payload: ManualInterventionPayload,
+): Promise<BackgroundJobDetail> {
+  return apiRequest<BackgroundJobDetail>(`/jobs/${jobId}/manual-intervention`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function exportProject(projectId: string): Promise<ProjectExport> {
+  return apiRequest<ProjectExport>(`/projects/${projectId}/export`);
+}
+
+export function getOperationsRecovery(): Promise<OperationsRecovery> {
+  return apiRequest<OperationsRecovery>("/operations/recovery");
 }
 
 export function listProjectAssets(projectId: string): Promise<Asset[]> {
   return apiRequest<Asset[]>(`/projects/${projectId}/assets`);
 }
 
+export function getAsset(assetId: string): Promise<Asset> {
+  return apiRequest<Asset>(`/assets/${assetId}`);
+}
+
+export function listProjectPublishJobs(projectId: string): Promise<PublishJob[]> {
+  return apiRequest<PublishJob[]>(`/projects/${projectId}/publish-jobs`);
+}
+
 export function getAssetContentUrl(assetId: string): string {
   return `${apiBaseUrl}/api/assets/${assetId}/content`;
 }
 
-export function generateProjectIdeas(projectId: string): Promise<ContentIdea[]> {
+export function generateProjectIdeas(
+  projectId: string,
+  payload: IdeaGeneratePayload = {},
+): Promise<ContentIdea[]> {
   return apiRequest<ContentIdea[]>(`/projects/${projectId}/ideas/generate`, {
     method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 
@@ -199,6 +339,76 @@ export function queueRoughCut(projectId: string): Promise<BackgroundJob> {
   });
 }
 
+export function approveFinalVideo(
+  projectId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<ApprovalRecord> {
+  return apiRequest<ApprovalRecord>(`/projects/${projectId}/final-video/approve`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function rejectFinalVideo(
+  projectId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<ApprovalRecord> {
+  return apiRequest<ApprovalRecord>(`/projects/${projectId}/final-video/reject`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function preparePublishJob(
+  projectId: string,
+  payload: PublishJobPreparePayload,
+): Promise<PublishJob> {
+  return apiRequest<PublishJob>(`/projects/${projectId}/publish-jobs/prepare`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function approvePublishJob(
+  publishJobId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<PublishJob> {
+  return apiRequest<PublishJob>(`/publish-jobs/${publishJobId}/approve`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function schedulePublishJob(
+  publishJobId: string,
+  payload: PublishJobSchedulePayload,
+): Promise<PublishJob> {
+  return apiRequest<PublishJob>(`/publish-jobs/${publishJobId}/schedule`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function markPublishJobPublished(
+  publishJobId: string,
+  payload: ManualPublishCompletePayload,
+): Promise<PublishJob> {
+  return apiRequest<PublishJob>(`/publish-jobs/${publishJobId}/mark-published`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function syncPublishJobAnalytics(
+  publishJobId: string,
+  payload: AnalyticsSnapshotPayload,
+): Promise<AnalyticsSnapshot> {
+  return apiRequest<AnalyticsSnapshot>(`/publish-jobs/${publishJobId}/sync-analytics`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function approveProjectAssets(
   projectId: string,
   payload: ApprovalDecisionPayload = {},
@@ -209,11 +419,41 @@ export function approveProjectAssets(
   });
 }
 
+export function approveAsset(
+  assetId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<ApprovalRecord> {
+  return apiRequest<ApprovalRecord>(`/assets/${assetId}/approve`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function rejectProjectAssets(
   projectId: string,
   payload: ApprovalDecisionPayload = {},
 ): Promise<ApprovalRecord> {
   return apiRequest<ApprovalRecord>(`/projects/${projectId}/assets/reject`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function rejectAsset(
+  assetId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<ApprovalRecord> {
+  return apiRequest<ApprovalRecord>(`/assets/${assetId}/reject`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function regenerateAsset(
+  assetId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<BackgroundJob> {
+  return apiRequest<BackgroundJob>(`/assets/${assetId}/regenerate`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -232,6 +472,16 @@ export function generateProjectScript(
 export function updateScene(sceneId: string, payload: SceneUpdatePayload) {
   return apiRequest<ProjectScript["scenes"][number]>(`/scenes/${sceneId}`, {
     method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function reorderScriptScenes(
+  scriptId: string,
+  payload: SceneReorderPayload,
+): Promise<ProjectScript> {
+  return apiRequest<ProjectScript>(`/scripts/${scriptId}/scenes/reorder`, {
+    method: "POST",
     body: JSON.stringify(payload),
   });
 }

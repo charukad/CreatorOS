@@ -36,6 +36,15 @@
 ### Frontend
 - `NEXT_PUBLIC_API_BASE_URL`
 
+## Runtime Validation
+- `APP_ENV=production` or `APP_ENV=prod` requires `SECRET_KEY` to be changed from local/example defaults.
+- `CORS_ORIGINS` must include at least one origin.
+- API and media worker storage/download path settings must not be empty.
+- browser worker profile and download roots must be different paths to avoid mixing cookies/profiles with generated downloads.
+- `BROWSER_MAX_JOBS_PER_RUN` must be at least `1`.
+- `BROWSER_PROVIDER_MODE` is currently limited to `dry_run` until the live provider automation is implemented.
+- `FFMPEG_BINARY` must not be empty.
+
 ## Local Folder Expectations
 - browser downloads should land in a dedicated folder per run or provider
 - project assets should move into canonical storage after ingestion
@@ -55,6 +64,14 @@
 6. Create env files for web, api, and workers.
 7. Run database migrations.
 8. Start frontend, backend, and workers.
+
+## Local Demo Data
+After migrations, create a safe demo brand profile and project with:
+```bash
+.venv/bin/python -m scripts.seed_demo
+```
+
+The script is idempotent by demo title/channel name and creates audit activity for manual QA.
 
 ## Target Commands
 ```bash

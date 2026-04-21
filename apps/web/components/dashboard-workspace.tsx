@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProjectStatus } from "@creatoros/shared";
+import { projectStatusLabels, type ProjectStatus } from "@creatoros/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useDeferredValue, useState } from "react";
@@ -8,7 +8,16 @@ import { BrandProfileForm } from "./brand-profile-form";
 import { ProjectForm } from "./project-form";
 import { StatusBadge } from "./status-badge";
 import { createBrandProfile, createProject } from "../lib/api";
-import type { BrandProfile, BrandProfilePayload, Project, ProjectPayload } from "../types/api";
+import type {
+  ApprovalRecord,
+  BackgroundJob,
+  BrandProfile,
+  BrandProfilePayload,
+  OperationsRecovery,
+  Project,
+  ProjectActivity,
+  ProjectPayload,
+} from "../types/api";
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleDateString();
@@ -18,21 +27,38 @@ function getStatusCount(projects: Project[], status: ProjectStatus): number {
   return projects.filter((project) => project.status === status).length;
 }
 
+const approvalInboxStatuses = new Set<ProjectStatus>([
+  "idea_pending_approval",
+  "script_pending_approval",
+  "asset_pending_approval",
+  "final_pending_approval",
+  "ready_to_publish",
+]);
+
 type DashboardWorkspaceProps = {
+  initialActivity: ProjectActivity[];
+  initialApprovals: ApprovalRecord[];
   initialBrandProfiles: BrandProfile[];
   initialError: string | null;
+  initialJobs: BackgroundJob[];
+  initialOperationsRecovery: OperationsRecovery | null;
   initialProjects: Project[];
 };
 
 export function DashboardWorkspace({
+  initialActivity,
+  initialApprovals,
   initialBrandProfiles,
   initialError,
+  initialJobs,
+  initialOperationsRecovery,
   initialProjects,
 }: DashboardWorkspaceProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
   const brandProfiles = initialBrandProfiles;
+  const jobs = initialJobs;
   const projects = initialProjects;
 
   const filteredBrandProfiles = !deferredSearch
@@ -52,6 +78,17 @@ export function DashboardWorkspace({
           .toLowerCase()
           .includes(deferredSearch),
       );
+  const approvalInboxProjects = projects.filter((project) =>
+    approvalInboxStatuses.has(project.status),
+  );
+  const recentProjects = [...projects]
+    .sort((first, second) => Date.parse(second.updated_at) - Date.parse(first.updated_at))
+    .slice(0, 5);
+  const activeJobs = jobs.filter((job) =>
+    ["queued", "running", "waiting_external"].includes(job.state),
+  );
+  const failedJobs = jobs.filter((job) => job.state === "failed");
+  const attentionItemCount = initialOperationsRecovery?.summary.total_attention_items ?? 0;
 
   async function handleCreateBrandProfile(payload: BrandProfilePayload) {
     await createBrandProfile(payload);
@@ -95,6 +132,33 @@ export function DashboardWorkspace({
             </label>
           </div>
 
+          {approvalInboxProjects.length > 0 ? (
+            <div className="mt-6 rounded-2xl border border-amber-300/20 bg-amber-400/10 p-5">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-100">
+                Approval inbox
+              </p>
+              <p className="mt-2 text-sm leading-6 text-amber-50/80">
+                {approvalInboxProjects.length} project
+                {approvalInboxProjects.length === 1 ? " needs" : "s need"} a human decision before
+                automation can continue.
+              </p>
+              <div className="mt-4 grid gap-3">
+                {approvalInboxProjects.slice(0, 4).map((project) => (
+                  <Link
+                    className="rounded-2xl border border-amber-200/20 bg-slate-950/40 px-4 py-3 text-sm text-amber-50 transition hover:bg-amber-300/10"
+                    href={`/projects/${project.id}`}
+                    key={`approval-${project.id}`}
+                  >
+                    <span className="font-semibold">{project.title}</span>
+                    <span className="ml-2 text-amber-100/70">
+                      {projectStatusLabels[project.status]}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="mt-6 grid gap-4 md:grid-cols-4">
             <article className="rounded-2xl border border-white/8 bg-white/4 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
@@ -120,11 +184,9 @@ export function DashboardWorkspace({
             </article>
             <article className="rounded-2xl border border-white/8 bg-white/4 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                Ready to publish
+                Open jobs
               </p>
-              <p className="mt-3 text-3xl font-semibold text-white">
-                {getStatusCount(projects, "ready_to_publish")}
-              </p>
+              <p className="mt-3 text-3xl font-semibold text-white">{activeJobs.length}</p>
             </article>
           </div>
         </section>
@@ -275,6 +337,103 @@ export function DashboardWorkspace({
       </div>
 
       <div className="grid gap-6">
+        <section className="rounded-[1.75rem] border border-white/10 bg-[var(--card)] p-6">
+          <h3 className="text-xl font-semibold text-white">Recent activity pulse</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            The newest project updates stay close to the inbox so blocked work is easy to spot.
+          </p>
+          <div className="mt-5 grid gap-3">
+            {recentProjects.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-white/10 bg-white/4 p-4 text-sm text-slate-300">
+                No project activity yet. Create a project to start the pulse.
+              </p>
+            ) : (
+              recentProjects.map((project) => (
+                <Link
+                  className="rounded-2xl border border-white/8 bg-white/4 p-4 transition hover:border-cyan-300/30 hover:bg-cyan-400/10"
+                  href={`/projects/${project.id}`}
+                  key={`recent-${project.id}`}
+                >
+                  <p className="text-sm font-semibold text-white">{project.title}</p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">
+                    {projectStatusLabels[project.status]} · Updated {formatDate(project.updated_at)}
+                  </p>
+                </Link>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-[1.75rem] border border-white/10 bg-[var(--card)] p-6">
+          <h3 className="text-xl font-semibold text-white">Operations snapshot</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            Jobs, approvals, and recent activity are pulled into the dashboard so recovery work
+            does not hide on individual project pages.
+          </p>
+          <div className="mt-5 grid gap-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <article className="rounded-2xl border border-white/8 bg-white/4 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Approvals</p>
+                <p className="mt-2 text-2xl font-semibold text-white">
+                  {initialApprovals.length}
+                </p>
+              </article>
+              <article className="rounded-2xl border border-white/8 bg-white/4 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Active jobs</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{activeJobs.length}</p>
+              </article>
+              <article className="rounded-2xl border border-white/8 bg-white/4 p-4">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Failed jobs</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{failedJobs.length}</p>
+              </article>
+            </div>
+            <Link
+              className={`rounded-2xl border p-4 transition ${
+                attentionItemCount > 0
+                  ? "border-amber-300/30 bg-amber-400/10 hover:bg-amber-400/20"
+                  : "border-emerald-300/20 bg-emerald-400/10 hover:bg-emerald-400/20"
+              }`}
+              href="/operations"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-white">Operations recovery center</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                    Failed jobs, manual-intervention jobs, stale running work, quarantined
+                    downloads, and duplicate warnings now have one recovery view.
+                  </p>
+                </div>
+                <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
+                  {attentionItemCount} attention item{attentionItemCount === 1 ? "" : "s"}
+                </span>
+              </div>
+            </Link>
+            {initialActivity.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-white/10 bg-white/4 p-4 text-sm text-slate-300">
+                Recent approval, job, and project-event activity will appear here.
+              </p>
+            ) : (
+              initialActivity.slice(0, 5).map((activity) => (
+                <article
+                  className="rounded-2xl border border-white/8 bg-slate-950/40 p-4"
+                  key={`${activity.source_type}-${activity.source_id}-${activity.created_at}`}
+                >
+                  <p className="text-sm font-semibold text-white">{activity.title}</p>
+                  {activity.description ? (
+                    <p className="mt-2 text-sm leading-6 text-slate-300">
+                      {activity.description}
+                    </p>
+                  ) : null}
+                  <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">
+                    {activity.source_type.replaceAll("_", " ")} ·{" "}
+                    {formatDate(activity.created_at)}
+                  </p>
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+
         <section className="rounded-[1.75rem] border border-white/10 bg-[var(--card)] p-6">
           <h3 className="text-xl font-semibold text-white">Add brand profile</h3>
           <p className="mt-2 text-sm leading-6 text-slate-300">

@@ -5,22 +5,38 @@
 - JSON request/response
 - background jobs returned as task references
 - explicit status enums
+- every API response includes an `X-Request-ID` header for operator correlation
+- shared response and worker handoff contracts live in `packages/shared/src/contracts.ts`
 
 ## Personal-Use Bootstrap Note
 - until auth/session is implemented, v1 local development can attach brand profiles and projects to a single configured default user
+
+## Logging and Correlation
+- the API, browser worker, and media worker use structured JSON logs
+- API request logs include method, path, status code, duration, and request ID
+- clients may send `X-Request-ID`; otherwise the API generates one and returns it
+- log output redacts URL credentials and common token, cookie, secret, password, and API-key fields
+- `GET /api/health/ready` returns redacted connection strings so readiness checks do not expose local credentials
 
 ## Current Workflow Note
 - the current idea and script workflow runs synchronously inside the API as a local deterministic generator
 - asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
 - the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
+- browser output ingestion now persists checksums, keeps regeneration paths attempt-specific, logs duplicate asset checksums, and quarantines mismatched downloads
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
-- after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, and FFmpeg command-plan sidecar
-- Redis-backed execution, retries, and worker progress updates are still planned
+- after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, FFmpeg command-plan sidecar, and optionally a `video/mp4` rough-cut asset when FFmpeg rendering is enabled
+- job detail, project activity, job timeline logs, safe cancel, and safe retry endpoints are implemented for operator recovery
+- operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, and duplicate asset warnings in one API response
+- final-video approval and publish-job preparation are implemented with explicit publish approval before scheduling or manual published completion
+- manual analytics snapshots and first-pass insight generation are implemented for published jobs
+- Redis-backed execution, automated retry policy, and live worker progress updates are still planned
 
 ## Core Resources
 ### Brand Profiles
 - `POST /api/brand-profiles`
 - `GET /api/brand-profiles/:id`
+- `GET /api/brand-profiles/:id/readiness`
+- `GET /api/brand-profiles/:id/prompt-context`
 - `PATCH /api/brand-profiles/:id`
 - `GET /api/brand-profiles`
 
@@ -29,14 +45,23 @@
 - `GET /api/projects/:id`
 - `PATCH /api/projects/:id`
 - `GET /api/projects`
+- `POST /api/projects/:id/archive`
+- `POST /api/projects/:id/manual-override`
 - `POST /api/projects/:id/transition`
 - `GET /api/projects/:id/ideas`
+- `GET /api/projects/:id/activity`
+- `GET /api/projects/:id/export`
+- `GET /api/projects/:id/analytics`
 - `GET /api/projects/:id/approvals`
 - `GET /api/projects/:id/jobs`
 - `GET /api/projects/:id/assets`
+- `GET /api/projects/:id/publish-jobs`
 - `POST /api/projects/:id/assets/approve`
 - `POST /api/projects/:id/assets/reject`
 - `POST /api/projects/:id/compose/rough-cut`
+- `POST /api/projects/:id/final-video/approve`
+- `POST /api/projects/:id/final-video/reject`
+- `POST /api/projects/:id/publish-jobs/prepare`
 - `POST /api/projects/:id/ideas/generate`
 - `GET /api/projects/:id/scripts/current`
 - `POST /api/projects/:id/scripts/generate`
@@ -51,13 +76,33 @@
 - `POST /api/scripts/:id/approve`
 - `POST /api/scripts/:id/reject`
 - `GET /api/scripts/:id/scenes`
+- `POST /api/scripts/:id/scenes/reorder`
 - `GET /api/scripts/:id/prompt-pack`
 
 ### Scenes
 - `PATCH /api/scenes/:id`
 
 ### Asset Files
+- `GET /api/assets/:id`
 - `GET /api/assets/:id/content`
+- `POST /api/assets/:id/approve`
+- `POST /api/assets/:id/reject`
+- `POST /api/assets/:id/regenerate`
+
+### Jobs
+- `GET /api/jobs/:id`
+- `POST /api/jobs/:id/cancel`
+- `POST /api/jobs/:id/manual-intervention`
+- `POST /api/jobs/:id/retry`
+
+### Operations
+- `GET /api/operations/recovery`
+
+### Publish Jobs
+- `POST /api/publish-jobs/:id/approve`
+- `POST /api/publish-jobs/:id/schedule`
+- `POST /api/publish-jobs/:id/mark-published`
+- `POST /api/publish-jobs/:id/sync-analytics`
 
 ## Implemented Payloads
 ### `POST /api/brand-profiles`
@@ -71,10 +116,67 @@
   "cta_style": "Invite discussion",
   "visual_style": "Cinematic screen-recording mix",
   "posting_preferences_json": {
-    "platforms": ["youtube_shorts", "tiktok"]
+    "platforms": ["youtube_shorts", "tiktok"],
+    "default_platform": "youtube_shorts",
+    "output_defaults": {
+      "aspect_ratio": "9:16",
+      "target_duration_seconds": 35
+    }
   }
 }
 ```
+
+Behavior note:
+- brand profile text fields are trimmed before persistence
+- posting preferences must be a JSON object
+- `platforms`, when provided, must be a list of non-empty strings
+- `default_platform`, when provided, must be a non-empty string
+- `output_defaults`, when provided, must be an object
+
+### `GET /api/brand-profiles/:id/readiness`
+Response excerpt:
+```json
+{
+  "brand_profile_id": "uuid",
+  "is_ready": true,
+  "missing_fields": [],
+  "warnings": [],
+  "recommended_next_steps": [
+    "Use this profile to generate project ideas and script prompt packs."
+  ]
+}
+```
+
+Behavior note:
+- readiness checks required setup fields, platform preferences, target-audience detail, and visual-style detail
+- warnings do not block saving, but they make weak onboarding visible before generation quality suffers
+
+### `GET /api/brand-profiles/:id/prompt-context`
+Response excerpt:
+```json
+{
+  "brand_profile_id": "uuid",
+  "context_markdown": "# Brand Context: Creator Lab...",
+  "context_json": {
+    "identity": {
+      "channel_name": "Creator Lab",
+      "niche": "AI productivity"
+    },
+    "voice": {
+      "tone": "Direct and optimistic",
+      "hook_style": "Question-led hook",
+      "cta_style": "Invite discussion"
+    },
+    "output_defaults": {
+      "aspect_ratio": "9:16"
+    }
+  }
+}
+```
+
+Behavior note:
+- prompt context converts saved brand profile data into reusable AI-ready markdown and structured JSON
+- script prompt-pack responses include the same brand context under `brand_context`
 
 ### `POST /api/projects`
 ```json
@@ -94,11 +196,37 @@
 }
 ```
 
+### `POST /api/projects/:id/archive`
+```json
+{
+  "reason": "Project is complete and no longer needs active workflow controls."
+}
+```
+
+### `POST /api/projects/:id/manual-override`
+```json
+{
+  "target_status": "failed",
+  "reason": "Browser provider changed and the project needs operator recovery."
+}
+```
+
+Behavior note:
+- manual overrides bypass guarded transition prerequisites but require a reason and leave a project-event audit trail
+
 ### `POST /api/projects/:id/ideas/generate`
 Request body:
 ```json
-{}
+{
+  "source_feedback_notes": "Make the next batch more specific to solo founders."
+}
 ```
+
+Behavior note:
+- creates a completed `generate_ideas` background job with lifecycle logs before returning the generated ideas
+- project-level generation jobs may have `script_id: null` because they run before a script exists
+- source feedback notes are copied to the generation job payload and each returned idea
+- the response contains the newly generated batch; use `GET /api/projects/:id/ideas` for the full saved list
 
 Response excerpt:
 ```json
@@ -111,6 +239,7 @@ Response excerpt:
     "angle": "Turn the project objective into a practical three-step playbook tailored to solo founders.",
     "rationale": "Fits the brand tone and gives short-form viewers a fast payoff.",
     "score": 91,
+    "source_feedback_notes": "Make the next batch more specific to solo founders.",
     "status": "proposed"
   }
 ]
@@ -136,6 +265,11 @@ Response excerpt:
   "source_feedback_notes": "Keep the pacing tight and practical."
 }
 ```
+
+Behavior note:
+- creates a completed `generate_script` background job with lifecycle logs before returning the generated script
+- the generation job is linked to the new script once the script and scene records are persisted
+- source feedback notes are copied to the generation job payload and persisted on the script version
 
 Response excerpt:
 ```json
@@ -172,6 +306,19 @@ Response excerpt:
 
 ### `GET /api/scripts/:id/scenes`
 - returns the persisted scene list for the requested script version
+
+### `POST /api/scripts/:id/scenes/reorder`
+```json
+{
+  "scene_ids": ["uuid-scene-4", "uuid-scene-1", "uuid-scene-2", "uuid-scene-3"]
+}
+```
+
+- only works for the current script while the project is in `script_pending_approval`
+- the current script must be `draft` or `rejected`
+- the request must include every current scene exactly once
+- successful reorders rewrite `scene_order` values contiguously from `1`
+- returns the updated script with scenes in the saved order
 
 ### `POST /api/scripts/:id/approve`
 ```json
@@ -212,6 +359,9 @@ Response excerpt:
   "notes": "Use a cleaner visual example."
 }
 ```
+
+- scene edits are limited to the current `draft` or `rejected` script during script approval
+- changing scene duration updates the script-level `estimated_duration_seconds`
 
 ### `GET /api/scripts/:id/prompt-pack`
 Response excerpt:
@@ -299,6 +449,170 @@ Behavior note:
 ### `GET /api/projects/:id/jobs`
 - returns persisted queued generation jobs for the project, newest first
 
+### `GET /api/projects/:id/activity`
+Response excerpt:
+```json
+[
+  {
+    "source_id": "uuid",
+    "source_type": "job_log",
+    "activity_type": "job_failed",
+    "title": "Job Failed",
+    "description": "Provider timed out.",
+    "level": "error",
+    "metadata_json": {
+      "background_job_id": "uuid",
+      "generation_attempt_id": "uuid"
+    },
+    "created_at": "2026-04-19T06:00:00Z"
+  }
+]
+```
+
+Behavior note:
+- returns the newest approval, job-log, and project-event activity for the project
+- job-log entries include a `background_job_id` in metadata so the web app can link to the job detail screen
+
+### `GET /api/projects/:id/export`
+Response excerpt:
+```json
+{
+  "exported_at": "2026-04-20T09:00:00Z",
+  "project": {},
+  "brand_profile": {},
+  "ideas": [],
+  "scripts": [],
+  "approvals": [],
+  "assets": [],
+  "background_jobs": [],
+  "publish_jobs": [],
+  "analytics_snapshots": [],
+  "insights": [],
+  "project_events": []
+}
+```
+
+Behavior note:
+- export bundles are intended for local backup, debugging, and handoff
+- generated artifact files are referenced by path; binary media is not embedded in the JSON response
+
+### `GET /api/jobs/:id`
+Response excerpt:
+```json
+{
+  "job": {
+    "id": "uuid",
+    "project_id": "uuid",
+    "script_id": "uuid",
+    "job_type": "generate_audio_browser",
+    "state": "failed",
+    "progress_percent": 25,
+    "error_message": "Provider timed out."
+  },
+  "generation_attempts": [
+    {
+      "id": "uuid",
+      "background_job_id": "uuid",
+      "scene_id": null,
+      "state": "failed",
+      "provider_name": "elevenlabs_web"
+    }
+  ],
+  "related_assets": [
+    {
+      "id": "uuid",
+      "asset_type": "narration_audio",
+      "status": "failed",
+      "generation_attempt_id": "uuid"
+    }
+  ],
+  "job_logs": [
+    {
+      "id": "uuid",
+      "event_type": "job_failed",
+      "level": "error",
+      "message": "Provider timed out.",
+      "metadata_json": {}
+    }
+  ]
+}
+```
+
+Behavior note:
+- the route returns the job plus its generation attempts and related assets
+- browser jobs resolve related assets through their generation attempts
+- media jobs also resolve planned output assets from the job payload ids
+
+### `POST /api/jobs/:id/cancel`
+Behavior note:
+- only `queued` and `waiting_external` jobs can be cancelled safely
+- unfinished attempts move to `cancelled`
+- unfinished related assets move to `failed`
+- `running`, `completed`, `failed`, and already `cancelled` jobs return `409 Conflict`
+
+### `POST /api/jobs/:id/retry`
+Behavior note:
+- only `failed` and `cancelled` jobs can be retried
+- retry reuses the existing job, attempts, and related asset records
+- retry resets job state to `queued`, clears job errors, clears stale timestamps, and resets related assets to `planned`
+- retry is blocked if another active job of the same type already exists for the same script
+- completed jobs cannot be retried
+
+### `POST /api/jobs/:id/manual-intervention`
+```json
+{
+  "reason": "Provider login expired and needs a browser session refresh."
+}
+```
+
+Behavior note:
+- marks the job `waiting_external`
+- preserves the human-readable reason in `error_message`
+- writes a `manual_intervention_required` job log entry for project activity and recovery queues
+
+### `GET /api/operations/recovery`
+Query parameters:
+- `stale_after_minutes` defaults to `30`
+- `limit` defaults to `20`
+
+Response excerpt:
+```json
+{
+  "failed_jobs": [
+    {
+      "job": {
+        "id": "uuid",
+        "state": "failed",
+        "job_type": "generate_audio_browser"
+      },
+      "project_title": "3 AI automations I use daily",
+      "project_status": "asset_generation",
+      "latest_log_event_type": "job_failed",
+      "latest_log_message": "Provider timed out."
+    }
+  ],
+  "waiting_jobs": [],
+  "stale_running_jobs": [],
+  "quarantined_downloads": [],
+  "duplicate_asset_warnings": [],
+  "summary": {
+    "failed_jobs": 1,
+    "waiting_jobs": 0,
+    "stale_running_jobs": 0,
+    "quarantined_downloads": 0,
+    "duplicate_asset_warnings": 0,
+    "total_attention_items": 1
+  }
+}
+```
+
+Behavior note:
+- failed jobs are jobs in `failed`
+- waiting jobs are jobs in `waiting_external`
+- stale running jobs are `running` jobs whose `updated_at` is older than `stale_after_minutes`
+- quarantined downloads come from `downloads_quarantined` job logs
+- duplicate asset warnings come from `duplicate_asset_detected` job logs
+
 ### `GET /api/projects/:id/assets`
 - returns planned and produced asset records for the project, including placeholder records created before worker execution starts
 
@@ -325,6 +639,45 @@ Behavior note:
 - ready assets from the current script are marked `rejected`
 - the project moves back into `asset_generation` so you can queue another pass
 
+### `GET /api/assets/:id`
+- returns one owned asset record, including file path, mime type, duration, dimensions, checksum, scene id, and generation attempt id
+
+### `POST /api/assets/:id/approve`
+```json
+{
+  "feedback_notes": "This scene visual is approved."
+}
+```
+
+Behavior note:
+- records an `assets`-stage approval targeted at the individual asset
+- requires the project to be in `asset_pending_approval` and the asset to be `ready`
+- writes a project event so the asset decision appears in project activity
+
+### `POST /api/assets/:id/reject`
+```json
+{
+  "feedback_notes": "Regenerate this scene with clearer UI detail."
+}
+```
+
+Behavior note:
+- records an `assets`-stage rejection targeted at the individual asset
+- marks the selected asset `rejected`
+- moves the project back into `asset_generation` so a replacement can be queued
+
+### `POST /api/assets/:id/regenerate`
+```json
+{
+  "feedback_notes": "Try a more specific visual direction."
+}
+```
+
+Behavior note:
+- supports narration and scene image assets from the current script
+- rejects the selected ready asset when needed, then queues a new browser generation job for the matching asset scope
+- regeneration creates new generation attempts and new planned asset paths instead of overwriting the rejected artifact
+
 ### `GET /api/assets/:id/content`
 - streams the stored asset file for preview
 - access is limited to files inside the configured storage root
@@ -348,7 +701,9 @@ Response excerpt:
     "manifest_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234-manifest.json",
     "subtitle_path": "storage/projects/{project_id}/subtitles/script-v1-rough-cut-abcd1234.srt",
     "video_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234.mp4",
-    "ffmpeg_command_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234-ffmpeg-command.json"
+    "ffmpeg_command_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234-ffmpeg-command.json",
+    "video_asset_id": "uuid-when-rendered",
+    "ffmpeg_rendered": true
   }
 }
 ```
@@ -358,33 +713,125 @@ Behavior note:
 - every scene must have a ready visual asset and the script must have a ready narration asset
 - the media worker marks the rough-cut and subtitle assets ready, then promotes the project to `rough_cut_ready`
 
+### `POST /api/projects/:id/final-video/approve`
+Behavior note:
+- requires the project to be in `final_pending_approval`
+- uses the ready rough-cut artifact as the v1 final-review asset until final exports are implemented
+- records a `final_video` approval against the asset
+- moves the project to `ready_to_publish`
+
+### `POST /api/projects/:id/final-video/reject`
+Behavior note:
+- requires the project to be in `final_pending_approval`
+- records a `final_video` rejection against the review asset
+- moves the project back to `rough_cut_ready`
+
+### `POST /api/projects/:id/publish-jobs/prepare`
+```json
+{
+  "platform": "youtube_shorts",
+  "title": "Final publish title",
+  "description": "Approved metadata for publishing.",
+  "hashtags": ["#CreatorOS", "#Workflow"],
+  "scheduled_for": null,
+  "idempotency_key": "project-script-publish-prep"
+}
+```
+
+Behavior note:
+- requires `ready_to_publish` and an approved final-video review
+- creates a `pending_approval` publish job linked to the final-review asset
+- blocks duplicate active publish jobs for the current script
+- returns the existing publish job when the same idempotency key is reused
+
+### `GET /api/projects/:id/publish-jobs`
+- returns publish jobs for the project, newest first
+
+### `POST /api/publish-jobs/:id/approve`
+Behavior note:
+- records a `publish` approval against the publish job
+- moves the publish job from `pending_approval` to `approved`
+- does not publish or schedule content by itself
+
+### `POST /api/publish-jobs/:id/schedule`
+```json
+{
+  "scheduled_for": "2030-01-01T00:00:00+00:00"
+}
+```
+
+Behavior note:
+- requires an approved publish job
+- moves the publish job to `scheduled`
+- moves the project to `scheduled`
+
+### `POST /api/publish-jobs/:id/mark-published`
+```json
+{
+  "external_post_id": "yt-short-123",
+  "manual_publish_notes": "Published manually after final approval."
+}
+```
+
+Behavior note:
+- records manual publish completion after explicit publish approval
+- moves the publish job to `published`
+- moves the project to `published`
+
+### `POST /api/publish-jobs/:id/sync-analytics`
+```json
+{
+  "views": 1000,
+  "likes": 90,
+  "comments": 12,
+  "shares": 8,
+  "saves": 5,
+  "watch_time_seconds": 18500,
+  "ctr": 0.041,
+  "avg_view_duration": 18.5,
+  "retention_json": {
+    "three_second_hold": 0.76
+  }
+}
+```
+
+Behavior note:
+- requires the publish job to already be marked `published`
+- stores a traceable analytics snapshot for the project and publish job
+- generates first-pass insights from engagement and average-view-duration signals
+
+### `GET /api/projects/:id/analytics`
+Response excerpt:
+```json
+{
+  "snapshots": [
+    {
+      "id": "uuid",
+      "publish_job_id": "uuid",
+      "views": 1000,
+      "likes": 90,
+      "comments": 12,
+      "shares": 8,
+      "avg_view_duration": 18.5
+    }
+  ],
+  "insights": [
+    {
+      "id": "uuid",
+      "insight_type": "engagement_rate",
+      "summary": "Engagement is strong for this post...",
+      "confidence_score": 0.78
+    }
+  ]
+}
+```
+
 ## Planned Next Endpoints
 - `POST /api/scripts/:id/regenerate`
-
-### Generation Jobs
-- `GET /api/jobs/:id`
-
-### Assets
-- `GET /api/projects/:id/assets`
-- `POST /api/assets/:id/approve`
-- `POST /api/assets/:id/reject`
-- `POST /api/assets/:id/regenerate`
 
 ### Rough Cut / Final Video
 - `POST /api/projects/:id/finalize`
 - `GET /api/projects/:id/exports`
-
-### Publishing
-- `POST /api/projects/:id/publish/prepare`
-- `POST /api/publish-jobs/:id/approve`
-- `POST /api/publish-jobs/:id/schedule`
-- `POST /api/publish-jobs/:id/publish-now`
-- `GET /api/publish-jobs/:id`
-
-### Analytics
-- `POST /api/publish-jobs/:id/sync-analytics`
-- `GET /api/projects/:id/analytics`
-- `GET /api/insights`
 
 ## Example Project State Machine
 `draft -> idea_pending_approval -> script_pending_approval -> asset_generation -> asset_pending_approval -> rough_cut_ready -> final_pending_approval -> ready_to_publish -> scheduled|published|archived`
@@ -395,22 +842,35 @@ Behavior note:
 - moving into `script_pending_approval` requires a generated script to exist
 - moving into `asset_generation` now requires the current script version to be explicitly approved
 - scene edits are only allowed while the current script is in `draft` or `rejected` state during script approval
+- scene reorders follow the same script approval gate and prompt packs reject non-contiguous scene order data
 - moving into `rough_cut_ready` requires an approved asset set and a ready rough-cut artifact
+- moving into `ready_to_publish` requires final-video approval
+- moving into `scheduled` requires a scheduled publish job
+- moving into `published` requires a publish job marked as published
 - archived projects cannot transition further in the current implementation
 
 ## Error Model
-All errors should return:
+All API errors now return a stable envelope, and the same request ID is also returned as the `X-Request-ID` response header:
 ```json
 {
   "error": {
     "code": "STRING_CODE",
     "message": "Human readable message",
-    "details": {}
+    "details": {},
+    "request_id": "request-id-or-null"
   }
 }
 ```
 
+Common error codes:
+- `NOT_FOUND` for missing resources
+- `CONFLICT` for invalid workflow transitions or blocked operations
+- `VALIDATION_ERROR` for request body, path, or query validation failures
+- `INTERNAL_SERVER_ERROR` for unexpected failures
+
+Validation errors include FastAPI/Pydantic field diagnostics in `error.details.validation_errors`.
+
 ## Idempotency Rules
-- publish scheduling endpoints should support idempotency keys
+- publish preparation supports idempotency keys
 - asset registration should be file-hash aware
 - regeneration actions create a new attempt, never overwrite previous attempts

@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+from dataclasses import asdict
 from pathlib import Path
 from uuid import UUID
 
@@ -9,7 +10,7 @@ from apps.api.models.asset import Asset
 from apps.api.models.background_job import BackgroundJob
 from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
-from apps.api.schemas.enums import AssetStatus, AssetType, BackgroundJobType
+from apps.api.schemas.enums import AssetStatus, AssetType, BackgroundJobType, ProviderName
 from apps.api.services.background_jobs import (
     claim_next_media_job,
     mark_job_completed,
@@ -26,9 +27,11 @@ from workers.media.ffmpeg import (
     FFmpegExportProfile,
     SceneVisualInput,
     build_static_scene_video_command,
+    run_ffmpeg_command,
 )
 from workers.media.subtitles.srt import build_srt_from_manifest
 from workers.media.timeline.manifest import build_timeline_manifest
+from workers.media.timeline.validation import validate_timeline_manifest
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +107,7 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
         narration_duration_seconds=narration_duration_seconds,
         subtitle_asset=subtitle_asset,
     )
+    validate_timeline_manifest(manifest)
     mark_job_progress(session, job, 45)
 
     manifest_path = Path(str(job.payload_json["manifest_path"]))
@@ -123,10 +127,12 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
     )
     preview_path.write_text(build_rough_cut_preview_html(manifest), encoding="utf-8")
     subtitle_path.write_text(build_srt_from_manifest(manifest), encoding="utf-8")
+    export_profile = FFmpegExportProfile()
     ffmpeg_command = _build_ffmpeg_command(
         settings=settings,
         narration_asset=narration_asset,
         manifest=manifest,
+        profile=export_profile,
         subtitle_path=subtitle_path,
         video_path=video_path,
     )
@@ -135,10 +141,16 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
             {
                 "command": ffmpeg_command,
                 "enabled": settings.media_enable_ffmpeg_render,
+                "export_profile": asdict(export_profile),
+                "inputs": _build_ffmpeg_plan_inputs(manifest),
                 "note": (
                     "MP4 rendering is disabled by default until FFmpeg is installed and "
                     "MEDIA_ENABLE_FFMPEG_RENDER is true."
                 ),
+                "outputs": {
+                    "video_path": str(video_path),
+                    "subtitle_path": str(subtitle_path),
+                },
             },
             indent=2,
             sort_keys=True,
@@ -146,6 +158,15 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
         encoding="utf-8",
     )
     mark_job_progress(session, job, 80)
+
+    video_asset = _render_mp4_if_enabled(
+        session=session,
+        settings=settings,
+        job=job,
+        ffmpeg_command=ffmpeg_command,
+        video_path=video_path,
+        manifest=manifest,
+    )
 
     output_asset.status = AssetStatus.READY
     output_asset.file_path = str(preview_path)
@@ -170,10 +191,14 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
         "ffmpeg_command_path": str(ffmpeg_command_path),
         "output_asset_id": str(output_asset.id),
         "subtitle_asset_id": str(subtitle_asset.id),
+        "video_asset_id": str(video_asset.id) if video_asset is not None else None,
+        "ffmpeg_rendered": video_asset is not None,
         "total_duration_seconds": manifest["total_duration_seconds"],
     }
     session.add(output_asset)
     session.add(subtitle_asset)
+    if video_asset is not None:
+        session.add(video_asset)
     session.add(job)
     session.commit()
     session.refresh(job)
@@ -266,6 +291,7 @@ def _build_ffmpeg_command(
     settings: MediaWorkerSettings,
     narration_asset: Asset,
     manifest: dict[str, object],
+    profile: FFmpegExportProfile,
     subtitle_path: Path,
     video_path: Path,
 ) -> list[str]:
@@ -277,6 +303,8 @@ def _build_ffmpeg_command(
         SceneVisualInput(
             path=Path(str(scene["visual_asset_path"])),
             duration_seconds=float(scene["duration_seconds"]),
+            overlay_text=str(scene.get("overlay_text", "")),
+            visual_asset_type=str(scene.get("visual_asset_type", "")),
         )
         for scene in scenes
         if isinstance(scene, dict)
@@ -287,8 +315,82 @@ def _build_ffmpeg_command(
         narration_path=Path(str(narration_asset.file_path)),
         subtitle_path=subtitle_path,
         output_path=video_path,
-        profile=FFmpegExportProfile(),
+        profile=profile,
     )
+
+
+def _build_ffmpeg_plan_inputs(manifest: dict[str, object]) -> dict[str, object]:
+    scenes = manifest.get("scenes", [])
+    narration_asset = manifest.get("narration_asset", {})
+    return {
+        "narration_asset": narration_asset if isinstance(narration_asset, dict) else {},
+        "scenes": [
+            {
+                "duration_seconds": scene.get("duration_seconds"),
+                "overlay_text": scene.get("overlay_text"),
+                "scene_id": scene.get("scene_id"),
+                "scene_order": scene.get("scene_order"),
+                "visual_asset_path": scene.get("visual_asset_path"),
+                "visual_asset_type": scene.get("visual_asset_type"),
+            }
+            for scene in scenes
+            if isinstance(scene, dict)
+        ],
+    }
+
+
+def _render_mp4_if_enabled(
+    *,
+    session: Session,
+    settings: MediaWorkerSettings,
+    job: BackgroundJob,
+    ffmpeg_command: list[str],
+    video_path: Path,
+    manifest: dict[str, object],
+) -> Asset | None:
+    if not settings.media_enable_ffmpeg_render:
+        return None
+
+    video_asset = Asset(
+        user_id=job.user_id,
+        project_id=job.project_id,
+        script_id=job.script_id,
+        scene_id=None,
+        generation_attempt_id=None,
+        asset_type=AssetType.ROUGH_CUT,
+        status=AssetStatus.GENERATING,
+        provider_name=ProviderName.LOCAL_MEDIA,
+        file_path=str(video_path),
+        mime_type="video/mp4",
+        duration_seconds=_manifest_duration_seconds(manifest),
+        width=1080,
+        height=1920,
+    )
+    session.add(video_asset)
+    session.flush()
+
+    job.payload_json = {
+        **job.payload_json,
+        "video_asset_id": str(video_asset.id),
+        "ffmpeg_rendered": False,
+    }
+    session.add(job)
+    session.commit()
+
+    run_ffmpeg_command(ffmpeg_command)
+    if not video_path.exists():
+        raise ValueError(f"FFmpeg finished but did not create the expected file: {video_path}")
+
+    video_asset.status = AssetStatus.READY
+    video_asset.checksum = _file_sha256(video_path)
+    job.payload_json = {
+        **job.payload_json,
+        "video_asset_id": str(video_asset.id),
+        "ffmpeg_rendered": True,
+    }
+    session.add(video_asset)
+    session.add(job)
+    return video_asset
 
 
 def _probe_narration_duration(narration_asset: Asset) -> float | None:
@@ -300,6 +402,10 @@ def _probe_narration_duration(narration_asset: Asset) -> float | None:
         return None
 
     return probe_wav_duration_seconds(narration_path)
+
+
+def _manifest_duration_seconds(manifest: dict[str, object]) -> int:
+    return max(1, round(float(manifest["total_duration_seconds"])))
 
 
 def _file_sha256(path: Path) -> str:
