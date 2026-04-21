@@ -77,7 +77,7 @@ uvicorn apps.api.main:app --reload
 .venv/bin/python -m workers.browser.main
 .venv/bin/python -m workers.media.main
 pnpm --filter web lint
-pnpm --filter web typecheck
+pnpm typecheck
 .venv/bin/ruff check .
 .venv/bin/pytest
 ```

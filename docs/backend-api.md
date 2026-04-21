@@ -6,6 +6,7 @@
 - background jobs returned as task references
 - explicit status enums
 - every API response includes an `X-Request-ID` header for operator correlation
+- shared response and worker handoff contracts live in `packages/shared/src/contracts.ts`
 
 ## Personal-Use Bootstrap Note
 - until auth/session is implemented, v1 local development can attach brand profiles and projects to a single configured default user

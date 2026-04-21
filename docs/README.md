@@ -12,6 +12,7 @@
 
 - [Backend API Design](backend-api.md)
 - [Database Schema](database-schema.md)
+- [Shared Contracts](shared-contracts.md)
 - [Queue Jobs](queue-jobs.md)
 
 ## Automation and Media

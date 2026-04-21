@@ -32,14 +32,14 @@ Legend:
 ### Build tasks
 - [x] Create `packages/shared` for cross-service enums, types, schemas, and helpers
 - [x] Define enums for project status, approval stage, asset type, provider type, job status, publish status, and analytics types
-- [ ] Define shared identifiers and metadata contracts for project, scene, asset, generation attempt, approval, publish job, and analytics snapshot records
-- [ ] Define queue payload schemas for every long-running job in `docs/queue-jobs.md`
-- [ ] Define API request and response schemas for core resources in `docs/backend-api.md`
-- [ ] Define scene manifest schema for media assembly
-- [ ] Define prompt pack schema for idea, script, narration, and visual generation inputs
+- [x] Define shared identifiers and metadata contracts for project, scene, asset, generation attempt, approval, publish job, and analytics snapshot records
+- [x] Define queue payload schemas for every long-running job in `docs/queue-jobs.md`
+- [x] Define API request and response schemas for core resources in `docs/backend-api.md`
+- [x] Define scene manifest schema for media assembly
+- [x] Define prompt pack schema for idea, script, narration, and visual generation inputs
 - [x] Define storage path helper contracts so all artifacts remain traceable to project, scene, and attempt
 - [x] Add validation helpers for state transitions and approval gating
-- [ ] Add test fixtures and factories for shared schema validation
+- [x] Add test fixtures and factories for shared schema validation
 
 ### Manual checks
 - [ ] Manual check: every artifact-related schema includes project, scene, and attempt traceability

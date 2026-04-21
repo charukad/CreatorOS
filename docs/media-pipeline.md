@@ -8,6 +8,7 @@ Turn approved script + generated assets into an automatically assembled short-fo
 - the media worker resolves the latest ready narration asset and one ready visual per scene
 - the media worker probes WAV narration duration and uses it as the timeline timing anchor
 - the worker writes a deterministic audio-anchored timeline manifest sidecar file
+- the timeline manifest contract is defined in `packages/shared/src/contracts.ts`
 - the first rough-cut output is an HTML preview artifact registered as a `rough_cut` asset
 - the worker also writes an SRT subtitle sidecar registered as a `subtitle_file` asset
 - the worker writes a JSON FFmpeg command-plan sidecar for the future MP4 render
@@ -34,6 +35,9 @@ Turn approved script + generated assets into an automatically assembled short-fo
 8. Export final cut after approval.
 
 ## Scene Manifest Example
+The shared TypeScript contract is `TimelineManifestContract`. The worker-side Python validator
+continues to enforce the same core rules at runtime.
+
 ```json
 {
   "project_id": "uuid",

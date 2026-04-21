@@ -20,6 +20,8 @@
 - Jobs must be retryable.
 - Jobs must write progress updates.
 - Jobs must preserve attempt history.
+- Shared payload contracts live in `packages/shared/src/contracts.ts` and fixture examples live in
+  `packages/shared/src/contract-fixtures.ts`.
 
 ## Core Jobs
 ### `generate_ideas`
