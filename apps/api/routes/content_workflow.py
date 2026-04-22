@@ -86,6 +86,7 @@ from apps.api.services.generation_pipeline import (
     submit_idea_generation_job,
     submit_script_generation_job,
 )
+from apps.api.services.learning_context import build_analytics_learning_context
 from apps.api.services.media_pipeline import queue_rough_cut_job
 from apps.api.services.project_events import create_project_event, list_project_events
 from apps.api.services.project_export import (
@@ -695,6 +696,12 @@ def get_script_prompt_pack_route(script_id: UUID, db: DbSession) -> ScriptPrompt
             brand_profile=brand_profile,
             approved_idea=source_idea,
             script=script,
+            analytics_learning_context=build_analytics_learning_context(
+                db,
+                user=user,
+                project=project,
+                brand_profile=brand_profile,
+            ),
         )
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
@@ -739,6 +746,12 @@ def queue_audio_generation_route(
             brand_profile=brand_profile,
             approved_idea=source_idea,
             script=current_script,
+            analytics_learning_context=build_analytics_learning_context(
+                db,
+                user=user,
+                project=project,
+                brand_profile=brand_profile,
+            ),
         )
         job = queue_audio_generation_job(
             db,
@@ -793,6 +806,12 @@ def queue_visual_generation_route(
             brand_profile=brand_profile,
             approved_idea=source_idea,
             script=current_script,
+            analytics_learning_context=build_analytics_learning_context(
+                db,
+                user=user,
+                project=project,
+                brand_profile=brand_profile,
+            ),
         )
         job = queue_visual_generation_job(
             db,
@@ -1289,6 +1308,12 @@ def _build_script_prompt_pack_for_route(
         brand_profile=brand_profile,
         approved_idea=source_idea,
         script=script,
+        analytics_learning_context=build_analytics_learning_context(
+            db,
+            user=user,
+            project=project,
+            brand_profile=brand_profile,
+        ),
     )
 
 

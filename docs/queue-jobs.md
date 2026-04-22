@@ -38,6 +38,7 @@ Current inline-local payload includes:
 - target platform
 - objective
 - source feedback notes for regeneration
+- same-brand analytics learning context when prior insights exist
 - idea count and generated idea ids after completion
 - correlation id for activity/job log tracing
 
@@ -55,6 +56,7 @@ Current inline-local payload includes:
 - approved idea id
 - brand profile id
 - source feedback notes
+- same-brand analytics learning context when prior insights exist
 - generated script id and version after completion
 - scene count
 - correlation id for activity/job log tracing

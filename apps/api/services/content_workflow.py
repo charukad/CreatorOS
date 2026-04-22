@@ -33,6 +33,7 @@ from apps.api.services.assets import (
     has_ready_rough_cut,
 )
 from apps.api.services.brand_profiles import build_brand_prompt_context
+from apps.api.services.learning_context import summarize_analytics_learning_context
 
 
 def list_project_ideas(db: Session, project: Project) -> list[ContentIdea]:
@@ -97,6 +98,7 @@ def generate_content_ideas(
     brand_profile: BrandProfile,
     *,
     source_feedback_notes: str | None = None,
+    analytics_learning_context: dict[str, object] | None = None,
 ) -> list[ContentIdea]:
     if project.status not in {ProjectStatus.DRAFT, ProjectStatus.IDEA_PENDING_APPROVAL}:
         raise ValueError(
@@ -114,7 +116,12 @@ def generate_content_ideas(
             score=idea["score"],
             source_feedback_notes=source_feedback_notes,
         )
-        for idea in _build_idea_candidates(project, brand_profile, source_feedback_notes)
+        for idea in _build_idea_candidates(
+            project,
+            brand_profile,
+            source_feedback_notes,
+            analytics_learning_context=analytics_learning_context,
+        )
     ]
 
     project.status = ProjectStatus.IDEA_PENDING_APPROVAL
@@ -213,6 +220,7 @@ def generate_project_script(
     approved_idea: ContentIdea,
     brand_profile: BrandProfile,
     payload: ScriptGenerateRequest,
+    analytics_learning_context: dict[str, object] | None = None,
 ) -> ProjectScript:
     if approved_idea.project_id != project.id:
         raise ValueError("The approved idea does not belong to this project.")
@@ -240,6 +248,7 @@ def generate_project_script(
         project=project,
         brand_profile=brand_profile,
         approved_idea=approved_idea,
+        analytics_learning_context=analytics_learning_context,
     )
     full_script = "\n\n".join([hook, body, cta])
     estimated_duration_seconds = sum(scene["estimated_duration_seconds"] for scene in scenes)
@@ -442,12 +451,20 @@ def build_script_prompt_pack(
     brand_profile: BrandProfile,
     approved_idea: ContentIdea,
     script: ProjectScript,
+    analytics_learning_context: dict[str, object] | None = None,
 ) -> ScriptPromptPackResponse:
     brand_context = build_brand_prompt_context(brand_profile)
+    learning_context = analytics_learning_context or _empty_analytics_learning_context(
+        brand_profile=brand_profile,
+        project=project,
+    )
+    learning_focus = summarize_analytics_learning_context(learning_context)
     narration_direction = (
         f"Read in a {brand_profile.tone.lower()} tone for {brand_profile.target_audience.lower()}. "
         f"Keep the pace suitable for {project.target_platform.replace('_', ' ')}."
     )
+    if learning_focus:
+        narration_direction = f"{narration_direction} Apply this learning focus: {learning_focus}"
 
     scenes = [
         ScenePromptPackResponse(
@@ -461,11 +478,13 @@ def build_script_prompt_pack(
             image_generation_prompt=(
                 f"{brand_profile.visual_style}. {scene.image_prompt} Overlay guidance: "
                 f"{scene.overlay_text}. Channel: {brand_profile.channel_name}."
+                + (f" Learning focus: {learning_focus}" if learning_focus else "")
             ),
             video_generation_prompt=(
                 f"{brand_profile.visual_style}. {scene.video_prompt} "
                 f"Objective: {project.objective}. "
                 f"Platform: {project.target_platform.replace('_', ' ')}."
+                + (f" Learning focus: {learning_focus}" if learning_focus else "")
             ),
             notes=scene.notes,
         )
@@ -477,6 +496,7 @@ def build_script_prompt_pack(
         project_id=project.id,
         brand_profile_id=brand_profile.id,
         brand_context=brand_context.context_json,
+        analytics_learning_context=learning_context,
         channel_name=brand_profile.channel_name,
         target_platform=project.target_platform,
         objective=project.objective,
@@ -618,6 +638,8 @@ def _build_idea_candidates(
     project: Project,
     brand_profile: BrandProfile,
     source_feedback_notes: str | None = None,
+    *,
+    analytics_learning_context: dict[str, object] | None = None,
 ) -> Sequence[dict[str, str | int]]:
     topic = _normalize_phrase(project.title)
     objective = _normalize_phrase(project.objective)
@@ -630,15 +652,21 @@ def _build_idea_candidates(
     notes = _normalize_phrase(project.notes or "Keep the advice concrete and immediately usable.")
     revision_note = _normalize_phrase(source_feedback_notes or "")
     revision_guidance = f" Responds to revision note: {revision_note}." if revision_note else ""
+    learning_focus = summarize_analytics_learning_context(analytics_learning_context)
+    learning_guidance = (
+        f" Uses recent performance learning: {learning_focus}" if learning_focus else ""
+    )
 
     question_open = "?" if "question" in hook_style.lower() else ""
     audience_short = audience.split(",")[0]
     revised_prefix = "Revised: " if revision_note else ""
+    learned_prefix = "Analytics-backed: " if learning_focus and not revised_prefix else ""
 
     return [
         {
             "suggested_title": (
-                f"{revised_prefix}3 ways {audience_short} can apply {topic} this week"
+                f"{revised_prefix}{learned_prefix}3 ways {audience_short} can apply "
+                f"{topic} this week"
             ),
             "hook": (
                 f"What if {topic.lower()} could save {audience_short.lower()} hours this week"
@@ -648,12 +676,13 @@ def _build_idea_candidates(
                 f"Turn {objective.lower()} into a practical three-step playbook tailored to "
                 f"{audience_short.lower()}."
                 + (f" Use the revision focus: {revision_note}." if revision_note else "")
+                + learning_guidance
             ),
             "rationale": (
                 f"Fits the {tone.lower()} tone, gives {platform} viewers a fast payoff, and leaves "
-                f"room for a {cta_style.lower()} ending.{revision_guidance}"
+                f"room for a {cta_style.lower()} ending.{revision_guidance}{learning_guidance}"
             ),
-            "score": 91,
+            "score": 94 if learning_focus else 91,
         },
         {
             "suggested_title": f"{revised_prefix}The biggest {topic} mistake creators still make",
@@ -662,12 +691,13 @@ def _build_idea_candidates(
                 "Lead with the common mistake, then reframe the workflow into a lighter, more "
                 "repeatable process."
                 + (f" Fold in this requested direction: {revision_note}." if revision_note else "")
+                + learning_guidance
             ),
             "rationale": (
                 f"Good for {platform} because it creates tension quickly and matches the brand's "
-                f"{hook_style.lower()} hook instinct.{revision_guidance}"
+                f"{hook_style.lower()} hook instinct.{revision_guidance}{learning_guidance}"
             ),
-            "score": 87,
+            "score": 90 if learning_focus else 87,
         },
         {
             "suggested_title": f"{revised_prefix}My {topic} workflow in 4 fast shots",
@@ -678,12 +708,13 @@ def _build_idea_candidates(
                 "Show the workflow as a short behind-the-scenes sequence with on-screen proof "
                 "and simple narration."
                 + (f" Shape the proof around: {revision_note}." if revision_note else "")
+                + learning_guidance
             ),
             "rationale": (
                 f"Plays well with {visual_style.lower()} visuals and supports the project note: "
-                f"{notes}.{revision_guidance}"
+                f"{notes}.{revision_guidance}{learning_guidance}"
             ),
-            "score": 84,
+            "score": 87 if learning_focus else 84,
         },
     ]
 
@@ -692,6 +723,7 @@ def _build_script_package(
     project: Project,
     brand_profile: BrandProfile,
     approved_idea: ContentIdea,
+    analytics_learning_context: dict[str, object] | None = None,
 ) -> tuple[str, str, str, str, list[str], list[str], list[dict[str, str | int | None]]]:
     topic = _normalize_phrase(project.title)
     objective = _normalize_phrase(project.objective)
@@ -700,6 +732,8 @@ def _build_script_package(
     cta_style = _normalize_phrase(brand_profile.cta_style)
     visual_style = _normalize_phrase(brand_profile.visual_style)
     platform = _normalize_phrase(project.target_platform)
+    learning_focus = summarize_analytics_learning_context(analytics_learning_context)
+    learning_sentence = f"Recent analytics learning: {learning_focus}" if learning_focus else None
 
     hook = approved_idea.hook
     body_lines = [
@@ -711,6 +745,7 @@ def _build_script_package(
             f"So I frame {topic.lower()} around a single promise, show one proof point, and end "
             f"with a next step people can copy today."
         ),
+        *([learning_sentence] if learning_sentence else []),
         (
             f"That keeps the delivery {tone.lower()}, clear for {platform}, and easy to support "
             f"with {visual_style.lower()} visuals."
@@ -727,9 +762,13 @@ def _build_script_package(
         f"{topic}: the short playbook",
         f"{topic} for {brand_profile.niche}",
     ]
+    if learning_focus:
+        title_options = [*title_options, f"Analytics-backed {topic}"]
+
     caption = (
         f"{approved_idea.angle} Built for {platform} with a {tone.lower()} delivery and "
         f"{visual_style.lower()} visuals."
+        + (f" Learning focus: {learning_focus}" if learning_focus else "")
     )
     hashtags = _build_hashtags(
         [project.target_platform, brand_profile.niche, project.title, "creatoros"]
@@ -749,7 +788,10 @@ def _build_script_package(
                 f"seconds using {visual_style.lower()} visuals."
             ),
             "estimated_duration_seconds": 6,
-            "notes": "Start with immediate motion and large overlay text.",
+            "notes": _append_learning_note(
+                "Start with immediate motion and large overlay text.",
+                learning_focus,
+            ),
         },
         {
             "scene_order": 2,
@@ -765,7 +807,10 @@ def _build_script_package(
                 f"{audience.lower()}."
             ),
             "estimated_duration_seconds": 8,
-            "notes": "Use a before-and-after beat to make the pain point obvious.",
+            "notes": _append_learning_note(
+                "Use a before-and-after beat to make the pain point obvious.",
+                learning_focus,
+            ),
         },
         {
             "scene_order": 3,
@@ -781,7 +826,10 @@ def _build_script_package(
                 f"next step for {platform} viewers."
             ),
             "estimated_duration_seconds": 12,
-            "notes": "Keep the middle section paced but readable for short-form viewing.",
+            "notes": _append_learning_note(
+                "Keep the middle section paced but readable for short-form viewing.",
+                learning_focus,
+            ),
         },
         {
             "scene_order": 4,
@@ -797,11 +845,36 @@ def _build_script_package(
                 f"brand voice."
             ),
             "estimated_duration_seconds": 7,
-            "notes": "Pause long enough for comments or follow action to feel natural.",
+            "notes": _append_learning_note(
+                "Pause long enough for comments or follow action to feel natural.",
+                learning_focus,
+            ),
         },
     ]
 
     return hook, body, cta, caption, title_options, hashtags, scenes
+
+
+def _empty_analytics_learning_context(
+    *,
+    brand_profile: BrandProfile,
+    project: Project,
+) -> dict[str, object]:
+    return {
+        "available": False,
+        "brand_profile_id": str(brand_profile.id),
+        "target_project_id": str(project.id),
+        "source_count": 0,
+        "guidance": [],
+        "items": [],
+    }
+
+
+def _append_learning_note(note: str, learning_focus: str | None) -> str:
+    if not learning_focus:
+        return note
+
+    return f"{note} Learning focus: {learning_focus}"
 
 
 def _build_hashtags(values: Sequence[str]) -> list[str]:

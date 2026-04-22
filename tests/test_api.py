@@ -2078,3 +2078,96 @@ def test_analytics_sync_requires_published_job_and_generates_insights() -> None:
     )
 
     app.dependency_overrides.clear()
+
+
+def test_analytics_learnings_feed_future_generation_context() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    source_project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Prior high-retention hook",
+        objective="Measure what viewers respond to",
+        notes=None,
+    )
+    source_script = _create_approved_script_for_tests(client, source_project_id)
+    _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=source_project_id,
+        script_id=str(source_script["id"]),
+    )
+    client.post(f"/api/projects/{source_project_id}/final-video/approve", json={})
+    prepare_response = client.post(
+        f"/api/projects/{source_project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Analytics-backed source",
+            "description": "Published source used to seed learning context.",
+            "hashtags": ["#CreatorOS", "#Learning"],
+        },
+    )
+    publish_job_id = prepare_response.json()["id"]
+    client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    client.post(
+        f"/api/publish-jobs/{publish_job_id}/mark-published",
+        json={"external_post_id": "learning-source-1"},
+    )
+    sync_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/sync-analytics",
+        json={
+            "views": 2400,
+            "likes": 220,
+            "comments": 32,
+            "shares": 18,
+            "saves": 15,
+            "avg_view_duration": 21.5,
+        },
+    )
+    assert sync_response.status_code == 201
+
+    target_project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Use analytics in the next idea",
+        objective="Turn previous performance into a better creative brief",
+        notes=None,
+    )
+    ideas_response = client.post(f"/api/projects/{target_project_id}/ideas/generate", json={})
+    assert ideas_response.status_code == 201
+    ideas = ideas_response.json()
+    assert any("recent performance learning" in idea["rationale"].lower() for idea in ideas)
+
+    jobs_response = client.get(f"/api/projects/{target_project_id}/jobs")
+    assert jobs_response.status_code == 200
+    idea_job = next(job for job in jobs_response.json() if job["job_type"] == "generate_ideas")
+    idea_learning_context = idea_job["payload_json"]["analytics_learning_context"]
+    assert idea_learning_context["available"] is True
+    assert idea_learning_context["source_count"] >= 1
+    assert idea_learning_context["items"][0]["source_project_id"] == source_project_id
+
+    client.post(f"/api/ideas/{ideas[0]['id']}/approve", json={})
+    script_response = client.post(f"/api/projects/{target_project_id}/scripts/generate", json={})
+    assert script_response.status_code == 201
+    script = script_response.json()
+    assert "Recent analytics learning" in script["body"]
+    assert "Learning focus" in script["caption"]
+    assert any("Learning focus" in scene["notes"] for scene in script["scenes"])
+
+    script_jobs_response = client.get(f"/api/projects/{target_project_id}/jobs")
+    assert script_jobs_response.status_code == 200
+    script_job = next(
+        job for job in script_jobs_response.json() if job["job_type"] == "generate_script"
+    )
+    script_learning_context = script_job["payload_json"]["analytics_learning_context"]
+    assert script_learning_context["available"] is True
+    assert script_learning_context["items"][0]["source_project_id"] == source_project_id
+
+    prompt_pack_response = client.get(f"/api/scripts/{script['id']}/prompt-pack")
+    assert prompt_pack_response.status_code == 200
+    prompt_pack = prompt_pack_response.json()
+    assert prompt_pack["analytics_learning_context"]["available"] is True
+    assert prompt_pack["analytics_learning_context"]["source_count"] >= 1
+    assert "Learning focus" in prompt_pack["scenes"][0]["image_generation_prompt"]
+    assert "Apply this learning focus" in prompt_pack["scenes"][0]["narration_direction"]
+
+    app.dependency_overrides.clear()

@@ -32,6 +32,7 @@ from apps.api.schemas.enums import (
 )
 from apps.api.services.background_jobs import create_job_log, mark_job_completed, mark_job_failed
 from apps.api.services.content_workflow import generate_content_ideas, generate_project_script
+from apps.api.services.learning_context import build_analytics_learning_context
 from apps.api.services.storage_paths import build_project_storage_path
 
 ACTIVE_JOB_STATES = {
@@ -64,6 +65,12 @@ def submit_idea_generation_job(
     payload: IdeaGenerateRequest,
 ) -> list[ContentIdea]:
     _ensure_no_active_project_level_job(db, project, BackgroundJobType.GENERATE_IDEAS)
+    analytics_learning_context = build_analytics_learning_context(
+        db,
+        user=user,
+        project=project,
+        brand_profile=brand_profile,
+    )
     job = _create_inline_generation_job(
         db,
         user=user,
@@ -75,6 +82,7 @@ def submit_idea_generation_job(
             "target_platform": project.target_platform,
             "objective": project.objective,
             "source_feedback_notes": payload.source_feedback_notes,
+            "analytics_learning_context": analytics_learning_context,
         },
         queued_message="Idea generation job was submitted.",
     )
@@ -91,6 +99,7 @@ def submit_idea_generation_job(
             project,
             brand_profile,
             source_feedback_notes=payload.source_feedback_notes,
+            analytics_learning_context=analytics_learning_context,
         )
         completed_job = _reload_job(db, job)
         completed_job.payload_json = {
@@ -123,6 +132,12 @@ def submit_script_generation_job(
     payload: ScriptGenerateRequest,
 ) -> ProjectScript:
     _ensure_no_active_project_level_job(db, project, BackgroundJobType.GENERATE_SCRIPT)
+    analytics_learning_context = build_analytics_learning_context(
+        db,
+        user=user,
+        project=project,
+        brand_profile=brand_profile,
+    )
     job = _create_inline_generation_job(
         db,
         user=user,
@@ -133,6 +148,7 @@ def submit_script_generation_job(
             "approved_idea_id": str(approved_idea.id),
             "brand_profile_id": str(brand_profile.id),
             "source_feedback_notes": payload.source_feedback_notes,
+            "analytics_learning_context": analytics_learning_context,
         },
         queued_message="Script generation job was submitted.",
     )
@@ -143,7 +159,15 @@ def submit_script_generation_job(
             job,
             message="Local script and scene-plan generation started.",
         )
-        script = generate_project_script(db, user, project, approved_idea, brand_profile, payload)
+        script = generate_project_script(
+            db,
+            user,
+            project,
+            approved_idea,
+            brand_profile,
+            payload,
+            analytics_learning_context=analytics_learning_context,
+        )
         completed_job = _reload_job(db, job)
         completed_job.script_id = script.id
         completed_job.payload_json = {
@@ -459,6 +483,8 @@ def _create_inline_generation_job(
         state=BackgroundJobState.QUEUED,
         payload_json={
             **payload,
+            "job_type": job_type.value,
+            "project_id": str(project.id),
             "execution_mode": "inline_local",
             "correlation_id": correlation_id,
         },

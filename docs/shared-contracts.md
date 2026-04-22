@@ -18,6 +18,7 @@ These contracts are TypeScript-first because the web app and shared package alre
 - `BackgroundJobContract`
 - `PublishJobContract`
 - `AnalyticsSnapshotContract`
+- `AnalyticsLearningContextContract`
 
 ### Traceability Contracts
 - `TraceabilityFields` carries shared IDs for project, script, scene, generation attempt, job,
@@ -46,6 +47,8 @@ planned.
 ### Prompt Pack Contracts
 - `ScriptPromptPackContract` is the worker-ready script handoff.
 - `ScenePromptPackContract` is the per-scene narration and visual generation input.
+- Prompt packs include `analytics_learning_context` so browser/media workers and future provider
+  adapters can see the performance learnings that shaped the generated script.
 - Prompt packs must include contiguous `scene_order` values starting at `1`.
 
 ### Timeline Manifest Contracts

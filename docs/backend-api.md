@@ -228,6 +228,7 @@ Behavior note:
 - creates a completed `generate_ideas` background job with lifecycle logs before returning the generated ideas
 - project-level generation jobs may have `script_id: null` because they run before a script exists
 - source feedback notes are copied to the generation job payload and each returned idea
+- same-brand analytics learnings are copied to the generation job payload and influence idea rationales when available
 - the response contains the newly generated batch; use `GET /api/projects/:id/ideas` for the full saved list
 
 Response excerpt:
@@ -272,6 +273,7 @@ Behavior note:
 - creates a completed `generate_script` background job with lifecycle logs before returning the generated script
 - the generation job is linked to the new script once the script and scene records are persisted
 - source feedback notes are copied to the generation job payload and persisted on the script version
+- same-brand analytics learnings are copied to the generation job payload and shape the script body, caption, and scene notes when available
 
 Response excerpt:
 ```json
@@ -372,6 +374,11 @@ Response excerpt:
   "script_id": "uuid",
   "project_id": "uuid",
   "brand_profile_id": "uuid",
+  "analytics_learning_context": {
+    "available": true,
+    "source_count": 1,
+    "guidance": ["engagement rate from Prior project: Reuse the stronger hook format."]
+  },
   "channel_name": "Creator Lab",
   "target_platform": "youtube_shorts",
   "objective": "Prepare a worker-ready prompt pack",

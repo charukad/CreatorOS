@@ -180,6 +180,7 @@ export type ScriptPromptPack = {
   project_id: string;
   brand_profile_id: string;
   brand_context: Record<string, unknown>;
+  analytics_learning_context: Record<string, unknown>;
   channel_name: string;
   target_platform: string;
   objective: string;

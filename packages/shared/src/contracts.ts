@@ -220,6 +220,29 @@ export type AnalyticsSnapshotContract = {
   fetched_at: ISODateTime;
 };
 
+export type AnalyticsLearningItemContract = {
+  insight_id: UUID;
+  source_project_id: UUID;
+  source_project_title: string;
+  is_current_project: boolean;
+  publish_job_id: UUID;
+  analytics_snapshot_id: UUID;
+  insight_type: string;
+  summary: string;
+  evidence: Record<string, unknown>;
+  confidence_score: number;
+  created_at: ISODateTime;
+};
+
+export type AnalyticsLearningContextContract = {
+  available: boolean;
+  brand_profile_id: UUID;
+  target_project_id: UUID;
+  source_count: number;
+  guidance: string[];
+  items: AnalyticsLearningItemContract[];
+};
+
 export type QueuePayloadBase = {
   job_type: QueueJobType;
   project_id: UUID;
@@ -240,6 +263,7 @@ export type GenerateIdeasQueuePayload = QueuePayloadBase & {
   target_platform: string;
   objective: string;
   source_feedback_notes?: Nullable<string>;
+  analytics_learning_context?: AnalyticsLearningContextContract;
   idea_count?: number;
   idea_ids?: UUID[];
 };
@@ -249,6 +273,7 @@ export type GenerateScriptQueuePayload = QueuePayloadBase & {
   approved_idea_id: UUID;
   brand_profile_id: UUID;
   source_feedback_notes?: Nullable<string>;
+  analytics_learning_context?: AnalyticsLearningContextContract;
   script_id?: UUID;
   script_version?: number;
   scene_count?: number;
@@ -376,6 +401,7 @@ export type ScriptPromptPackContract = {
   project_id: UUID;
   brand_profile_id: UUID;
   brand_context: Record<string, unknown>;
+  analytics_learning_context: AnalyticsLearningContextContract;
   channel_name: string;
   target_platform: string;
   objective: string;
