@@ -155,6 +155,7 @@ export function ProjectDetail({
             approvals={approvals}
             assets={assets}
             currentScript={currentScript}
+            jobs={jobs}
             project={project}
             publishJobs={publishJobs}
           />

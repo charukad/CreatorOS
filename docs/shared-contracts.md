@@ -38,8 +38,9 @@ These contracts are TypeScript-first because the web app and shared package alre
 - `SyncAnalyticsQueuePayload`
 
 The implemented job types are the current `BackgroundJobType` union. Planned payloads are included
-so queue and worker boundaries do not need to be redesigned when final export, publish upload, and
-analytics polling become queued workers.
+so queue and worker boundaries do not need to be redesigned when final export and analytics polling
+become queued workers. `publish_content` is implemented in v1 as a manual publish handoff job,
+with live platform upload adapters still planned.
 
 ### Prompt Pack Contracts
 - `ScriptPromptPackContract` is the worker-ready script handoff.

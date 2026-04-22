@@ -159,6 +159,11 @@ Note:
 - created_at
 - updated_at
 
+Note:
+- `metadata_json.thumbnail_asset_id` stores the selected ready thumbnail or scene-image asset from the same script for publish metadata
+- `metadata_json.platform_settings` stores provider-specific upload options such as privacy, playlist, or caption toggles
+- `metadata_json.last_metadata_update` and `metadata_json.metadata_revision_history` track publish metadata edits and re-approval handoffs
+
 ### analytics_snapshots
 - id
 - user_id
@@ -203,6 +208,10 @@ Note:
 - started_at
 - finished_at
 - error_message
+
+Note:
+- `publish_content` jobs use `payload_json.publish_job_id` and `payload_json.handoff_path` to trace manual publish handoff packages back to the approved publish job
+- manual publish handoff jobs move to `waiting_external` until the user records the final platform publish confirmation
 
 ### project_events
 - id
@@ -305,6 +314,7 @@ Note:
 - generate_audio_browser
 - generate_visuals_browser
 - compose_rough_cut
+- publish_content
 
 ### background_jobs.state
 - queued

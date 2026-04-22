@@ -10,6 +10,7 @@ ProjectStorageSection = Literal[
     "final",
     "subtitles",
     "metadata",
+    "publish",
 ]
 
 

@@ -109,5 +109,6 @@ storage/projects/{project_id}/
 ├─ rough-cuts/
 ├─ final/
 ├─ subtitles/
+├─ publish/
 └─ metadata/
 ```

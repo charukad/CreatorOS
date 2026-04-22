@@ -162,6 +162,39 @@ def _move_project_to_final_review_for_tests(
         return str(rough_cut.id)
 
 
+def _create_ready_thumbnail_for_tests(
+    session_factory: sessionmaker[Session],
+    *,
+    project_id: str,
+    script_id: str,
+) -> str:
+    with session_factory() as session:
+        project = session.get(Project, UUID(project_id))
+        script = session.get(ProjectScript, UUID(script_id))
+        assert project is not None
+        assert script is not None
+
+        thumbnail = Asset(
+            user_id=project.user_id,
+            project_id=project.id,
+            script_id=script.id,
+            scene_id=None,
+            generation_attempt_id=None,
+            asset_type=AssetType.THUMBNAIL,
+            status=AssetStatus.READY,
+            provider_name=ProviderName.LOCAL_MEDIA,
+            file_path=f"storage/projects/{project.id}/thumbnails/test-thumbnail.png",
+            mime_type="image/png",
+            duration_seconds=None,
+            width=1080,
+            height=1920,
+            checksum=f"test-thumbnail-{project.id}",
+        )
+        session.add(thumbnail)
+        session.commit()
+        return str(thumbnail.id)
+
+
 def test_live_health() -> None:
     client = TestClient(app)
     response = client.get("/api/health/live", headers={"X-Request-ID": "test-request-id"})
@@ -1783,6 +1816,141 @@ def test_publish_job_approval_schedule_and_manual_publish_flow() -> None:
     final_project_response = client.get(f"/api/projects/{project_id}")
     assert final_project_response.status_code == 200
     assert final_project_response.json()["status"] == "published"
+
+    app.dependency_overrides.clear()
+
+
+def test_publish_metadata_editor_updates_pending_job_and_requires_reapproval() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Edit publish metadata",
+        objective="Revise title, schedule, thumbnail, and platform settings before publishing",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+    thumbnail_asset_id = _create_ready_thumbnail_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+    client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Original publish title",
+            "description": "Original publish description.",
+            "hashtags": ["CreatorOS", "#AI", "#AI"],
+        },
+    )
+    assert prepare_response.status_code == 201
+    publish_job_id = prepare_response.json()["id"]
+
+    pending_update_response = client.patch(
+        f"/api/publish-jobs/{publish_job_id}/metadata",
+        json={
+            "title": "Sharper publish title",
+            "description": "Updated publish description.",
+            "hashtags": ["CreatorOS", "#Workflow", ""],
+            "scheduled_for": "2030-01-02T03:00:00+00:00",
+            "thumbnail_asset_id": thumbnail_asset_id,
+            "platform_settings": {"privacy": "private", "playlist_id": "creatoros"},
+            "change_notes": "Tightened the hook before publish approval.",
+        },
+    )
+    assert pending_update_response.status_code == 200
+    updated_job = pending_update_response.json()
+    assert updated_job["status"] == "pending_approval"
+    assert updated_job["title"] == "Sharper publish title"
+    assert updated_job["description"] == "Updated publish description."
+    assert updated_job["hashtags_json"] == ["#CreatorOS", "#Workflow"]
+    assert updated_job["metadata_json"]["thumbnail_asset_id"] == thumbnail_asset_id
+    assert updated_job["metadata_json"]["platform_settings"] == {
+        "privacy": "private",
+        "playlist_id": "creatoros",
+    }
+    assert updated_job["metadata_json"]["last_metadata_update"]["change_notes"] == (
+        "Tightened the hook before publish approval."
+    )
+
+    approve_response = client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    assert approve_response.status_code == 200
+    assert approve_response.json()["status"] == "approved"
+
+    approved_update_response = client.patch(
+        f"/api/publish-jobs/{publish_job_id}/metadata",
+        json={"title": "Needs approval again", "change_notes": "Changed after approval."},
+    )
+    assert approved_update_response.status_code == 200
+    assert approved_update_response.json()["status"] == "pending_approval"
+
+    blocked_schedule_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/schedule",
+        json={"scheduled_for": "2030-01-03T00:00:00+00:00"},
+    )
+    assert blocked_schedule_response.status_code == 409
+    assert "approved publish jobs" in _error_message(blocked_schedule_response)
+
+    activity_response = client.get(f"/api/projects/{project_id}/activity")
+    assert activity_response.status_code == 200
+    assert any(
+        activity["activity_type"] == "publish_metadata_updated"
+        and activity["metadata_json"]["requires_reapproval"] is True
+        for activity in activity_response.json()
+    )
+
+    app.dependency_overrides.clear()
+
+
+def test_publish_metadata_editor_blocks_scheduled_jobs() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Lock scheduled publish metadata",
+        objective="Prevent edits after schedule handoff",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+    client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Scheduled metadata",
+            "description": "This metadata will lock once scheduled.",
+            "hashtags": ["#CreatorOS"],
+        },
+    )
+    publish_job_id = prepare_response.json()["id"]
+    client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    schedule_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/schedule",
+        json={"scheduled_for": "2030-01-01T00:00:00+00:00"},
+    )
+    assert schedule_response.status_code == 200
+
+    blocked_update_response = client.patch(
+        f"/api/publish-jobs/{publish_job_id}/metadata",
+        json={"title": "Too late to edit"},
+    )
+    assert blocked_update_response.status_code == 409
+    assert "before scheduling or publishing" in _error_message(blocked_update_response)
 
     app.dependency_overrides.clear()
 

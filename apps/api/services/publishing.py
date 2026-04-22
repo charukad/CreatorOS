@@ -1,16 +1,18 @@
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from apps.api.models.asset import Asset
+from apps.api.models.background_job import BackgroundJob
 from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
 from apps.api.models.publish_job import PublishJob
 from apps.api.models.user import User
 from apps.api.schemas.content_workflow import (
     ManualPublishCompleteRequest,
+    PublishJobMetadataUpdateRequest,
     PublishJobPrepareRequest,
     PublishJobScheduleRequest,
 )
@@ -20,16 +22,36 @@ from apps.api.schemas.enums import (
     ApprovalTargetType,
     AssetStatus,
     AssetType,
+    BackgroundJobState,
+    BackgroundJobType,
     ProjectStatus,
     PublishJobStatus,
 )
 from apps.api.services.approvals import create_approval_record, get_latest_stage_approval
+from apps.api.services.background_jobs import create_job_log
 from apps.api.services.project_events import create_project_event
+from apps.api.services.storage_paths import build_project_storage_path
 
 ACTIVE_PUBLISH_JOB_STATUSES = {
     PublishJobStatus.PENDING_APPROVAL,
     PublishJobStatus.APPROVED,
     PublishJobStatus.SCHEDULED,
+}
+
+EDITABLE_PUBLISH_JOB_STATUSES = {
+    PublishJobStatus.PENDING_APPROVAL,
+    PublishJobStatus.APPROVED,
+}
+
+PUBLISH_THUMBNAIL_ASSET_TYPES = {
+    AssetType.THUMBNAIL,
+    AssetType.SCENE_IMAGE,
+}
+
+ACTIVE_PUBLISH_EXECUTION_STATES = {
+    BackgroundJobState.QUEUED,
+    BackgroundJobState.RUNNING,
+    BackgroundJobState.WAITING_EXTERNAL,
 }
 
 
@@ -215,6 +237,117 @@ def approve_publish_job(
     return publish_job
 
 
+def update_publish_job_metadata(
+    db: Session,
+    *,
+    user: User,
+    project: Project,
+    publish_job: PublishJob,
+    payload: PublishJobMetadataUpdateRequest,
+) -> PublishJob:
+    if publish_job.project_id != project.id:
+        raise ValueError("The selected publish job does not belong to this project.")
+
+    if publish_job.status not in EDITABLE_PUBLISH_JOB_STATUSES:
+        raise ValueError("Publish metadata can only be edited before scheduling or publishing.")
+
+    update_fields = payload.model_dump(exclude_unset=True)
+    if not update_fields:
+        return publish_job
+
+    changed_fields: list[str] = []
+    metadata = dict(publish_job.metadata_json or {})
+    previous_status = publish_job.status
+
+    if "title" in update_fields and payload.title != publish_job.title:
+        publish_job.title = _require_text(payload.title, "Title")
+        changed_fields.append("title")
+
+    if "description" in update_fields and payload.description != publish_job.description:
+        publish_job.description = _require_text(payload.description, "Description")
+        changed_fields.append("description")
+
+    if "hashtags" in update_fields:
+        normalized_hashtags = _normalize_hashtags(payload.hashtags or [])
+        if normalized_hashtags != publish_job.hashtags_json:
+            publish_job.hashtags_json = normalized_hashtags
+            changed_fields.append("hashtags")
+
+    if "scheduled_for" in update_fields and payload.scheduled_for != publish_job.scheduled_for:
+        publish_job.scheduled_for = payload.scheduled_for
+        changed_fields.append("scheduled_for")
+
+    if "thumbnail_asset_id" in update_fields:
+        thumbnail_asset_id = _validate_thumbnail_asset(
+            db,
+            user=user,
+            project=project,
+            publish_job=publish_job,
+            thumbnail_asset_id=payload.thumbnail_asset_id,
+        )
+        if thumbnail_asset_id != metadata.get("thumbnail_asset_id"):
+            if thumbnail_asset_id is None:
+                metadata.pop("thumbnail_asset_id", None)
+            else:
+                metadata["thumbnail_asset_id"] = thumbnail_asset_id
+            changed_fields.append("thumbnail_asset_id")
+
+    if "platform_settings" in update_fields:
+        if payload.platform_settings is None:
+            if "platform_settings" in metadata:
+                metadata.pop("platform_settings", None)
+                changed_fields.append("platform_settings")
+        elif payload.platform_settings != metadata.get("platform_settings"):
+            metadata["platform_settings"] = payload.platform_settings
+            changed_fields.append("platform_settings")
+
+    change_notes = payload.change_notes.strip() if payload.change_notes else None
+    if change_notes is not None:
+        changed_fields.append("change_notes")
+
+    if not changed_fields:
+        return publish_job
+
+    metadata_revision = {
+        "changed_at": datetime.now(UTC).isoformat(),
+        "changed_fields": changed_fields,
+        "change_notes": change_notes,
+        "previous_status": previous_status.value,
+    }
+    metadata["last_metadata_update"] = metadata_revision
+    metadata["metadata_revision_history"] = [
+        *list(metadata.get("metadata_revision_history", []))[-19:],
+        metadata_revision,
+    ]
+
+    requires_reapproval = previous_status == PublishJobStatus.APPROVED and any(
+        field != "change_notes" for field in changed_fields
+    )
+    if requires_reapproval:
+        publish_job.status = PublishJobStatus.PENDING_APPROVAL
+
+    publish_job.metadata_json = metadata
+    db.add(publish_job)
+    create_project_event(
+        db,
+        project,
+        event_type="publish_metadata_updated",
+        title="Publish metadata updated",
+        description=change_notes,
+        level="warning" if requires_reapproval else "info",
+        metadata={
+            "publish_job_id": str(publish_job.id),
+            "platform": publish_job.platform,
+            "changed_fields": changed_fields,
+            "previous_status": previous_status.value,
+            "requires_reapproval": requires_reapproval,
+        },
+    )
+    db.commit()
+    db.refresh(publish_job)
+    return publish_job
+
+
 def schedule_publish_job(
     db: Session,
     *,
@@ -249,6 +382,90 @@ def schedule_publish_job(
     return publish_job
 
 
+def queue_publish_content_job(
+    db: Session,
+    *,
+    project: Project,
+    publish_job: PublishJob,
+) -> BackgroundJob:
+    if publish_job.project_id != project.id:
+        raise ValueError("The selected publish job does not belong to this project.")
+
+    if publish_job.status not in {PublishJobStatus.APPROVED, PublishJobStatus.SCHEDULED}:
+        raise ValueError("Only approved or scheduled publish jobs can be queued for publishing.")
+
+    final_asset = db.get(Asset, publish_job.final_asset_id)
+    if final_asset is None or final_asset.project_id != project.id:
+        raise ValueError("Publish handoff requires the linked final asset.")
+
+    if final_asset.status != AssetStatus.READY:
+        raise ValueError("Publish handoff requires the linked final asset to be ready.")
+
+    _ensure_no_active_publish_content_job(db, publish_job)
+
+    short_publish_job_id = str(publish_job.id).split("-")[0]
+    correlation_id = str(uuid4())
+    handoff_path = build_project_storage_path(
+        project.id,
+        "publish",
+        f"{publish_job.platform}-handoff-{short_publish_job_id}.json",
+    )
+    job = BackgroundJob(
+        user_id=publish_job.user_id,
+        project_id=publish_job.project_id,
+        script_id=publish_job.script_id,
+        job_type=BackgroundJobType.PUBLISH_CONTENT,
+        provider_name=None,
+        state=BackgroundJobState.QUEUED,
+        payload_json={
+            "job_type": BackgroundJobType.PUBLISH_CONTENT.value,
+            "adapter_name": "manual_publish_handoff",
+            "publish_job_id": str(publish_job.id),
+            "approved_publish_job_state": publish_job.status.value,
+            "platform": publish_job.platform,
+            "final_asset_id": str(publish_job.final_asset_id),
+            "scheduled_for": (
+                publish_job.scheduled_for.isoformat()
+                if publish_job.scheduled_for is not None
+                else None
+            ),
+            "handoff_path": handoff_path,
+            "correlation_id": correlation_id,
+        },
+    )
+    db.add(job)
+    db.flush()
+    create_job_log(
+        db,
+        job,
+        event_type="job_queued",
+        message="Manual publish handoff job was queued.",
+        metadata={
+            "adapter_name": "manual_publish_handoff",
+            "publish_job_id": str(publish_job.id),
+            "platform": publish_job.platform,
+            "handoff_path": handoff_path,
+            "correlation_id": correlation_id,
+        },
+    )
+    create_project_event(
+        db,
+        project,
+        event_type="publish_handoff_queued",
+        title="Publish handoff queued",
+        description=publish_job.title,
+        metadata={
+            "background_job_id": str(job.id),
+            "publish_job_id": str(publish_job.id),
+            "platform": publish_job.platform,
+            "handoff_path": handoff_path,
+        },
+    )
+    db.commit()
+    db.refresh(job)
+    return job
+
+
 def mark_publish_job_published(
     db: Session,
     *,
@@ -280,6 +497,7 @@ def mark_publish_job_published(
             "external_post_id": payload.external_post_id,
         },
     )
+    _complete_publish_content_jobs(db, publish_job)
     db.commit()
     db.refresh(publish_job)
     return publish_job
@@ -364,3 +582,96 @@ def _get_active_publish_job(
         PublishJob.status.in_(ACTIVE_PUBLISH_JOB_STATUSES),
     )
     return db.scalar(statement)
+
+
+def _ensure_no_active_publish_content_job(db: Session, publish_job: PublishJob) -> None:
+    statement = select(BackgroundJob).where(
+        BackgroundJob.project_id == publish_job.project_id,
+        BackgroundJob.script_id == publish_job.script_id,
+        BackgroundJob.job_type == BackgroundJobType.PUBLISH_CONTENT,
+        BackgroundJob.state.in_(ACTIVE_PUBLISH_EXECUTION_STATES),
+        BackgroundJob.payload_json["publish_job_id"].as_string() == str(publish_job.id),
+    )
+    existing_job = db.scalar(statement)
+    if existing_job is not None:
+        raise ValueError("An active publish handoff job already exists for this publish job.")
+
+
+def _complete_publish_content_jobs(db: Session, publish_job: PublishJob) -> None:
+    statement = select(BackgroundJob).where(
+        BackgroundJob.project_id == publish_job.project_id,
+        BackgroundJob.script_id == publish_job.script_id,
+        BackgroundJob.job_type == BackgroundJobType.PUBLISH_CONTENT,
+        BackgroundJob.state.in_(ACTIVE_PUBLISH_EXECUTION_STATES),
+        BackgroundJob.payload_json["publish_job_id"].as_string() == str(publish_job.id),
+    )
+    now = datetime.now(UTC)
+    for job in db.scalars(statement):
+        job.state = BackgroundJobState.COMPLETED
+        job.progress_percent = 100
+        job.finished_at = now
+        job.error_message = None
+        db.add(job)
+        create_job_log(
+            db,
+            job,
+            event_type="publish_handoff_completed",
+            message="Manual publish was confirmed; publish handoff job is complete.",
+            metadata={
+                "publish_job_id": str(publish_job.id),
+                "external_post_id": publish_job.external_post_id,
+            },
+        )
+
+
+def _require_text(value: str | None, field_name: str) -> str:
+    if value is None:
+        raise ValueError(f"{field_name} cannot be cleared.")
+
+    return value
+
+
+def _normalize_hashtags(hashtags: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for raw_hashtag in hashtags:
+        hashtag = raw_hashtag.strip()
+        if not hashtag:
+            continue
+        if not hashtag.startswith("#"):
+            hashtag = f"#{hashtag}"
+        if hashtag not in normalized:
+            normalized.append(hashtag)
+
+    return normalized
+
+
+def _validate_thumbnail_asset(
+    db: Session,
+    *,
+    user: User,
+    project: Project,
+    publish_job: PublishJob,
+    thumbnail_asset_id: UUID | None,
+) -> str | None:
+    if thumbnail_asset_id is None:
+        return None
+
+    statement = select(Asset).where(
+        Asset.id == thumbnail_asset_id,
+        Asset.user_id == user.id,
+        Asset.project_id == project.id,
+    )
+    thumbnail_asset = db.scalar(statement)
+    if thumbnail_asset is None:
+        raise ValueError("Thumbnail asset not found for this project.")
+
+    if thumbnail_asset.asset_type not in PUBLISH_THUMBNAIL_ASSET_TYPES:
+        raise ValueError("Publish thumbnails must be ready thumbnail or scene image assets.")
+
+    if thumbnail_asset.script_id != publish_job.script_id:
+        raise ValueError("Publish thumbnails must belong to the publish job script.")
+
+    if thumbnail_asset.status != AssetStatus.READY:
+        raise ValueError("Publish thumbnails must be ready before they can be selected.")
+
+    return str(thumbnail_asset.id)

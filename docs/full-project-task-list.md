@@ -342,20 +342,22 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 ## Phase 16 - Final Approval and Publishing Center
 
 Current implementation note:
-The repo now has final-video approve/reject routes, publish job persistence, approval-gated publish preparation, publish-job approval, schedule, and manual-published completion flows. The project page includes a v1 publishing center, but real platform upload adapters, thumbnails, and calendar views are still pending.
+The repo now has final-video approve/reject routes, publish job persistence, approval-gated publish preparation, approval-safe metadata editing, publish-job approval, schedule, queue-backed manual publish handoffs, publishing calendar/queue visibility, and manual-published completion flows. Real platform upload adapters are still pending.
 
 ### Build tasks
 - [x] Build publish job persistence and APIs
 - [x] Add publish preparation flow from approved final video
-- [ ] Add metadata editor for title, description, hashtags, thumbnails, and platform-specific settings
+- [x] Add metadata editor for title, description, hashtags, thumbnails, and platform-specific settings
 - [x] Add schedule flow with state validation
+- [x] Add queue-backed manual publish handoff jobs
+- [x] Add publisher worker that generates manual upload handoff packages
 - [x] Add manual published-completion flow with state validation
 - [x] Add publish approval stage before any upload action
 - [ ] Implement platform adapter abstraction for YouTube, Facebook, TikTok, and manual publish fallback
 - [x] Add manual publish fallback record path
 - [x] Add publish safety checks so only explicitly approved publish jobs can run
 - [x] Add idempotency keys for publish preparation requests
-- [ ] Add publishing calendar and queue views in the UI
+- [x] Add publishing calendar and queue views in the UI
 - [x] Add project-page publishing center for final review, publish approval, scheduling, and manual completion
 - [x] Add tests for publish job safety and state transitions
 

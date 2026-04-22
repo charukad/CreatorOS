@@ -33,6 +33,10 @@
 - `FFMPEG_BINARY`
 - `MEDIA_ENABLE_FFMPEG_RENDER`
 
+### Publisher Worker
+- `PUBLISHER_MAX_JOBS_PER_RUN`
+- `STORAGE_ROOT`
+
 ### Frontend
 - `NEXT_PUBLIC_API_BASE_URL`
 
@@ -42,6 +46,7 @@
 - API and media worker storage/download path settings must not be empty.
 - browser worker profile and download roots must be different paths to avoid mixing cookies/profiles with generated downloads.
 - `BROWSER_MAX_JOBS_PER_RUN` must be at least `1`.
+- `PUBLISHER_MAX_JOBS_PER_RUN` must be at least `1`.
 - `BROWSER_PROVIDER_MODE` is currently limited to `dry_run` until the live provider automation is implemented.
 - `FFMPEG_BINARY` must not be empty.
 
@@ -53,6 +58,7 @@
 - the media worker writes rough-cut preview and manifest files under `storage/projects/{project_id}/rough-cuts`
 - the media worker writes subtitle sidecars under `storage/projects/{project_id}/subtitles`
 - the media worker writes an FFmpeg command-plan JSON file beside rough-cut previews
+- the publisher worker writes manual upload handoffs under `storage/projects/{project_id}/publish`
 - MP4 rendering requires FFmpeg to be installed and `MEDIA_ENABLE_FFMPEG_RENDER=true`
 
 ## Setup Steps
