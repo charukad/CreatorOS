@@ -80,6 +80,7 @@ class BackgroundJobType(StrEnum):
     GENERATE_AUDIO_BROWSER = "generate_audio_browser"
     GENERATE_VISUALS_BROWSER = "generate_visuals_browser"
     COMPOSE_ROUGH_CUT = "compose_rough_cut"
+    PUBLISH_CONTENT = "publish_content"
 
 
 class BackgroundJobState(StrEnum):

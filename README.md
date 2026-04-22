@@ -8,6 +8,7 @@ The repository now includes a working first vertical slice:
 - a Next.js dashboard for brand profiles, projects, ideas, scripts, approvals, queued jobs, generated asset previews, and asset review
 - a FastAPI service with persisted workflow records, approval history, background jobs, generation attempts, and assets
 - a browser worker that can consume queued narration/visual jobs in `dry_run` mode and write local development artifacts
+- a publisher worker that generates approval-safe manual publish handoff packages
 - shared TypeScript workflow contracts in `packages/shared`
 - migration, testing, and setup scaffolding across the stack
 
@@ -27,6 +28,7 @@ apps/
 workers/
   browser/   Playwright automation worker
   media/     FFmpeg/media assembly worker
+  publisher/ Manual publish handoff worker
 packages/
   shared/    Shared TypeScript contracts and helpers
 docs/        Product and architecture documentation
@@ -62,6 +64,7 @@ tests/       Initial automated tests
    - `apps/api/.env.example`
    - `workers/browser/.env.example`
    - `workers/media/.env.example`
+   - `workers/publisher/.env.example`
 
 5. Run migrations once the database is configured:
 
@@ -76,6 +79,7 @@ pnpm --filter web dev
 uvicorn apps.api.main:app --reload
 .venv/bin/python -m workers.browser.main
 .venv/bin/python -m workers.media.main
+.venv/bin/python -m workers.publisher.main
 pnpm --filter web lint
 pnpm typecheck
 .venv/bin/ruff check .
@@ -89,6 +93,10 @@ The browser worker currently supports a `dry_run` provider mode for local develo
 - generates local WAV narration placeholders and SVG visual placeholders
 - marks attempts and assets as completed so the end-to-end workflow can be exercised before live Playwright provider automation is wired in
 - auto-promotes the project into asset review when the current script has both narration and scene assets ready
+
+The publisher worker currently supports a manual handoff adapter. It generates a JSON upload package
+for an approved or scheduled publish job and keeps the job waiting for the user's manual platform
+confirmation before CreatorOS marks the publish handoff complete.
 
 ## Documentation
 

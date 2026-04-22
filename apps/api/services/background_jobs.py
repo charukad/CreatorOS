@@ -19,6 +19,7 @@ CLAIMABLE_BROWSER_JOB_TYPES = (
     BackgroundJobType.GENERATE_VISUALS_BROWSER,
 )
 CLAIMABLE_MEDIA_JOB_TYPES = (BackgroundJobType.COMPOSE_ROUGH_CUT,)
+CLAIMABLE_PUBLISH_JOB_TYPES = (BackgroundJobType.PUBLISH_CONTENT,)
 ACTIVE_JOB_STATES = {
     BackgroundJobState.QUEUED,
     BackgroundJobState.RUNNING,
@@ -108,6 +109,38 @@ def claim_next_media_job(db: Session) -> BackgroundJob | None:
     return get_background_job(db, job.id)
 
 
+def claim_next_publish_job(db: Session) -> BackgroundJob | None:
+    statement = (
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.job_type.in_(CLAIMABLE_PUBLISH_JOB_TYPES),
+            BackgroundJob.state == BackgroundJobState.QUEUED,
+        )
+        .order_by(asc(BackgroundJob.created_at))
+    )
+    job = db.scalar(statement)
+    if job is None:
+        return None
+
+    now = datetime.now(UTC)
+    job.state = BackgroundJobState.RUNNING
+    job.attempts += 1
+    job.progress_percent = max(job.progress_percent, 10)
+    job.started_at = now
+    job.error_message = None
+    db.add(job)
+    create_job_log(
+        db,
+        job,
+        event_type="job_claimed",
+        message="Publisher worker claimed the job.",
+        metadata={"worker_type": "publisher"},
+    )
+    db.commit()
+    db.refresh(job)
+    return get_background_job(db, job.id)
+
+
 def get_background_job(db: Session, job_id: object) -> BackgroundJob | None:
     statement = (
         select(BackgroundJob)
@@ -145,11 +178,7 @@ def list_job_related_assets(db: Session, job: BackgroundJob) -> list[Asset]:
     if not filters:
         return []
 
-    statement = (
-        select(Asset)
-        .where(or_(*filters))
-        .order_by(asc(Asset.created_at), asc(Asset.id))
-    )
+    statement = select(Asset).where(or_(*filters)).order_by(asc(Asset.created_at), asc(Asset.id))
     return list(db.scalars(statement))
 
 
@@ -429,6 +458,9 @@ def get_attempt_assets(attempt: GenerationAttempt) -> list[Asset]:
 def _promote_project_after_completed_job(db: Session, job: BackgroundJob) -> None:
     if job.job_type == BackgroundJobType.COMPOSE_ROUGH_CUT:
         _promote_project_to_rough_cut_ready(db, job)
+        return
+
+    if job.job_type == BackgroundJobType.PUBLISH_CONTENT:
         return
 
     _promote_project_to_asset_review(db, job)

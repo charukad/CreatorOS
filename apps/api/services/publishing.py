@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from apps.api.models.asset import Asset
+from apps.api.models.background_job import BackgroundJob
 from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
 from apps.api.models.publish_job import PublishJob
@@ -21,11 +22,15 @@ from apps.api.schemas.enums import (
     ApprovalTargetType,
     AssetStatus,
     AssetType,
+    BackgroundJobState,
+    BackgroundJobType,
     ProjectStatus,
     PublishJobStatus,
 )
 from apps.api.services.approvals import create_approval_record, get_latest_stage_approval
+from apps.api.services.background_jobs import create_job_log
 from apps.api.services.project_events import create_project_event
+from apps.api.services.storage_paths import build_project_storage_path
 
 ACTIVE_PUBLISH_JOB_STATUSES = {
     PublishJobStatus.PENDING_APPROVAL,
@@ -41,6 +46,12 @@ EDITABLE_PUBLISH_JOB_STATUSES = {
 PUBLISH_THUMBNAIL_ASSET_TYPES = {
     AssetType.THUMBNAIL,
     AssetType.SCENE_IMAGE,
+}
+
+ACTIVE_PUBLISH_EXECUTION_STATES = {
+    BackgroundJobState.QUEUED,
+    BackgroundJobState.RUNNING,
+    BackgroundJobState.WAITING_EXTERNAL,
 }
 
 
@@ -371,6 +382,90 @@ def schedule_publish_job(
     return publish_job
 
 
+def queue_publish_content_job(
+    db: Session,
+    *,
+    project: Project,
+    publish_job: PublishJob,
+) -> BackgroundJob:
+    if publish_job.project_id != project.id:
+        raise ValueError("The selected publish job does not belong to this project.")
+
+    if publish_job.status not in {PublishJobStatus.APPROVED, PublishJobStatus.SCHEDULED}:
+        raise ValueError("Only approved or scheduled publish jobs can be queued for publishing.")
+
+    final_asset = db.get(Asset, publish_job.final_asset_id)
+    if final_asset is None or final_asset.project_id != project.id:
+        raise ValueError("Publish handoff requires the linked final asset.")
+
+    if final_asset.status != AssetStatus.READY:
+        raise ValueError("Publish handoff requires the linked final asset to be ready.")
+
+    _ensure_no_active_publish_content_job(db, publish_job)
+
+    short_publish_job_id = str(publish_job.id).split("-")[0]
+    correlation_id = str(uuid4())
+    handoff_path = build_project_storage_path(
+        project.id,
+        "publish",
+        f"{publish_job.platform}-handoff-{short_publish_job_id}.json",
+    )
+    job = BackgroundJob(
+        user_id=publish_job.user_id,
+        project_id=publish_job.project_id,
+        script_id=publish_job.script_id,
+        job_type=BackgroundJobType.PUBLISH_CONTENT,
+        provider_name=None,
+        state=BackgroundJobState.QUEUED,
+        payload_json={
+            "job_type": BackgroundJobType.PUBLISH_CONTENT.value,
+            "adapter_name": "manual_publish_handoff",
+            "publish_job_id": str(publish_job.id),
+            "approved_publish_job_state": publish_job.status.value,
+            "platform": publish_job.platform,
+            "final_asset_id": str(publish_job.final_asset_id),
+            "scheduled_for": (
+                publish_job.scheduled_for.isoformat()
+                if publish_job.scheduled_for is not None
+                else None
+            ),
+            "handoff_path": handoff_path,
+            "correlation_id": correlation_id,
+        },
+    )
+    db.add(job)
+    db.flush()
+    create_job_log(
+        db,
+        job,
+        event_type="job_queued",
+        message="Manual publish handoff job was queued.",
+        metadata={
+            "adapter_name": "manual_publish_handoff",
+            "publish_job_id": str(publish_job.id),
+            "platform": publish_job.platform,
+            "handoff_path": handoff_path,
+            "correlation_id": correlation_id,
+        },
+    )
+    create_project_event(
+        db,
+        project,
+        event_type="publish_handoff_queued",
+        title="Publish handoff queued",
+        description=publish_job.title,
+        metadata={
+            "background_job_id": str(job.id),
+            "publish_job_id": str(publish_job.id),
+            "platform": publish_job.platform,
+            "handoff_path": handoff_path,
+        },
+    )
+    db.commit()
+    db.refresh(job)
+    return job
+
+
 def mark_publish_job_published(
     db: Session,
     *,
@@ -402,6 +497,7 @@ def mark_publish_job_published(
             "external_post_id": payload.external_post_id,
         },
     )
+    _complete_publish_content_jobs(db, publish_job)
     db.commit()
     db.refresh(publish_job)
     return publish_job
@@ -486,6 +582,46 @@ def _get_active_publish_job(
         PublishJob.status.in_(ACTIVE_PUBLISH_JOB_STATUSES),
     )
     return db.scalar(statement)
+
+
+def _ensure_no_active_publish_content_job(db: Session, publish_job: PublishJob) -> None:
+    statement = select(BackgroundJob).where(
+        BackgroundJob.project_id == publish_job.project_id,
+        BackgroundJob.script_id == publish_job.script_id,
+        BackgroundJob.job_type == BackgroundJobType.PUBLISH_CONTENT,
+        BackgroundJob.state.in_(ACTIVE_PUBLISH_EXECUTION_STATES),
+        BackgroundJob.payload_json["publish_job_id"].as_string() == str(publish_job.id),
+    )
+    existing_job = db.scalar(statement)
+    if existing_job is not None:
+        raise ValueError("An active publish handoff job already exists for this publish job.")
+
+
+def _complete_publish_content_jobs(db: Session, publish_job: PublishJob) -> None:
+    statement = select(BackgroundJob).where(
+        BackgroundJob.project_id == publish_job.project_id,
+        BackgroundJob.script_id == publish_job.script_id,
+        BackgroundJob.job_type == BackgroundJobType.PUBLISH_CONTENT,
+        BackgroundJob.state.in_(ACTIVE_PUBLISH_EXECUTION_STATES),
+        BackgroundJob.payload_json["publish_job_id"].as_string() == str(publish_job.id),
+    )
+    now = datetime.now(UTC)
+    for job in db.scalars(statement):
+        job.state = BackgroundJobState.COMPLETED
+        job.progress_percent = 100
+        job.finished_at = now
+        job.error_message = None
+        db.add(job)
+        create_job_log(
+            db,
+            job,
+            event_type="publish_handoff_completed",
+            message="Manual publish was confirmed; publish handoff job is complete.",
+            metadata={
+                "publish_job_id": str(publish_job.id),
+                "external_post_id": publish_job.external_post_id,
+            },
+        )
 
 
 def _require_text(value: str | None, field_name: str) -> str:

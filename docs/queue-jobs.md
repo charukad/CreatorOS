@@ -141,9 +141,15 @@ Output:
 ### `publish_content`
 Input:
 - publish_job_id
+- approved_publish_job_state
+- handoff_path
+- adapter_name
 
 Output:
-- published status or explicit failure
+- v1 manual handoff JSON under `storage/projects/{project_id}/publish`
+- job state `waiting_external` while the user uploads on the target platform
+- completed job only after manual publish completion is recorded
+- explicit failure if approval, final asset, or handoff validation no longer passes
 
 ### `sync_analytics`
 Input:
@@ -154,10 +160,13 @@ Output:
 - possibly new insights
 
 Current manual v1 behavior:
+- `POST /api/publish-jobs/{publish_job_id}/queue` creates a `publish_content` background job only after publish approval or scheduling
+- `python -m workers.publisher.main` claims `publish_content` jobs and uses the `manual_publish_handoff` adapter to write the upload package
+- publish handoff jobs remain `waiting_external` until the user uploads manually and records completion
 - `POST /api/publish-jobs/{publish_job_id}/sync-analytics` records an operator-supplied analytics snapshot only after the publish job is marked `published`
 - the API persists engagement metrics, optional retention data, and generated project-level insights
 - the project page can display the latest snapshot and insight cards for review
-- a queue-backed worker and official platform adapters are still pending
+- official platform upload adapters are still pending
 
 ## Retry Policy
 - browser jobs: up to 3 retries with screenshots and logs

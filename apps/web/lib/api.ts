@@ -380,6 +380,12 @@ export function approvePublishJob(
   });
 }
 
+export function queuePublishJob(publishJobId: string): Promise<BackgroundJob> {
+  return apiRequest<BackgroundJob>(`/publish-jobs/${publishJobId}/queue`, {
+    method: "POST",
+  });
+}
+
 export function updatePublishJobMetadata(
   publishJobId: string,
   payload: PublishJobMetadataPayload,

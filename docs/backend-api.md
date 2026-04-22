@@ -27,7 +27,7 @@
 - after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, FFmpeg command-plan sidecar, and optionally a `video/mp4` rough-cut asset when FFmpeg rendering is enabled
 - job detail, project activity, job timeline logs, safe cancel, and safe retry endpoints are implemented for operator recovery
 - operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, and duplicate asset warnings in one API response
-- final-video approval and publish-job preparation are implemented with explicit publish approval before scheduling or manual published completion
+- final-video approval, publish-job preparation, publish approval, and queue-backed manual publish handoffs are implemented before manual published completion
 - manual analytics snapshots and first-pass insight generation are implemented for published jobs
 - Redis-backed execution, automated retry policy, and live worker progress updates are still planned
 
@@ -101,6 +101,7 @@
 ### Publish Jobs
 - `POST /api/publish-jobs/:id/approve`
 - `PATCH /api/publish-jobs/:id/metadata`
+- `POST /api/publish-jobs/:id/queue`
 - `POST /api/publish-jobs/:id/schedule`
 - `POST /api/publish-jobs/:id/mark-published`
 - `POST /api/publish-jobs/:id/sync-analytics`
@@ -778,6 +779,16 @@ Behavior note:
 - records a project activity event for metadata edits
 - moves an already `approved` publish job back to `pending_approval` when posted metadata changes
 - blocks metadata edits after the job is `scheduled`, `published`, `failed`, or `cancelled`
+
+### `POST /api/publish-jobs/:id/queue`
+Behavior note:
+- requires the publish job to be `approved` or `scheduled`
+- requires the linked final-review asset to still be ready
+- creates a `publish_content` background job using the v1 `manual_publish_handoff` adapter
+- blocks duplicate queued, running, or waiting-external publish handoff jobs for the same publish job
+- writes the planned handoff path to the job payload under `handoff_path`
+- the publisher worker generates the handoff JSON and moves the job to `waiting_external`
+- the job is completed only after the user records manual publish completion with `mark-published`
 
 ### `POST /api/publish-jobs/:id/schedule`
 ```json

@@ -1,6 +1,7 @@
 "use client";
 
 import { approvalDecisionLabels, publishJobStatusLabels } from "@creatoros/shared";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import {
@@ -8,6 +9,7 @@ import {
   approvePublishJob,
   markPublishJobPublished,
   preparePublishJob,
+  queuePublishJob,
   rejectFinalVideo,
   schedulePublishJob,
   updatePublishJobMetadata,
@@ -15,6 +17,7 @@ import {
 import type {
   ApprovalRecord,
   Asset,
+  BackgroundJob,
   Project,
   ProjectScript,
   PublishJob,
@@ -24,6 +27,7 @@ type ProjectPublishCenterProps = {
   approvals: ApprovalRecord[];
   assets: Asset[];
   currentScript: ProjectScript | null;
+  jobs: BackgroundJob[];
   project: Project;
   publishJobs: PublishJob[];
 };
@@ -36,6 +40,17 @@ type PublishJobMetadataDraft = {
   thumbnailAssetId: string;
   platformSettingsJson: string;
   changeNotes: string;
+};
+
+type PublishCommandRow = {
+  activeHandoffJob: BackgroundJob | null;
+  calendarLabel: string;
+  handoffPath: string | null;
+  job: PublishJob;
+  laneClassName: string;
+  laneDescription: string;
+  laneLabel: string;
+  latestHandoffJob: BackgroundJob | null;
 };
 
 function formatTimestamp(value: string | null): string {
@@ -108,10 +123,137 @@ function createPublishJobMetadataDraft(job: PublishJob): PublishJobMetadataDraft
   };
 }
 
+function getPayloadString(job: BackgroundJob, key: string): string | null {
+  const value = job.payload_json[key];
+  return typeof value === "string" ? value : null;
+}
+
+function isActiveHandoffJob(job: BackgroundJob): boolean {
+  return ["queued", "running", "waiting_external"].includes(job.state);
+}
+
+function sortByNewestJob(left: BackgroundJob, right: BackgroundJob): number {
+  return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+}
+
+function sortByPublishCalendar(left: PublishJob, right: PublishJob): number {
+  const statusPriority: Record<PublishJob["status"], number> = {
+    pending_approval: 0,
+    approved: 1,
+    scheduled: 2,
+    published: 4,
+    failed: 5,
+    cancelled: 5,
+  };
+  const priorityDelta = statusPriority[left.status] - statusPriority[right.status];
+  if (priorityDelta !== 0) {
+    return priorityDelta;
+  }
+
+  const leftTime = left.scheduled_for
+    ? new Date(left.scheduled_for).getTime()
+    : Number.MAX_SAFE_INTEGER;
+  const rightTime = right.scheduled_for
+    ? new Date(right.scheduled_for).getTime()
+    : Number.MAX_SAFE_INTEGER;
+  if (leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+
+  return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+}
+
+function describePublishLane(
+  job: PublishJob,
+  activeHandoffJob: BackgroundJob | null,
+): Pick<PublishCommandRow, "laneClassName" | "laneDescription" | "laneLabel"> {
+  if (job.status === "published") {
+    return {
+      laneClassName: "border-emerald-300/30 bg-emerald-400/10 text-emerald-100",
+      laneDescription: "Manual completion has been recorded.",
+      laneLabel: "Published",
+    };
+  }
+
+  if (activeHandoffJob?.state === "waiting_external") {
+    return {
+      laneClassName: "border-amber-300/30 bg-amber-400/10 text-amber-100",
+      laneDescription: "Upload manually, then mark the job as published.",
+      laneLabel: "Manual upload waiting",
+    };
+  }
+
+  if (activeHandoffJob) {
+    return {
+      laneClassName: "border-cyan-300/30 bg-cyan-400/10 text-cyan-100",
+      laneDescription: "Publisher worker is preparing the handoff package.",
+      laneLabel: "Handoff in progress",
+    };
+  }
+
+  if (job.status === "scheduled") {
+    return {
+      laneClassName: "border-cyan-300/30 bg-cyan-400/10 text-cyan-100",
+      laneDescription: "Scheduled and ready for the handoff worker.",
+      laneLabel: "Scheduled",
+    };
+  }
+
+  if (job.status === "approved") {
+    return {
+      laneClassName: "border-emerald-300/30 bg-emerald-400/10 text-emerald-100",
+      laneDescription: "Approved and ready to queue a publish handoff.",
+      laneLabel: "Ready to handoff",
+    };
+  }
+
+  if (job.status === "pending_approval") {
+    return {
+      laneClassName: "border-amber-300/30 bg-amber-400/10 text-amber-100",
+      laneDescription: "Review the exact metadata before publishing.",
+      laneLabel: "Needs approval",
+    };
+  }
+
+  return {
+    laneClassName: "border-rose-300/30 bg-rose-400/10 text-rose-100",
+    laneDescription: "This publish job needs manual recovery.",
+    laneLabel: publishJobStatusLabels[job.status],
+  };
+}
+
+function buildPublishCommandRows(
+  publishJobs: PublishJob[],
+  jobs: BackgroundJob[],
+): PublishCommandRow[] {
+  return [...publishJobs].sort(sortByPublishCalendar).map((job) => {
+    const handoffJobs = jobs
+      .filter(
+        (workflowJob) =>
+          workflowJob.job_type === "publish_content" &&
+          getPayloadString(workflowJob, "publish_job_id") === job.id,
+      )
+      .sort(sortByNewestJob);
+    const activeHandoffJob = handoffJobs.find(isActiveHandoffJob) ?? null;
+    const latestHandoffJob = handoffJobs[0] ?? null;
+    const lane = describePublishLane(job, activeHandoffJob);
+
+    return {
+      ...lane,
+      activeHandoffJob,
+      calendarLabel: job.scheduled_for ? formatTimestamp(job.scheduled_for) : "No publish time",
+      handoffPath: latestHandoffJob ? getPayloadString(latestHandoffJob, "handoff_path") : null,
+      job,
+      latestHandoffJob,
+    };
+  });
+}
+
 export function ProjectPublishCenter({
   approvals,
   assets,
   currentScript,
+  jobs,
   project,
   publishJobs,
 }: ProjectPublishCenterProps) {
@@ -151,6 +293,17 @@ export function ProjectPublishCenter({
     currentScript !== null &&
     latestReadyRoughCut !== null &&
     activePublishJob === null;
+  const publishCommandRows = buildPublishCommandRows(publishJobs, jobs);
+  const waitingHandoffCount = publishCommandRows.filter(
+    (row) => row.activeHandoffJob?.state === "waiting_external",
+  ).length;
+  const scheduledPublishCount = publishCommandRows.filter(
+    (row) => row.job.status === "scheduled",
+  ).length;
+  const readyHandoffCount = publishCommandRows.filter(
+    (row) => row.job.status === "approved" && row.activeHandoffJob === null,
+  ).length;
+  const publishedCount = publishCommandRows.filter((row) => row.job.status === "published").length;
 
   function runAction(actionKey: string, callback: () => Promise<unknown>) {
     setError(null);
@@ -286,15 +439,107 @@ export function ProjectPublishCenter({
         </article>
       </div>
 
+      <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-slate-950/40 p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-white">Publishing calendar and queue</h3>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+              A single command board for approval, schedule, handoff, and manual upload status.
+              This keeps queued publish work visible before anything is marked live.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+            <div className="rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-3 py-2">
+              <p className="text-lg font-semibold text-emerald-50">{readyHandoffCount}</p>
+              <p className="text-[10px] uppercase tracking-[0.16em] text-emerald-100/80">
+                Ready
+              </p>
+            </div>
+            <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 px-3 py-2">
+              <p className="text-lg font-semibold text-cyan-50">{scheduledPublishCount}</p>
+              <p className="text-[10px] uppercase tracking-[0.16em] text-cyan-100/80">
+                Scheduled
+              </p>
+            </div>
+            <div className="rounded-2xl border border-amber-300/20 bg-amber-400/10 px-3 py-2">
+              <p className="text-lg font-semibold text-amber-50">{waitingHandoffCount}</p>
+              <p className="text-[10px] uppercase tracking-[0.16em] text-amber-100/80">
+                Waiting
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
+              <p className="text-lg font-semibold text-white">{publishedCount}</p>
+              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-300">
+                Published
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {publishCommandRows.length === 0 ? (
+          <div className="mt-5 rounded-2xl border border-dashed border-white/10 bg-white/4 p-4 text-sm text-slate-300">
+            No publish calendar entries yet. Prepare a publish job after final approval to create
+            the first queue item.
+          </div>
+        ) : (
+          <div className="mt-5 grid gap-3">
+            {publishCommandRows.map((row) => (
+              <article
+                className="rounded-2xl border border-white/8 bg-white/4 p-4"
+                key={`calendar-${row.job.id}`}
+              >
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap gap-2">
+                      <span
+                        className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${row.laneClassName}`}
+                      >
+                        {row.laneLabel}
+                      </span>
+                      <span className="rounded-full border border-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-100">
+                        {row.job.platform}
+                      </span>
+                    </div>
+                    <h4 className="mt-3 text-base font-semibold text-white">{row.job.title}</h4>
+                    <p className="mt-1 text-sm leading-6 text-slate-300">
+                      {row.laneDescription}
+                    </p>
+                  </div>
+                  <div className="text-left text-xs uppercase tracking-[0.16em] text-slate-500 lg:text-right">
+                    <p>{row.calendarLabel}</p>
+                    {row.latestHandoffJob ? (
+                      <Link
+                        className="mt-2 inline-flex rounded-full border border-white/10 px-3 py-1 text-[11px] text-slate-200 transition hover:border-cyan-300/40 hover:bg-cyan-400/10"
+                        href={`/jobs/${row.latestHandoffJob.id}`}
+                      >
+                        Open handoff job
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
+                {row.handoffPath ? (
+                  <p className="mt-3 break-all rounded-2xl border border-white/8 bg-slate-950/50 px-3 py-2 text-xs text-slate-300">
+                    Handoff package: {row.handoffPath}
+                  </p>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="mt-6 grid gap-4">
         {publishJobs.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
             No publish jobs prepared yet.
           </div>
         ) : (
-          publishJobs.map((job) => {
+          publishCommandRows.map((row) => {
+            const { activeHandoffJob, job, latestHandoffJob } = row;
             const metadataDraft = getMetadataDraft(job);
             const canEditMetadata = ["pending_approval", "approved"].includes(job.status);
+            const canQueueHandoff =
+              ["approved", "scheduled"].includes(job.status) && activeHandoffJob === null;
             const thumbnailOptions = assets.filter(
               (asset) =>
                 asset.script_id === job.script_id &&
@@ -550,6 +795,48 @@ export function ProjectPublishCenter({
                 >
                   Mark published
                 </button>
+              </div>
+              <div className="mt-4 rounded-2xl border border-white/8 bg-white/4 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Publish handoff queue</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-400">
+                      Queue a background handoff that generates the exact manual upload package and
+                      waits for your platform confirmation.
+                    </p>
+                  </div>
+                  <button
+                    className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!canQueueHandoff || pendingAction !== null}
+                    onClick={() =>
+                      runAction(`queue-publish-handoff-${job.id}`, () => queuePublishJob(job.id))
+                    }
+                    type="button"
+                  >
+                    {pendingAction === `queue-publish-handoff-${job.id}`
+                      ? "Queueing..."
+                      : "Queue handoff"}
+                  </button>
+                </div>
+                {latestHandoffJob ? (
+                  <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-300">
+                    <span className="rounded-full border border-white/10 px-3 py-1 uppercase tracking-[0.16em]">
+                      {latestHandoffJob.state.replaceAll("_", " ")}
+                    </span>
+                    <span>Progress {latestHandoffJob.progress_percent}%</span>
+                    <span>
+                      Handoff file:{" "}
+                      {typeof latestHandoffJob.payload_json.handoff_path === "string"
+                        ? latestHandoffJob.payload_json.handoff_path
+                        : "Not generated yet"}
+                    </span>
+                  </div>
+                ) : null}
+                {!canQueueHandoff && latestHandoffJob === null ? (
+                  <p className="mt-3 text-xs leading-5 text-slate-500">
+                    Approve or schedule the publish job before queueing a handoff.
+                  </p>
+                ) : null}
               </div>
               </article>
             );

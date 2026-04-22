@@ -96,6 +96,7 @@ from apps.api.services.publishing import (
     list_project_publish_jobs,
     mark_publish_job_published,
     prepare_publish_job,
+    queue_publish_content_job,
     reject_final_video,
     schedule_publish_job,
     update_publish_job_metadata,
@@ -978,6 +979,28 @@ def update_publish_job_metadata_route(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return PublishJobResponse.model_validate(updated_job)
+
+
+@router.post("/publish-jobs/{publish_job_id}/queue", response_model=BackgroundJobResponse)
+def queue_publish_content_job_route(
+    publish_job_id: UUID,
+    db: DbSession,
+) -> BackgroundJobResponse:
+    user = get_or_create_default_user(db)
+    publish_job = get_owned_publish_job(db, user, publish_job_id)
+    if publish_job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publish job not found")
+
+    project = get_project(db, user, publish_job.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        job = queue_publish_content_job(db, project=project, publish_job=publish_job)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return BackgroundJobResponse.model_validate(job)
 
 
 @router.post("/publish-jobs/{publish_job_id}/schedule", response_model=PublishJobResponse)
