@@ -836,6 +836,30 @@ Behavior note:
 - requires the publish job to already be marked `published`
 - stores a traceable analytics snapshot for the project and publish job
 - generates first-pass insights from engagement and average-view-duration signals
+- retained as a direct compatibility path; the project UI uses the queued analytics endpoint
+
+### `POST /api/publish-jobs/:id/analytics/queue`
+```json
+{
+  "views": 1000,
+  "likes": 90,
+  "comments": 12,
+  "shares": 8,
+  "saves": 5,
+  "watch_time_seconds": 18500,
+  "ctr": 0.041,
+  "avg_view_duration": 18.5,
+  "retention_json": {
+    "three_second_hold": 0.76
+  }
+}
+```
+
+Behavior note:
+- requires the publish job to already be marked `published`
+- creates a `sync_analytics` background job with the supplied metric payload
+- blocks duplicate queued, running, or waiting-external analytics sync jobs for the same publish job
+- the analytics worker persists the snapshot, generates insights, and stores `analytics_snapshot_id` in the completed job payload
 
 ### `GET /api/projects/:id/analytics`
 Response excerpt:

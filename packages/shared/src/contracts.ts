@@ -230,9 +230,7 @@ export type ImplementedQueueJobType = BackgroundJobType;
 
 export type PlannedQueueJobType =
   | "ingest_download"
-  | "final_export"
-  | "publish_content"
-  | "sync_analytics";
+  | "final_export";
 
 export type QueueJobType = ImplementedQueueJobType | PlannedQueueJobType;
 
@@ -334,6 +332,19 @@ export type SyncAnalyticsQueuePayload = QueuePayloadBase & {
   job_type: "sync_analytics";
   publish_job_id: UUID;
   platform: string;
+  metrics: {
+    views: number;
+    likes?: number;
+    comments?: number;
+    shares?: number;
+    saves?: Nullable<number>;
+    watch_time_seconds?: Nullable<number>;
+    ctr?: Nullable<number>;
+    avg_view_duration?: Nullable<number>;
+    retention_json?: Nullable<Record<string, unknown>>;
+  };
+  analytics_snapshot_id?: UUID;
+  synced_at?: ISODateTime;
 };
 
 export type QueueJobPayload =
@@ -486,6 +497,11 @@ export function validateQueuePayload(payload: QueueJobPayload): string[] {
     case "sync_analytics":
       requireString(payload.publish_job_id, "publish_job_id", errors);
       requireString(payload.platform, "platform", errors);
+      if (!payload.metrics || typeof payload.metrics.views !== "number") {
+        errors.push("metrics.views is required.");
+      } else if (payload.metrics.views < 0) {
+        errors.push("metrics.views must be greater than or equal to zero.");
+      }
       break;
   }
 
@@ -567,7 +583,7 @@ function validateQueuePayloadBase(payload: QueueJobPayload): string[] {
 function isKnownQueueJobType(jobType: string): jobType is QueueJobType {
   return (
     (backgroundJobTypes as readonly string[]).includes(jobType) ||
-    ["ingest_download", "final_export", "publish_content", "sync_analytics"].includes(jobType)
+    ["ingest_download", "final_export"].includes(jobType)
   );
 }
 

@@ -81,6 +81,7 @@ class BackgroundJobType(StrEnum):
     GENERATE_VISUALS_BROWSER = "generate_visuals_browser"
     COMPOSE_ROUGH_CUT = "compose_rough_cut"
     PUBLISH_CONTENT = "publish_content"
+    SYNC_ANALYTICS = "sync_analytics"
 
 
 class BackgroundJobState(StrEnum):

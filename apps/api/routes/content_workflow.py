@@ -39,7 +39,11 @@ from apps.api.schemas.content_workflow import (
     VisualGenerationRequest,
 )
 from apps.api.schemas.enums import AssetType
-from apps.api.services.analytics import list_project_analytics, sync_publish_job_analytics
+from apps.api.services.analytics import (
+    list_project_analytics,
+    queue_publish_job_analytics_sync,
+    sync_publish_job_analytics,
+)
 from apps.api.services.approvals import list_project_approvals
 from apps.api.services.assets import (
     approve_asset,
@@ -1080,6 +1084,38 @@ def sync_publish_job_analytics_route(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return AnalyticsSnapshotResponse.model_validate(snapshot)
+
+
+@router.post(
+    "/publish-jobs/{publish_job_id}/analytics/queue",
+    response_model=BackgroundJobResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def queue_publish_job_analytics_sync_route(
+    publish_job_id: UUID,
+    payload: AnalyticsSnapshotRequest,
+    db: DbSession,
+) -> BackgroundJobResponse:
+    user = get_or_create_default_user(db)
+    publish_job = get_owned_publish_job(db, user, publish_job_id)
+    if publish_job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publish job not found")
+
+    project = get_project(db, user, publish_job.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        job = queue_publish_job_analytics_sync(
+            db,
+            project=project,
+            publish_job=publish_job,
+            payload=payload,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return BackgroundJobResponse.model_validate(job)
 
 
 @router.post(

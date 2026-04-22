@@ -9,6 +9,7 @@ The repository now includes a working first vertical slice:
 - a FastAPI service with persisted workflow records, approval history, background jobs, generation attempts, and assets
 - a browser worker that can consume queued narration/visual jobs in `dry_run` mode and write local development artifacts
 - a publisher worker that generates approval-safe manual publish handoff packages
+- an analytics worker that persists queued manual metric snapshots and first-pass insights
 - shared TypeScript workflow contracts in `packages/shared`
 - migration, testing, and setup scaffolding across the stack
 
@@ -29,6 +30,7 @@ workers/
   browser/   Playwright automation worker
   media/     FFmpeg/media assembly worker
   publisher/ Manual publish handoff worker
+  analytics/ Queued analytics snapshot worker
 packages/
   shared/    Shared TypeScript contracts and helpers
 docs/        Product and architecture documentation
@@ -65,6 +67,7 @@ tests/       Initial automated tests
    - `workers/browser/.env.example`
    - `workers/media/.env.example`
    - `workers/publisher/.env.example`
+   - `workers/analytics/.env.example`
 
 5. Run migrations once the database is configured:
 
@@ -80,6 +83,7 @@ uvicorn apps.api.main:app --reload
 .venv/bin/python -m workers.browser.main
 .venv/bin/python -m workers.media.main
 .venv/bin/python -m workers.publisher.main
+.venv/bin/python -m workers.analytics.main
 pnpm --filter web lint
 pnpm typecheck
 .venv/bin/ruff check .
@@ -97,6 +101,10 @@ The browser worker currently supports a `dry_run` provider mode for local develo
 The publisher worker currently supports a manual handoff adapter. It generates a JSON upload package
 for an approved or scheduled publish job and keeps the job waiting for the user's manual platform
 confirmation before CreatorOS marks the publish handoff complete.
+
+The analytics worker currently consumes queued manual metric snapshots for published jobs. It writes
+analytics snapshots, creates first-pass insights, and records job logs so the learning loop remains
+retryable and auditable.
 
 ## Documentation
 

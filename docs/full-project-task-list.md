@@ -369,11 +369,11 @@ The repo now has final-video approve/reject routes, publish job persistence, app
 ## Phase 17 - Analytics Sync and Learning Loop
 
 Current implementation note:
-The repo now stores manual analytics snapshots for published jobs, exposes project analytics through the API, generates first-pass engagement/duration insights, and shows an analytics panel on the project page. Real platform API sync, account-level analytics, and feeding insights back into generation prompts are still pending.
+The repo now queues manual analytics snapshots for published jobs, processes them through an analytics worker, exposes project analytics through the API, generates first-pass engagement/duration insights, and shows analytics job state plus insight cards on the project page. Real platform API sync, account-level analytics, and feeding insights back into generation prompts are still pending.
 
 ### Build tasks
 - [x] Implement analytics snapshot persistence and APIs
-- [ ] Add analytics sync job flow for published content
+- [x] Add analytics sync job flow for published content
 - [x] Add manual analytics sync flow for published content
 - [x] Store views, likes, comments, shares, saves, watch time, CTR, average view duration, and retention data
 - [x] Build project analytics screen

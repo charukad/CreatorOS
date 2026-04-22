@@ -20,6 +20,7 @@ CLAIMABLE_BROWSER_JOB_TYPES = (
 )
 CLAIMABLE_MEDIA_JOB_TYPES = (BackgroundJobType.COMPOSE_ROUGH_CUT,)
 CLAIMABLE_PUBLISH_JOB_TYPES = (BackgroundJobType.PUBLISH_CONTENT,)
+CLAIMABLE_ANALYTICS_JOB_TYPES = (BackgroundJobType.SYNC_ANALYTICS,)
 ACTIVE_JOB_STATES = {
     BackgroundJobState.QUEUED,
     BackgroundJobState.RUNNING,
@@ -135,6 +136,38 @@ def claim_next_publish_job(db: Session) -> BackgroundJob | None:
         event_type="job_claimed",
         message="Publisher worker claimed the job.",
         metadata={"worker_type": "publisher"},
+    )
+    db.commit()
+    db.refresh(job)
+    return get_background_job(db, job.id)
+
+
+def claim_next_analytics_job(db: Session) -> BackgroundJob | None:
+    statement = (
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.job_type.in_(CLAIMABLE_ANALYTICS_JOB_TYPES),
+            BackgroundJob.state == BackgroundJobState.QUEUED,
+        )
+        .order_by(asc(BackgroundJob.created_at))
+    )
+    job = db.scalar(statement)
+    if job is None:
+        return None
+
+    now = datetime.now(UTC)
+    job.state = BackgroundJobState.RUNNING
+    job.attempts += 1
+    job.progress_percent = max(job.progress_percent, 10)
+    job.started_at = now
+    job.error_message = None
+    db.add(job)
+    create_job_log(
+        db,
+        job,
+        event_type="job_claimed",
+        message="Analytics worker claimed the job.",
+        metadata={"worker_type": "analytics"},
     )
     db.commit()
     db.refresh(job)
@@ -460,7 +493,7 @@ def _promote_project_after_completed_job(db: Session, job: BackgroundJob) -> Non
         _promote_project_to_rough_cut_ready(db, job)
         return
 
-    if job.job_type == BackgroundJobType.PUBLISH_CONTENT:
+    if job.job_type in {BackgroundJobType.PUBLISH_CONTENT, BackgroundJobType.SYNC_ANALYTICS}:
         return
 
     _promote_project_to_asset_review(db, job)

@@ -68,6 +68,7 @@ export const backgroundJobTypes = [
   "generate_visuals_browser",
   "compose_rough_cut",
   "publish_content",
+  "sync_analytics",
 ] as const;
 
 export type BackgroundJobType = (typeof backgroundJobTypes)[number];
@@ -165,6 +166,7 @@ export const backgroundJobTypeLabels: Record<BackgroundJobType, string> = {
   generate_visuals_browser: "Visual Generation",
   compose_rough_cut: "Rough Cut Composition",
   publish_content: "Publish Handoff",
+  sync_analytics: "Analytics Sync",
 };
 
 export const backgroundJobStateLabels: Record<BackgroundJobState, string> = {

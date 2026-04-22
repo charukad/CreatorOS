@@ -212,6 +212,7 @@ Note:
 Note:
 - `publish_content` jobs use `payload_json.publish_job_id` and `payload_json.handoff_path` to trace manual publish handoff packages back to the approved publish job
 - manual publish handoff jobs move to `waiting_external` until the user records the final platform publish confirmation
+- `sync_analytics` jobs use `payload_json.publish_job_id`, `payload_json.metrics`, and `payload_json.analytics_snapshot_id` to trace queued metric snapshots back to the published job
 
 ### project_events
 - id
@@ -315,6 +316,7 @@ Note:
 - generate_visuals_browser
 - compose_rough_cut
 - publish_content
+- sync_analytics
 
 ### background_jobs.state
 - queued

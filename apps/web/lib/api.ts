@@ -426,6 +426,16 @@ export function syncPublishJobAnalytics(
   });
 }
 
+export function queuePublishJobAnalyticsSync(
+  publishJobId: string,
+  payload: AnalyticsSnapshotPayload,
+): Promise<BackgroundJob> {
+  return apiRequest<BackgroundJob>(`/publish-jobs/${publishJobId}/analytics/queue`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function approveProjectAssets(
   projectId: string,
   payload: ApprovalDecisionPayload = {},
