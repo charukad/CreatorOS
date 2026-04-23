@@ -30,6 +30,7 @@ import {
   rejectIdea,
   rejectScript,
   reorderScriptScenes,
+  resumeJob,
   retryJob,
   updateScene,
 } from "../lib/api";
@@ -53,6 +54,14 @@ type ProjectContentStudioProps = {
   jobs: BackgroundJob[];
   promptPack: ScriptPromptPack | null;
   project: Project;
+};
+
+const retryPolicyMaxAttempts: Partial<Record<BackgroundJob["job_type"], number>> = {
+  generate_audio_browser: 4,
+  generate_visuals_browser: 4,
+  compose_rough_cut: 3,
+  publish_content: 2,
+  sync_analytics: 2,
 };
 
 function formatTimestamp(value: string): string {
@@ -94,8 +103,22 @@ function canCancelJobState(state: BackgroundJob["state"]): boolean {
   return state === "queued" || state === "waiting_external";
 }
 
-function canRetryJobState(state: BackgroundJob["state"]): boolean {
-  return state === "failed" || state === "cancelled";
+function canRetryJob(job: BackgroundJob): boolean {
+  const maxAttempts = retryPolicyMaxAttempts[job.job_type];
+  return (
+    (job.state === "failed" || job.state === "cancelled") &&
+    maxAttempts !== undefined &&
+    job.attempts < maxAttempts
+  );
+}
+
+function canResumeJob(job: BackgroundJob): boolean {
+  return (
+    job.state === "running" &&
+    ["generate_audio_browser", "generate_visuals_browser", "compose_rough_cut"].includes(
+      job.job_type,
+    )
+  );
 }
 
 function isPlanningJob(job: BackgroundJob): boolean {
@@ -1008,7 +1031,8 @@ export function ProjectContentStudio({
                     <div className="mt-5 grid gap-4">
                       {visibleWorkflowJobs.map((job) => {
                         const canCancelThisJob = canCancelJobState(job.state);
-                        const canRetryThisJob = canRetryJobState(job.state);
+                        const canRetryThisJob = canRetryJob(job);
+                        const canResumeThisJob = canResumeJob(job);
                         const scriptVersion =
                           typeof job.payload_json["script_version"] === "number"
                             ? `Script version: ${job.payload_json["script_version"] as number}`
@@ -1091,7 +1115,19 @@ export function ProjectContentStudio({
                                   ? "Retrying..."
                                   : "Retry job"}
                               </button>
-                              {!canCancelThisJob && !canRetryThisJob ? (
+                              <button
+                                className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                disabled={!canResumeThisJob || pendingAction !== null}
+                                onClick={() =>
+                                  runAction(`resume-job-${job.id}`, () => resumeJob(job.id))
+                                }
+                                type="button"
+                              >
+                                {pendingAction === `resume-job-${job.id}`
+                                  ? "Resuming..."
+                                  : "Resume stale"}
+                              </button>
+                              {!canCancelThisJob && !canRetryThisJob && !canResumeThisJob ? (
                                 <span className="rounded-full border border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                                   No safe manual action
                                 </span>

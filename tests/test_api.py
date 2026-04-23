@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import apps.api.models  # noqa: F401
@@ -15,6 +16,7 @@ from apps.api.schemas.enums import (
     AssetStatus,
     AssetType,
     BackgroundJobState,
+    BackgroundJobType,
     ProjectStatus,
     ProviderName,
 )
@@ -1514,6 +1516,95 @@ def test_operations_recovery_snapshot_surfaces_jobs_and_ingest_warnings() -> Non
     app.dependency_overrides.clear()
 
 
+def test_artifact_retention_plan_surfaces_safe_and_manual_cleanup_candidates(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Retention review project",
+        objective="Plan safe cleanup without deleting generated files",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+
+    stored_asset_path = Path("storage") / "projects" / project_id / "audio" / "rejected.wav"
+    stored_asset_path.parent.mkdir(parents=True, exist_ok=True)
+    stored_asset_path.write_bytes(b"rejected narration")
+    missing_asset_path = f"storage/projects/{project_id}/audio/missing.wav"
+
+    with session_factory() as session:
+        project = session.get(Project, UUID(project_id))
+        script_model = session.get(ProjectScript, UUID(str(script["id"])))
+        assert project is not None
+        assert script_model is not None
+
+        rejected_asset = Asset(
+            user_id=project.user_id,
+            project_id=project.id,
+            script_id=script_model.id,
+            scene_id=None,
+            generation_attempt_id=None,
+            asset_type=AssetType.NARRATION_AUDIO,
+            status=AssetStatus.REJECTED,
+            provider_name=ProviderName.ELEVENLABS_WEB,
+            file_path=str(stored_asset_path),
+            mime_type="audio/wav",
+            duration_seconds=12,
+            width=None,
+            height=None,
+            checksum="rejected-audio-checksum",
+        )
+        missing_asset = Asset(
+            user_id=project.user_id,
+            project_id=project.id,
+            script_id=script_model.id,
+            scene_id=None,
+            generation_attempt_id=None,
+            asset_type=AssetType.SCENE_VIDEO,
+            status=AssetStatus.FAILED,
+            provider_name=ProviderName.FLOW_WEB,
+            file_path=missing_asset_path,
+            mime_type="video/mp4",
+            duration_seconds=8,
+            width=1080,
+            height=1920,
+            checksum=None,
+        )
+        session.add_all([rejected_asset, missing_asset])
+        session.commit()
+
+    response = client.get("/api/operations/artifacts/retention-plan?limit=10")
+    assert response.status_code == 200
+    retention_plan = response.json()
+    candidates_by_path = {
+        candidate["file_path"]: candidate for candidate in retention_plan["candidates"]
+    }
+
+    safe_candidate = candidates_by_path[str(stored_asset_path)]
+    assert safe_candidate["safe_to_cleanup"] is True
+    assert safe_candidate["recommended_action"] == "move_to_retention"
+    assert safe_candidate["file_exists"] is True
+    assert safe_candidate["size_bytes"] == len(b"rejected narration")
+    assert "/retention/asset-" in safe_candidate["retention_manifest_path"]
+
+    repair_candidate = candidates_by_path[missing_asset_path]
+    assert repair_candidate["safe_to_cleanup"] is False
+    assert repair_candidate["recommended_action"] == "repair_missing_file"
+    assert repair_candidate["file_exists"] is False
+    assert repair_candidate["retention_manifest_path"] is None
+
+    assert retention_plan["summary"]["candidate_count"] == 2
+    assert retention_plan["summary"]["safe_candidate_count"] == 1
+    assert retention_plan["summary"]["total_reclaimable_bytes"] == len(b"rejected narration")
+
+    app.dependency_overrides.clear()
+
+
 def test_cancel_queued_generation_job_marks_attempts_and_assets_failed() -> None:
     client = _make_test_client()
     brand_profile_id = _create_brand_profile_for_tests(client)
@@ -1630,6 +1721,120 @@ def test_retry_failed_job_resets_error_without_duplicate_assets() -> None:
     assert {asset["id"] for asset in retried_detail["related_assets"]} == initial_asset_ids
     assert all(asset["status"] == "planned" for asset in retried_detail["related_assets"])
     assert any(log["event_type"] == "job_retried" for log in retried_detail["job_logs"])
+
+    app.dependency_overrides.clear()
+
+
+def test_retry_policy_blocks_exhausted_and_unsupported_job_types() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Retry policy limits",
+        objective="Validate per-job retry budgets",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    with session_factory() as session:
+        job = get_background_job(session, UUID(job_id))
+        assert job is not None
+        job.state = BackgroundJobState.FAILED
+        job.attempts = 4
+        job.error_message = "Provider exhausted retries."
+        session.add(job)
+        session.commit()
+
+    exhausted_retry_response = client.post(f"/api/jobs/{job_id}/retry")
+    assert exhausted_retry_response.status_code == 409
+    assert "Retry limit exceeded" in _error_message(exhausted_retry_response)
+
+    with session_factory() as session:
+        project = session.get(Project, UUID(project_id))
+        assert project is not None
+        planning_job = BackgroundJob(
+            user_id=project.user_id,
+            project_id=project.id,
+            script_id=None,
+            job_type=BackgroundJobType.GENERATE_IDEAS,
+            provider_name=None,
+            state=BackgroundJobState.FAILED,
+            payload_json={"idea_count": 3},
+            attempts=1,
+            progress_percent=0,
+            error_message="Inline planner failed.",
+            started_at=None,
+            finished_at=datetime.now(UTC),
+        )
+        session.add(planning_job)
+        session.commit()
+        planning_job_id = str(planning_job.id)
+
+    unsupported_retry_response = client.post(f"/api/jobs/{planning_job_id}/retry")
+    assert unsupported_retry_response.status_code == 409
+    assert "does not support manual retry" in _error_message(unsupported_retry_response)
+
+    app.dependency_overrides.clear()
+
+
+def test_resume_stale_running_browser_job_requeues_unfinished_work() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Resume stale browser job",
+        objective="Recover interrupted running work safely",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    with session_factory() as session:
+        job = get_background_job(session, UUID(job_id))
+        assert job is not None
+        attempt = job.generation_attempts[0]
+        asset = attempt.assets[0]
+        job.state = BackgroundJobState.RUNNING
+        job.progress_percent = 45
+        job.updated_at = datetime.now(UTC)
+        attempt.state = BackgroundJobState.RUNNING
+        asset.status = AssetStatus.GENERATING
+        asset.checksum = "partial-checksum"
+        session.add_all([job, attempt, asset])
+        session.commit()
+
+    recent_resume_response = client.post(f"/api/jobs/{job_id}/resume")
+    assert recent_resume_response.status_code == 409
+    assert "not stale enough" in _error_message(recent_resume_response)
+
+    with session_factory() as session:
+        stale_cutoff = datetime.now(UTC) - timedelta(hours=2)
+        job = get_background_job(session, UUID(job_id))
+        assert job is not None
+        job.state = BackgroundJobState.RUNNING
+        job.updated_at = stale_cutoff
+        session.add(job)
+        session.commit()
+
+    resume_response = client.post(f"/api/jobs/{job_id}/resume")
+    assert resume_response.status_code == 200
+    resumed_detail = resume_response.json()
+    assert resumed_detail["job"]["state"] == "queued"
+    assert resumed_detail["job"]["progress_percent"] == 0
+    assert resumed_detail["job"]["error_message"] is None
+    assert resumed_detail["generation_attempts"][0]["state"] == "queued"
+    assert resumed_detail["related_assets"][0]["status"] == "planned"
+    assert resumed_detail["related_assets"][0]["checksum"] is None
+    assert any(log["event_type"] == "job_resumed" for log in resumed_detail["job_logs"])
 
     app.dependency_overrides.clear()
 
@@ -1797,6 +2002,23 @@ def test_publish_job_approval_schedule_and_manual_publish_flow() -> None:
     )
     assert schedule_response.status_code == 200
     assert schedule_response.json()["status"] == "scheduled"
+
+    idempotent_schedule_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/schedule",
+        json={"scheduled_for": "2030-01-01T00:00:00+00:00"},
+    )
+    assert idempotent_schedule_response.status_code == 200
+    assert idempotent_schedule_response.json()["id"] == publish_job_id
+    assert idempotent_schedule_response.json()["scheduled_for"].startswith(
+        "2030-01-01T00:00:00"
+    )
+
+    reschedule_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/schedule",
+        json={"scheduled_for": "2030-01-02T00:00:00+00:00"},
+    )
+    assert reschedule_response.status_code == 409
+    assert "cannot be rescheduled" in _error_message(reschedule_response)
 
     project_response = client.get(f"/api/projects/{project_id}")
     assert project_response.status_code == 200
@@ -2076,5 +2298,173 @@ def test_analytics_sync_requires_published_job_and_generates_insights() -> None:
         and "Engagement is strong" in insight["summary"]
         for insight in analytics["insights"]
     )
+
+    app.dependency_overrides.clear()
+
+
+def test_analytics_learnings_feed_future_generation_context() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    source_project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Prior high-retention hook",
+        objective="Measure what viewers respond to",
+        notes=None,
+    )
+    source_script = _create_approved_script_for_tests(client, source_project_id)
+    _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=source_project_id,
+        script_id=str(source_script["id"]),
+    )
+    client.post(f"/api/projects/{source_project_id}/final-video/approve", json={})
+    prepare_response = client.post(
+        f"/api/projects/{source_project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Analytics-backed source",
+            "description": "Published source used to seed learning context.",
+            "hashtags": ["#CreatorOS", "#Learning"],
+        },
+    )
+    publish_job_id = prepare_response.json()["id"]
+    client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    client.post(
+        f"/api/publish-jobs/{publish_job_id}/mark-published",
+        json={"external_post_id": "learning-source-1"},
+    )
+    sync_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/sync-analytics",
+        json={
+            "views": 2400,
+            "likes": 220,
+            "comments": 32,
+            "shares": 18,
+            "saves": 15,
+            "avg_view_duration": 21.5,
+        },
+    )
+    assert sync_response.status_code == 201
+
+    target_project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Use analytics in the next idea",
+        objective="Turn previous performance into a better creative brief",
+        notes=None,
+    )
+    ideas_response = client.post(f"/api/projects/{target_project_id}/ideas/generate", json={})
+    assert ideas_response.status_code == 201
+    ideas = ideas_response.json()
+    assert any("recent performance learning" in idea["rationale"].lower() for idea in ideas)
+
+    jobs_response = client.get(f"/api/projects/{target_project_id}/jobs")
+    assert jobs_response.status_code == 200
+    idea_job = next(job for job in jobs_response.json() if job["job_type"] == "generate_ideas")
+    idea_learning_context = idea_job["payload_json"]["analytics_learning_context"]
+    assert idea_learning_context["available"] is True
+    assert idea_learning_context["source_count"] >= 1
+    assert idea_learning_context["items"][0]["source_project_id"] == source_project_id
+
+    client.post(f"/api/ideas/{ideas[0]['id']}/approve", json={})
+    script_response = client.post(f"/api/projects/{target_project_id}/scripts/generate", json={})
+    assert script_response.status_code == 201
+    script = script_response.json()
+    assert "Recent analytics learning" in script["body"]
+    assert "Learning focus" in script["caption"]
+    assert any("Learning focus" in scene["notes"] for scene in script["scenes"])
+
+    script_jobs_response = client.get(f"/api/projects/{target_project_id}/jobs")
+    assert script_jobs_response.status_code == 200
+    script_job = next(
+        job for job in script_jobs_response.json() if job["job_type"] == "generate_script"
+    )
+    script_learning_context = script_job["payload_json"]["analytics_learning_context"]
+    assert script_learning_context["available"] is True
+    assert script_learning_context["items"][0]["source_project_id"] == source_project_id
+
+    prompt_pack_response = client.get(f"/api/scripts/{script['id']}/prompt-pack")
+    assert prompt_pack_response.status_code == 200
+    prompt_pack = prompt_pack_response.json()
+    assert prompt_pack["analytics_learning_context"]["available"] is True
+    assert prompt_pack["analytics_learning_context"]["source_count"] >= 1
+    assert "Learning focus" in prompt_pack["scenes"][0]["image_generation_prompt"]
+    assert "Apply this learning focus" in prompt_pack["scenes"][0]["narration_direction"]
+
+    app.dependency_overrides.clear()
+
+
+def test_account_analytics_summarizes_cross_project_performance() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Summarize account analytics",
+        objective="Compare hooks duration voice and platform performance",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    audio_response = client.post(
+        f"/api/projects/{project_id}/generate/audio",
+        json={"voice_label": "Warm guide"},
+    )
+    assert audio_response.status_code == 201
+
+    _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+    client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Account analytics source",
+            "description": "Published source used to validate account summaries.",
+            "hashtags": ["#CreatorOS", "#Analytics"],
+        },
+    )
+    publish_job_id = prepare_response.json()["id"]
+    client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    client.post(
+        f"/api/publish-jobs/{publish_job_id}/mark-published",
+        json={"external_post_id": "account-summary-1"},
+    )
+    sync_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/sync-analytics",
+        json={
+            "views": 1500,
+            "likes": 120,
+            "comments": 22,
+            "shares": 10,
+            "saves": 8,
+            "avg_view_duration": 17.5,
+        },
+    )
+    assert sync_response.status_code == 201
+
+    account_response = client.get("/api/analytics/account")
+    assert account_response.status_code == 200
+    account_analytics = account_response.json()
+    assert account_analytics["overview"]["published_posts"] == 1
+    assert account_analytics["overview"]["total_views"] == 1500
+    assert account_analytics["overview"]["total_engagements"] == 160
+    assert account_analytics["overview"]["top_platform"] == "youtube_shorts"
+
+    top_post = account_analytics["top_posts"][0]
+    assert top_post["publish_job_id"] == publish_job_id
+    assert top_post["project_id"] == project_id
+    assert top_post["views"] == 1500
+    assert top_post["duration_seconds"] == script["estimated_duration_seconds"]
+
+    assert account_analytics["hook_patterns"][0]["sample_project_id"] == project_id
+    assert account_analytics["duration_buckets"][0]["publish_count"] == 1
+    assert account_analytics["posting_windows"][0]["publish_count"] == 1
+    assert account_analytics["voice_labels"][0]["label"] == "Warm guide"
+    assert account_analytics["content_types"][0]["key"] == "youtube_shorts"
+    assert account_analytics["recommendations"]
 
     app.dependency_overrides.clear()

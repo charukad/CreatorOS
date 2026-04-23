@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -9,6 +9,7 @@ from apps.api.core.config import get_settings
 from apps.api.db.session import get_db
 from apps.api.schemas.approvals import ApprovalDecisionRequest, ApprovalResponse
 from apps.api.schemas.content_workflow import (
+    AccountAnalyticsResponse,
     AnalyticsSnapshotRequest,
     AnalyticsSnapshotResponse,
     AssetResponse,
@@ -39,7 +40,12 @@ from apps.api.schemas.content_workflow import (
     VisualGenerationRequest,
 )
 from apps.api.schemas.enums import AssetType
-from apps.api.services.analytics import list_project_analytics, sync_publish_job_analytics
+from apps.api.services.account_analytics import build_account_analytics_summary
+from apps.api.services.analytics import (
+    list_project_analytics,
+    queue_publish_job_analytics_sync,
+    sync_publish_job_analytics,
+)
 from apps.api.services.approvals import list_project_approvals
 from apps.api.services.assets import (
     approve_asset,
@@ -57,6 +63,7 @@ from apps.api.services.background_jobs import (
     list_job_related_assets,
     list_project_job_logs,
     mark_job_manual_intervention_required,
+    resume_stale_running_job,
     retry_background_job,
 )
 from apps.api.services.content_workflow import (
@@ -82,6 +89,7 @@ from apps.api.services.generation_pipeline import (
     submit_idea_generation_job,
     submit_script_generation_job,
 )
+from apps.api.services.learning_context import build_analytics_learning_context
 from apps.api.services.media_pipeline import queue_rough_cut_job
 from apps.api.services.project_events import create_project_event, list_project_events
 from apps.api.services.project_export import (
@@ -221,6 +229,12 @@ def get_project_analytics_route(project_id: UUID, db: DbSession) -> ProjectAnaly
     )
 
 
+@router.get("/analytics/account", response_model=AccountAnalyticsResponse)
+def get_account_analytics_route(db: DbSession) -> AccountAnalyticsResponse:
+    user = get_or_create_default_user(db)
+    return AccountAnalyticsResponse.model_validate(build_account_analytics_summary(db, user))
+
+
 @router.get("/projects/{project_id}/jobs", response_model=list[BackgroundJobResponse])
 def list_project_jobs_route(project_id: UUID, db: DbSession) -> list[BackgroundJobResponse]:
     user = get_or_create_default_user(db)
@@ -270,6 +284,29 @@ def retry_job_route(job_id: UUID, db: DbSession) -> BackgroundJobDetailResponse:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return _job_detail_response(db, retried_job)
+
+
+@router.post("/jobs/{job_id}/resume", response_model=BackgroundJobDetailResponse)
+def resume_job_route(
+    job_id: UUID,
+    db: DbSession,
+    stale_after_minutes: Annotated[int, Query(ge=1, le=1440)] = 30,
+) -> BackgroundJobDetailResponse:
+    user = get_or_create_default_user(db)
+    job = get_owned_background_job(db, user, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    try:
+        resumed_job = resume_stale_running_job(
+            db,
+            job,
+            stale_after_minutes=stale_after_minutes,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return _job_detail_response(db, resumed_job)
 
 
 @router.post("/jobs/{job_id}/manual-intervention", response_model=BackgroundJobDetailResponse)
@@ -691,6 +728,12 @@ def get_script_prompt_pack_route(script_id: UUID, db: DbSession) -> ScriptPrompt
             brand_profile=brand_profile,
             approved_idea=source_idea,
             script=script,
+            analytics_learning_context=build_analytics_learning_context(
+                db,
+                user=user,
+                project=project,
+                brand_profile=brand_profile,
+            ),
         )
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
@@ -735,6 +778,12 @@ def queue_audio_generation_route(
             brand_profile=brand_profile,
             approved_idea=source_idea,
             script=current_script,
+            analytics_learning_context=build_analytics_learning_context(
+                db,
+                user=user,
+                project=project,
+                brand_profile=brand_profile,
+            ),
         )
         job = queue_audio_generation_job(
             db,
@@ -789,6 +838,12 @@ def queue_visual_generation_route(
             brand_profile=brand_profile,
             approved_idea=source_idea,
             script=current_script,
+            analytics_learning_context=build_analytics_learning_context(
+                db,
+                user=user,
+                project=project,
+                brand_profile=brand_profile,
+            ),
         )
         job = queue_visual_generation_job(
             db,
@@ -1083,6 +1138,38 @@ def sync_publish_job_analytics_route(
 
 
 @router.post(
+    "/publish-jobs/{publish_job_id}/analytics/queue",
+    response_model=BackgroundJobResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def queue_publish_job_analytics_sync_route(
+    publish_job_id: UUID,
+    payload: AnalyticsSnapshotRequest,
+    db: DbSession,
+) -> BackgroundJobResponse:
+    user = get_or_create_default_user(db)
+    publish_job = get_owned_publish_job(db, user, publish_job_id)
+    if publish_job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publish job not found")
+
+    project = get_project(db, user, publish_job.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        job = queue_publish_job_analytics_sync(
+            db,
+            project=project,
+            publish_job=publish_job,
+            payload=payload,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return BackgroundJobResponse.model_validate(job)
+
+
+@router.post(
     "/projects/{project_id}/scripts/generate",
     response_model=ProjectScriptResponse,
     status_code=status.HTTP_201_CREATED,
@@ -1253,6 +1340,12 @@ def _build_script_prompt_pack_for_route(
         brand_profile=brand_profile,
         approved_idea=source_idea,
         script=script,
+        analytics_learning_context=build_analytics_learning_context(
+            db,
+            user=user,
+            project=project,
+            brand_profile=brand_profile,
+        ),
     )
 
 

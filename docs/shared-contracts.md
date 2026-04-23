@@ -18,6 +18,7 @@ These contracts are TypeScript-first because the web app and shared package alre
 - `BackgroundJobContract`
 - `PublishJobContract`
 - `AnalyticsSnapshotContract`
+- `AnalyticsLearningContextContract`
 
 ### Traceability Contracts
 - `TraceabilityFields` carries shared IDs for project, script, scene, generation attempt, job,
@@ -38,13 +39,16 @@ These contracts are TypeScript-first because the web app and shared package alre
 - `SyncAnalyticsQueuePayload`
 
 The implemented job types are the current `BackgroundJobType` union. Planned payloads are included
-so queue and worker boundaries do not need to be redesigned when final export and analytics polling
-become queued workers. `publish_content` is implemented in v1 as a manual publish handoff job,
-with live platform upload adapters still planned.
+so queue and worker boundaries do not need to be redesigned when final export is added. `publish_content`
+is implemented in v1 as a manual publish handoff job, and `sync_analytics` is implemented in v1
+as a queued manual metric snapshot job. Live platform upload and analytics polling adapters are still
+planned.
 
 ### Prompt Pack Contracts
 - `ScriptPromptPackContract` is the worker-ready script handoff.
 - `ScenePromptPackContract` is the per-scene narration and visual generation input.
+- Prompt packs include `analytics_learning_context` so browser/media workers and future provider
+  adapters can see the performance learnings that shaped the generated script.
 - Prompt packs must include contiguous `scene_order` values starting at `1`.
 
 ### Timeline Manifest Contracts

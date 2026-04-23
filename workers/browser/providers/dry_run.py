@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from workers.browser.providers.base import BrowserProvider, ProviderJobPayload
+from workers.browser.providers.debug_artifacts import write_failure_debug_artifacts
 
 
 class DryRunElevenLabsProvider(BrowserProvider):
@@ -48,6 +49,20 @@ class DryRunElevenLabsProvider(BrowserProvider):
             encoding="utf-8",
         )
         return [str(artifact_path)]
+
+    def capture_failure_artifacts(self, job_id: str | None, error: Exception) -> list[str]:
+        payload = self._submitted_jobs.get(job_id or "")
+        snapshot_html = _build_failure_snapshot_html(
+            provider="ElevenLabs dry run",
+            error=error,
+            prompt=payload.prompt if payload is not None else None,
+        )
+        return write_failure_debug_artifacts(
+            self._debug_root,
+            provider_job_id=job_id,
+            error=error,
+            snapshot_html=snapshot_html,
+        )
 
 
 class DryRunFlowProvider(BrowserProvider):
@@ -99,6 +114,20 @@ class DryRunFlowProvider(BrowserProvider):
         )
         return [str(artifact_path)]
 
+    def capture_failure_artifacts(self, job_id: str | None, error: Exception) -> list[str]:
+        payload = self._submitted_jobs.get(job_id or "")
+        snapshot_html = _build_failure_snapshot_html(
+            provider="Flow dry run",
+            error=error,
+            prompt=payload.prompt if payload is not None else None,
+        )
+        return write_failure_debug_artifacts(
+            self._debug_root,
+            provider_job_id=job_id,
+            error=error,
+            snapshot_html=snapshot_html,
+        )
+
 
 def _write_sine_wave(output_path: Path, duration_seconds: int) -> None:
     sample_rate = 22050
@@ -121,12 +150,8 @@ def _write_sine_wave(output_path: Path, duration_seconds: int) -> None:
 def _build_scene_svg(*, title: str, prompt: str, channel_name: str, scene_label: str) -> str:
     safe_prompt = prompt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     safe_title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    safe_channel = (
-        channel_name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    )
-    safe_scene_label = (
-        scene_label.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    )
+    safe_channel = channel_name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    safe_scene_label = scene_label.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     wrapped_prompt = safe_prompt[:220]
 
     return "\n".join(
@@ -162,3 +187,36 @@ def _build_scene_svg(*, title: str, prompt: str, channel_name: str, scene_label:
             "</svg>",
         ]
     )
+
+
+def _build_failure_snapshot_html(
+    *,
+    provider: str,
+    error: Exception,
+    prompt: str | None,
+) -> str:
+    safe_provider = _escape_html(provider)
+    safe_error = _escape_html(str(error))
+    safe_prompt = _escape_html(prompt or "No prompt was submitted before the failure.")
+    return "\n".join(
+        [
+            "<!doctype html>",
+            '<html lang="en">',
+            "<head>",
+            '  <meta charset="utf-8" />',
+            f"  <title>{safe_provider} failure snapshot</title>",
+            "</head>",
+            "<body>",
+            f"  <h1>{safe_provider} failure snapshot</h1>",
+            f"  <p>{safe_error}</p>",
+            "  <pre>",
+            safe_prompt,
+            "  </pre>",
+            "</body>",
+            "</html>",
+        ]
+    )
+
+
+def _escape_html(value: str) -> str:
+    return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

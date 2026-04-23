@@ -201,15 +201,15 @@ The repo now has an inline-local `generate_script` background job record with li
 ## Phase 10 - Queue System, Background Jobs, and Progress Tracking
 
 Current implementation note:
-The repo now persists inline-local idea/script generation jobs, queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, and safe cancel/retry operations from the project page and dedicated job detail screen. The browser worker can execute queued browser jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, automated retry policy, and live progress updates are still pending.
+The repo now persists inline-local idea/script generation jobs, queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, per-type retry budgets, publish scheduling idempotency, file-ingestion idempotency/conflict quarantine, and safe cancel/retry/resume operations from the project page and dedicated job detail screen. The browser worker can execute queued browser jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, automated retry backoff, and live progress updates are still pending.
 
 ### Build tasks
 - [ ] Choose and implement the job runner architecture backed by Redis
 - [x] Add `background_jobs` persistence and job lifecycle tracking
 - [x] Implement job states `queued`, `running`, `waiting_external`, `completed`, `failed`, and `cancelled`
-- [ ] Implement retry policy per job type as defined in `docs/queue-jobs.md`
+- [x] Implement retry policy per job type as defined in `docs/queue-jobs.md`
 - [x] Add progress update hooks for long-running tasks
-- [ ] Add idempotency handling for publish scheduling and file ingestion
+- [x] Add idempotency handling for publish scheduling and file ingestion
 - [x] Add persisted job logs and per-attempt error capture
 - [x] Add job detail API with generation attempt and related asset visibility
 - [x] Add project-page job operation controls for the current script queue
@@ -219,7 +219,7 @@ The repo now persists inline-local idea/script generation jobs, queued narration
 - [x] Add dedicated job detail UI screens beyond the project-page job cards
 - [x] Add project activity timeline entries for approvals and job lifecycle events
 - [x] Add tests for persisted job logs and project activity visibility
-- [ ] Add worker-aware resume support for interrupted running jobs
+- [x] Add worker-aware resume support for interrupted running jobs
 
 ### Manual checks
 - [ ] Manual check: long-running jobs visibly update progress in the UI
@@ -229,17 +229,17 @@ The repo now persists inline-local idea/script generation jobs, queued narration
 ## Phase 11 - Browser Worker Foundation
 
 Current implementation note:
-The browser worker can now claim queued jobs and run `dry_run` providers that emit local WAV/SVG artifacts for development. Live Playwright-driven provider automation is still pending.
+The browser worker can now claim queued jobs, run `dry_run` providers that emit local WAV/SVG artifacts for development, load versioned selector registries, capture checkpoint/failure screenshot and HTML artifacts, stage browser downloads through explicit metadata-tagged ingest paths, redact browser log secrets, and pause auth-style failures in `waiting_external` for operator recovery. Live Playwright-driven provider automation is still pending.
 
 ### Build tasks
 - [x] Create the browser worker entrypoint and worker lifecycle management
 - [ ] Add Playwright setup with persistent browser profile support
 - [x] Add provider abstraction with `ensure_session`, `open_workspace`, `submit_job`, `wait_for_completion`, `collect_downloads`, and `capture_debug_artifacts`
-- [ ] Create centralized selector registry with versioned selector files
-- [ ] Add screenshot and HTML snapshot capture for critical checkpoints and failures
-- [ ] Add download interception and metadata tagging
-- [ ] Add secret-safe logging for browser interactions
-- [ ] Add recoverable session handling and manual intervention status reporting
+- [x] Create centralized selector registry with versioned selector files
+- [x] Add screenshot and HTML snapshot capture for critical checkpoints and failures
+- [x] Add download interception and metadata tagging
+- [x] Add secret-safe logging for browser interactions
+- [x] Add recoverable session handling and manual intervention status reporting
 - [x] Add browser worker tests and smoke-test harness
 
 ### Manual checks
@@ -249,7 +249,7 @@ The browser worker can now claim queued jobs and run `dry_run` providers that em
 ## Phase 12 - ElevenLabs Browser Automation
 
 Current implementation note:
-There is now a dry-run ElevenLabs-style provider that produces local WAV artifacts for development. The live authenticated browser flow is still pending.
+There is now a dry-run ElevenLabs-style provider that produces local WAV artifacts for development, and timeout/selector-style provider failures retry once before the job is marked failed. The live authenticated browser flow is still pending.
 
 ### Build tasks
 - [ ] Implement ElevenLabs provider module
@@ -259,8 +259,8 @@ There is now a dry-run ElevenLabs-style provider that produces local WAV artifac
 - [ ] Add voice selection and settings application
 - [ ] Add generation trigger and completion detection
 - [ ] Add narration audio download handling
-- [ ] Emit generation attempt metadata and output asset registration payloads
-- [ ] Add retry-on-timeout and selector-failure behavior
+- [x] Emit generation attempt metadata and output asset registration payloads
+- [x] Add retry-on-timeout and selector-failure behavior
 - [x] Add smoke tests or dry-run scripts for ElevenLabs automation
 
 ### Manual checks
@@ -271,7 +271,7 @@ There is now a dry-run ElevenLabs-style provider that produces local WAV artifac
 ## Phase 13 - Flow Browser Automation for Visual Generation
 
 Current implementation note:
-There is now a dry-run Flow-style provider that produces local SVG scene artifacts for development. The live authenticated browser flow is still pending.
+There is now a dry-run Flow-style provider that produces local SVG scene artifacts for development, and timeout/selector-style provider failures retry once before the job is marked failed. The live authenticated browser flow is still pending.
 
 ### Build tasks
 - [ ] Implement Google Flow provider module
@@ -281,7 +281,7 @@ There is now a dry-run Flow-style provider that produces local SVG scene artifac
 - [ ] Add completion detection for generated visuals
 - [ ] Add clip/image download handling
 - [x] Map downloaded outputs back to project, scene, and generation attempt records
-- [ ] Add retry and timeout handling
+- [x] Add retry and timeout handling
 - [ ] Add selector fallback strategy where reasonable
 - [x] Add smoke tests or dry-run scripts for Flow automation
 
@@ -293,10 +293,10 @@ There is now a dry-run Flow-style provider that produces local SVG scene artifac
 ## Phase 14 - Download Manager and Asset Registry
 
 Current implementation note:
-The worker now moves dry-run outputs into canonical project storage paths, computes checksums, logs duplicate checksums, quarantines mismatched download counts, and the project page can preview, approve, reject, or regenerate individual assets. Live-provider download watcher/interception is still pending.
+The worker now stages raw browser downloads through explicit ingest metadata paths, moves dry-run outputs into canonical project storage paths, computes checksums, treats matching repeated downloads as idempotent, logs duplicate checksums, quarantines mismatched or conflicting downloads, and the project page can preview, approve, reject, or regenerate individual assets. Live-provider download watcher/interception is still pending.
 
 ### Build tasks
-- [ ] Implement download watcher or explicit ingest flow for browser outputs
+- [x] Implement download watcher or explicit ingest flow for browser outputs
 - [x] Add file hash calculation and duplicate detection
 - [x] Add canonical storage path generation under `storage/projects/{project_id}`
 - [x] Move files from temporary download folders into permanent storage
@@ -369,19 +369,19 @@ The repo now has final-video approve/reject routes, publish job persistence, app
 ## Phase 17 - Analytics Sync and Learning Loop
 
 Current implementation note:
-The repo now stores manual analytics snapshots for published jobs, exposes project analytics through the API, generates first-pass engagement/duration insights, and shows an analytics panel on the project page. Real platform API sync, account-level analytics, and feeding insights back into generation prompts are still pending.
+The repo now queues manual analytics snapshots for published jobs, processes them through an analytics worker, exposes project and account analytics through the API, generates first-pass engagement/duration insights, shows analytics job state plus insight cards on the project page, surfaces account-level dashboard summaries, and feeds same-brand learnings back into idea/script generation payloads and prompt packs. Real platform API sync is still pending.
 
 ### Build tasks
 - [x] Implement analytics snapshot persistence and APIs
-- [ ] Add analytics sync job flow for published content
+- [x] Add analytics sync job flow for published content
 - [x] Add manual analytics sync flow for published content
 - [x] Store views, likes, comments, shares, saves, watch time, CTR, average view duration, and retention data
 - [x] Build project analytics screen
-- [ ] Build account-level insights views
-- [ ] Add performance summaries by hook, duration, posting time, voice, and content type
+- [x] Build account-level insights views
+- [x] Add performance summaries by hook, duration, posting time, voice, and content type
 - [x] Build first-pass insight generation and recommendation persistence
 - [x] Add project-level recommendation UI for strategy updates
-- [ ] Feed analytics-derived learnings back into idea and script generation context
+- [x] Feed analytics-derived learnings back into idea and script generation context
 - [x] Add tests for analytics ingestion and insight generation behavior
 
 ### Manual checks
@@ -391,24 +391,27 @@ The repo now stores manual analytics snapshots for published jobs, exposes proje
 ## Phase 18 - Observability, Reliability, and Manual Override Tooling
 
 Current implementation note:
-The repo now has structured logs, API request correlation, job detail pages, project activity, safe cancel/retry, manual intervention state, project-level manual overrides, export/backup support, and an operations recovery page for failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, and duplicate asset warnings. Live-provider screenshots/HTML captures, resumable running-job recovery, and retention tooling are still pending.
+The repo now has structured logs, API request correlation, job detail pages, project activity, safe cancel/retry/resume, manual intervention state, project-level manual overrides, export/backup support, browser failure screenshot/HTML snapshot capture hooks, an operations recovery page for failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, duplicate asset warnings, and a planning-only artifact retention view.
 
 ### Build tasks
 - [x] Add structured logs across API, browser worker, and media worker
 - [x] Add API request correlation IDs and response headers
 - [x] Add error reporting and correlation IDs across job chains
 - [x] Add per-provider dry-run debug artifact storage for prompt and failure notes
-- [ ] Add live-provider screenshot and HTML snapshot capture for browser failures
-- [ ] Add manual retry and resume tools for browser and media jobs
+- [x] Add live-provider screenshot and HTML snapshot capture for browser failures
+- [x] Add manual retry and resume tools for browser and media jobs
 - [x] Add manual override controls for blocked workflow states
 - [x] Add explicit `manual_intervention_required` handling where needed
 - [x] Add operator-facing status pages for failed jobs, stuck jobs, and quarantined assets
-- [ ] Add cleanup and retention strategy for generated artifacts without destructive permanent deletion
+- [x] Add cleanup and retention strategy for generated artifacts without destructive permanent deletion
 - [x] Add backup/export strategy for project metadata and approvals
 
 ### Manual checks
 - [ ] Manual check: a failed job can be debugged without reading raw code
 - [ ] Manual check: manual interventions leave an audit trail and do not hide the original failure
+- [ ] Manual check: browser failure screenshots and HTML snapshots are useful for diagnosing selector or timeout failures
+- [ ] Manual check: retention candidates are understandable before any operator moves files
+- [ ] Manual check: missing or superseded artifact cleanup stays blocked behind manual review
 
 ## Phase 19 - Security, Config, and Environment Hardening
 

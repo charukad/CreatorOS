@@ -9,6 +9,8 @@ import { ProjectForm } from "./project-form";
 import { StatusBadge } from "./status-badge";
 import { createBrandProfile, createProject } from "../lib/api";
 import type {
+  AccountAnalytics,
+  AccountAnalyticsSummaryItem,
   ApprovalRecord,
   BackgroundJob,
   BrandProfile,
@@ -21,6 +23,18 @@ import type {
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleDateString();
+}
+
+function formatNumber(value: number): string {
+  return value.toLocaleString();
+}
+
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatDuration(value: number | null): string {
+  return value === null ? "Not tracked" : `${value.toFixed(1)}s`;
 }
 
 function getStatusCount(projects: Project[], status: ProjectStatus): number {
@@ -37,6 +51,7 @@ const approvalInboxStatuses = new Set<ProjectStatus>([
 
 type DashboardWorkspaceProps = {
   initialActivity: ProjectActivity[];
+  initialAccountAnalytics: AccountAnalytics | null;
   initialApprovals: ApprovalRecord[];
   initialBrandProfiles: BrandProfile[];
   initialError: string | null;
@@ -47,6 +62,7 @@ type DashboardWorkspaceProps = {
 
 export function DashboardWorkspace({
   initialActivity,
+  initialAccountAnalytics,
   initialApprovals,
   initialBrandProfiles,
   initialError,
@@ -89,6 +105,12 @@ export function DashboardWorkspace({
   );
   const failedJobs = jobs.filter((job) => job.state === "failed");
   const attentionItemCount = initialOperationsRecovery?.summary.total_attention_items ?? 0;
+  const accountAnalytics = initialAccountAnalytics;
+  const strongestSummary =
+    accountAnalytics?.hook_patterns[0] ??
+    accountAnalytics?.duration_buckets[0] ??
+    accountAnalytics?.content_types[0] ??
+    null;
 
   async function handleCreateBrandProfile(payload: BrandProfilePayload) {
     await createBrandProfile(payload);
@@ -338,6 +360,87 @@ export function DashboardWorkspace({
 
       <div className="grid gap-6">
         <section className="rounded-[1.75rem] border border-white/10 bg-[var(--card)] p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-xl font-semibold text-white">Account analytics</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                Cross-project patterns from published posts, grouped by hook, duration, posting
+                window, voice, and content type.
+              </p>
+            </div>
+            <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100">
+              {accountAnalytics?.overview.published_posts ?? 0} posts
+            </span>
+          </div>
+
+          {accountAnalytics && accountAnalytics.overview.published_posts > 0 ? (
+            <div className="mt-5 grid gap-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <article className="rounded-2xl border border-white/8 bg-white/4 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Views</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">
+                    {formatNumber(accountAnalytics.overview.total_views)}
+                  </p>
+                </article>
+                <article className="rounded-2xl border border-white/8 bg-white/4 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Engagement</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">
+                    {formatPercent(accountAnalytics.overview.average_engagement_rate)}
+                  </p>
+                </article>
+                <article className="rounded-2xl border border-white/8 bg-white/4 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Avg view</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">
+                    {formatDuration(accountAnalytics.overview.average_view_duration)}
+                  </p>
+                </article>
+              </div>
+
+              {accountAnalytics.top_posts[0] ? (
+                <Link
+                  className="rounded-2xl border border-emerald-300/20 bg-emerald-400/10 p-4 transition hover:bg-emerald-400/20"
+                  href={`/projects/${accountAnalytics.top_posts[0].project_id}`}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100">
+                    Top post
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-white">
+                    {accountAnalytics.top_posts[0].title}
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-emerald-50/80">
+                    {formatNumber(accountAnalytics.top_posts[0].views)} views /{" "}
+                    {formatPercent(accountAnalytics.top_posts[0].engagement_rate)} engagement
+                  </p>
+                </Link>
+              ) : null}
+
+              {strongestSummary ? <SummaryCard item={strongestSummary} /> : null}
+
+              <div className="grid gap-3">
+                {accountAnalytics.recommendations.slice(0, 2).map((recommendation) => (
+                  <Link
+                    className="rounded-2xl border border-white/8 bg-slate-950/40 p-4 transition hover:border-cyan-300/30 hover:bg-cyan-400/10"
+                    href={`/projects/${recommendation.project_id}`}
+                    key={recommendation.insight_id}
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
+                      {recommendation.insight_type.replaceAll("_", " ")}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-100">
+                      {recommendation.summary}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="mt-5 rounded-2xl border border-dashed border-white/10 bg-white/4 p-4 text-sm leading-6 text-slate-300">
+              Publish a post and sync analytics to unlock account-level summaries.
+            </p>
+          )}
+        </section>
+
+        <section className="rounded-[1.75rem] border border-white/10 bg-[var(--card)] p-6">
           <h3 className="text-xl font-semibold text-white">Recent activity pulse</h3>
           <p className="mt-2 text-sm leading-6 text-slate-300">
             The newest project updates stay close to the inbox so blocked work is easy to spot.
@@ -468,5 +571,23 @@ export function DashboardWorkspace({
         </section>
       </div>
     </section>
+  );
+}
+
+function SummaryCard({ item }: { item: AccountAnalyticsSummaryItem }) {
+  return (
+    <Link
+      className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4 transition hover:bg-cyan-400/20"
+      href={`/projects/${item.sample_project_id}`}
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100">
+        Strongest pattern
+      </p>
+      <p className="mt-2 text-sm font-semibold text-white">{item.label}</p>
+      <p className="mt-2 text-xs leading-5 text-cyan-50/80">
+        {item.publish_count} post{item.publish_count === 1 ? "" : "s"} /{" "}
+        {formatNumber(item.total_views)} views / {formatPercent(item.average_engagement_rate)}
+      </p>
+    </Link>
   );
 }

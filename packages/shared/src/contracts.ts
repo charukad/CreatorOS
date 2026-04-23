@@ -220,6 +220,29 @@ export type AnalyticsSnapshotContract = {
   fetched_at: ISODateTime;
 };
 
+export type AnalyticsLearningItemContract = {
+  insight_id: UUID;
+  source_project_id: UUID;
+  source_project_title: string;
+  is_current_project: boolean;
+  publish_job_id: UUID;
+  analytics_snapshot_id: UUID;
+  insight_type: string;
+  summary: string;
+  evidence: Record<string, unknown>;
+  confidence_score: number;
+  created_at: ISODateTime;
+};
+
+export type AnalyticsLearningContextContract = {
+  available: boolean;
+  brand_profile_id: UUID;
+  target_project_id: UUID;
+  source_count: number;
+  guidance: string[];
+  items: AnalyticsLearningItemContract[];
+};
+
 export type QueuePayloadBase = {
   job_type: QueueJobType;
   project_id: UUID;
@@ -230,9 +253,7 @@ export type ImplementedQueueJobType = BackgroundJobType;
 
 export type PlannedQueueJobType =
   | "ingest_download"
-  | "final_export"
-  | "publish_content"
-  | "sync_analytics";
+  | "final_export";
 
 export type QueueJobType = ImplementedQueueJobType | PlannedQueueJobType;
 
@@ -242,6 +263,7 @@ export type GenerateIdeasQueuePayload = QueuePayloadBase & {
   target_platform: string;
   objective: string;
   source_feedback_notes?: Nullable<string>;
+  analytics_learning_context?: AnalyticsLearningContextContract;
   idea_count?: number;
   idea_ids?: UUID[];
 };
@@ -251,6 +273,7 @@ export type GenerateScriptQueuePayload = QueuePayloadBase & {
   approved_idea_id: UUID;
   brand_profile_id: UUID;
   source_feedback_notes?: Nullable<string>;
+  analytics_learning_context?: AnalyticsLearningContextContract;
   script_id?: UUID;
   script_version?: number;
   scene_count?: number;
@@ -334,6 +357,19 @@ export type SyncAnalyticsQueuePayload = QueuePayloadBase & {
   job_type: "sync_analytics";
   publish_job_id: UUID;
   platform: string;
+  metrics: {
+    views: number;
+    likes?: number;
+    comments?: number;
+    shares?: number;
+    saves?: Nullable<number>;
+    watch_time_seconds?: Nullable<number>;
+    ctr?: Nullable<number>;
+    avg_view_duration?: Nullable<number>;
+    retention_json?: Nullable<Record<string, unknown>>;
+  };
+  analytics_snapshot_id?: UUID;
+  synced_at?: ISODateTime;
 };
 
 export type QueueJobPayload =
@@ -365,6 +401,7 @@ export type ScriptPromptPackContract = {
   project_id: UUID;
   brand_profile_id: UUID;
   brand_context: Record<string, unknown>;
+  analytics_learning_context: AnalyticsLearningContextContract;
   channel_name: string;
   target_platform: string;
   objective: string;
@@ -486,6 +523,11 @@ export function validateQueuePayload(payload: QueueJobPayload): string[] {
     case "sync_analytics":
       requireString(payload.publish_job_id, "publish_job_id", errors);
       requireString(payload.platform, "platform", errors);
+      if (!payload.metrics || typeof payload.metrics.views !== "number") {
+        errors.push("metrics.views is required.");
+      } else if (payload.metrics.views < 0) {
+        errors.push("metrics.views must be greater than or equal to zero.");
+      }
       break;
   }
 
@@ -567,7 +609,7 @@ function validateQueuePayloadBase(payload: QueueJobPayload): string[] {
 function isKnownQueueJobType(jobType: string): jobType is QueueJobType {
   return (
     (backgroundJobTypes as readonly string[]).includes(jobType) ||
-    ["ingest_download", "final_export", "publish_content", "sync_analytics"].includes(jobType)
+    ["ingest_download", "final_export"].includes(jobType)
   );
 }
 

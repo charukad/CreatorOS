@@ -159,7 +159,7 @@ export function ProjectDetail({
             project={project}
             publishJobs={publishJobs}
           />
-          <ProjectAnalyticsPanel analytics={analytics} publishJobs={publishJobs} />
+          <ProjectAnalyticsPanel analytics={analytics} jobs={jobs} publishJobs={publishJobs} />
           <ProjectActivityPanel activity={activity} />
           <ProjectStatusActions
             approvals={approvals}

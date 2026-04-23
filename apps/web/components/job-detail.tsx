@@ -8,11 +8,19 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
-import { cancelJob, markJobManualIntervention, retryJob } from "../lib/api";
+import { cancelJob, markJobManualIntervention, resumeJob, retryJob } from "../lib/api";
 import type { BackgroundJob, BackgroundJobDetail } from "../types/api";
 
 type JobDetailProps = {
   detail: BackgroundJobDetail;
+};
+
+const retryPolicyMaxAttempts: Partial<Record<BackgroundJob["job_type"], number>> = {
+  generate_audio_browser: 4,
+  generate_visuals_browser: 4,
+  compose_rough_cut: 3,
+  publish_content: 2,
+  sync_analytics: 2,
 };
 
 function formatTimestamp(value: string | null): string {
@@ -30,8 +38,22 @@ function canCancelJobState(state: BackgroundJob["state"]): boolean {
   return state === "queued" || state === "waiting_external";
 }
 
-function canRetryJobState(state: BackgroundJob["state"]): boolean {
-  return state === "failed" || state === "cancelled";
+function canRetryJob(job: BackgroundJob): boolean {
+  const maxAttempts = retryPolicyMaxAttempts[job.job_type];
+  return (
+    (job.state === "failed" || job.state === "cancelled") &&
+    maxAttempts !== undefined &&
+    job.attempts < maxAttempts
+  );
+}
+
+function canResumeJob(job: BackgroundJob): boolean {
+  return (
+    job.state === "running" &&
+    ["generate_audio_browser", "generate_visuals_browser", "compose_rough_cut"].includes(
+      job.job_type,
+    )
+  );
 }
 
 function logLevelClassName(level: string): string {
@@ -43,6 +65,14 @@ function logLevelClassName(level: string): string {
     default:
       return "border-cyan-300/30 bg-cyan-400/10 text-cyan-100";
   }
+}
+
+function retryPolicyLabel(job: BackgroundJob): string {
+  const maxAttempts = retryPolicyMaxAttempts[job.job_type];
+  if (maxAttempts === undefined) {
+    return "Manual retry is not available for this job type.";
+  }
+  return `${job.attempts}/${maxAttempts} execution attempt${maxAttempts === 1 ? "" : "s"} used`;
 }
 
 export function JobDetail({ detail }: JobDetailProps) {
@@ -143,7 +173,8 @@ export function JobDetail({ detail }: JobDetailProps) {
             <h2 className="text-xl font-semibold text-white">Safe operations</h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">
               Cancel only before active execution; retry only after failed or cancelled states.
-              Manual intervention keeps the job visible in recovery queues.
+              Resume is for stale running browser/media jobs after a worker interruption.{" "}
+              {retryPolicyLabel(job)}
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -157,11 +188,19 @@ export function JobDetail({ detail }: JobDetailProps) {
             </button>
             <button
               className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-45"
-              disabled={!canRetryJobState(job.state) || pendingAction !== null}
+              disabled={!canRetryJob(job) || pendingAction !== null}
               onClick={() => runAction("retry", () => retryJob(job.id))}
               type="button"
             >
               {pendingAction === "retry" ? "Retrying..." : "Retry job"}
+            </button>
+            <button
+              className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={!canResumeJob(job) || pendingAction !== null}
+              onClick={() => runAction("resume", () => resumeJob(job.id))}
+              type="button"
+            >
+              {pendingAction === "resume" ? "Resuming..." : "Resume stale job"}
             </button>
           </div>
         </div>

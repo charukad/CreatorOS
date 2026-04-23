@@ -1,12 +1,23 @@
+from uuid import uuid4
+
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from apps.api.models.analytics_snapshot import AnalyticsSnapshot
+from apps.api.models.background_job import BackgroundJob
 from apps.api.models.insight import Insight
 from apps.api.models.project import Project
 from apps.api.models.publish_job import PublishJob
 from apps.api.schemas.content_workflow import AnalyticsSnapshotRequest
-from apps.api.schemas.enums import PublishJobStatus
+from apps.api.schemas.enums import BackgroundJobState, BackgroundJobType, PublishJobStatus
+from apps.api.services.background_jobs import create_job_log
+from apps.api.services.project_events import create_project_event
+
+ACTIVE_ANALYTICS_SYNC_STATES = {
+    BackgroundJobState.QUEUED,
+    BackgroundJobState.RUNNING,
+    BackgroundJobState.WAITING_EXTERNAL,
+}
 
 
 def list_project_analytics(
@@ -19,9 +30,7 @@ def list_project_analytics(
         .order_by(desc(AnalyticsSnapshot.fetched_at))
     )
     insights_statement = (
-        select(Insight)
-        .where(Insight.project_id == project.id)
-        .order_by(desc(Insight.created_at))
+        select(Insight).where(Insight.project_id == project.id).order_by(desc(Insight.created_at))
     )
     return list(db.scalars(snapshots_statement)), list(db.scalars(insights_statement))
 
@@ -31,6 +40,7 @@ def sync_publish_job_analytics(
     *,
     publish_job: PublishJob,
     payload: AnalyticsSnapshotRequest,
+    commit: bool = True,
 ) -> AnalyticsSnapshot:
     if publish_job.status != PublishJobStatus.PUBLISHED:
         raise ValueError("Analytics can only be synced after a publish job is marked published.")
@@ -55,9 +65,76 @@ def sync_publish_job_analytics(
     for insight in _build_insights(publish_job, snapshot):
         db.add(insight)
 
-    db.commit()
-    db.refresh(snapshot)
+    db.flush()
+    if commit:
+        db.commit()
+        db.refresh(snapshot)
     return snapshot
+
+
+def queue_publish_job_analytics_sync(
+    db: Session,
+    *,
+    project: Project,
+    publish_job: PublishJob,
+    payload: AnalyticsSnapshotRequest,
+) -> BackgroundJob:
+    if publish_job.project_id != project.id:
+        raise ValueError("The selected publish job does not belong to this project.")
+
+    if publish_job.status != PublishJobStatus.PUBLISHED:
+        raise ValueError("Analytics can only be synced after a publish job is marked published.")
+
+    _ensure_no_active_analytics_sync_job(db, publish_job)
+
+    correlation_id = str(uuid4())
+    metrics_payload = payload.model_dump(mode="json")
+    job = BackgroundJob(
+        user_id=publish_job.user_id,
+        project_id=publish_job.project_id,
+        script_id=publish_job.script_id,
+        job_type=BackgroundJobType.SYNC_ANALYTICS,
+        provider_name=None,
+        state=BackgroundJobState.QUEUED,
+        payload_json={
+            "job_type": BackgroundJobType.SYNC_ANALYTICS.value,
+            "project_id": str(project.id),
+            "publish_job_id": str(publish_job.id),
+            "platform": publish_job.platform,
+            "metrics": metrics_payload,
+            "correlation_id": correlation_id,
+        },
+    )
+    db.add(job)
+    db.flush()
+    create_job_log(
+        db,
+        job,
+        event_type="job_queued",
+        message="Analytics sync job was queued.",
+        metadata={
+            "publish_job_id": str(publish_job.id),
+            "platform": publish_job.platform,
+            "correlation_id": correlation_id,
+            "views": payload.views,
+        },
+    )
+    create_project_event(
+        db,
+        project,
+        event_type="analytics_sync_queued",
+        title="Analytics sync queued",
+        description=publish_job.title,
+        metadata={
+            "background_job_id": str(job.id),
+            "publish_job_id": str(publish_job.id),
+            "platform": publish_job.platform,
+            "correlation_id": correlation_id,
+        },
+    )
+    db.commit()
+    db.refresh(job)
+    return job
 
 
 def _build_insights(publish_job: PublishJob, snapshot: AnalyticsSnapshot) -> list[Insight]:
@@ -158,3 +235,16 @@ def _make_insight(
         evidence_json=evidence,
         confidence_score=confidence_score,
     )
+
+
+def _ensure_no_active_analytics_sync_job(db: Session, publish_job: PublishJob) -> None:
+    statement = select(BackgroundJob).where(
+        BackgroundJob.project_id == publish_job.project_id,
+        BackgroundJob.script_id == publish_job.script_id,
+        BackgroundJob.job_type == BackgroundJobType.SYNC_ANALYTICS,
+        BackgroundJob.state.in_(ACTIVE_ANALYTICS_SYNC_STATES),
+        BackgroundJob.payload_json["publish_job_id"].as_string() == str(publish_job.id),
+    )
+    existing_job = db.scalar(statement)
+    if existing_job is not None:
+        raise ValueError("An active analytics sync job already exists for this publish job.")

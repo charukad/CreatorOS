@@ -22,14 +22,17 @@
 - the current idea and script workflow runs synchronously inside the API as a local deterministic generator
 - asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
 - the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
-- browser output ingestion now persists checksums, keeps regeneration paths attempt-specific, logs duplicate asset checksums, and quarantines mismatched downloads
+- browser output ingestion now persists checksums, keeps regeneration paths attempt-specific, handles matching re-ingestion idempotently, logs duplicate asset checksums, and quarantines mismatched or conflicting downloads
+- browser workers now load versioned selector registries, write checkpoint artifacts and staged download manifests, and redact secret-like browser log fields before persisting operator-facing job logs
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
 - after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, FFmpeg command-plan sidecar, and optionally a `video/mp4` rough-cut asset when FFmpeg rendering is enabled
-- job detail, project activity, job timeline logs, safe cancel, and safe retry endpoints are implemented for operator recovery
-- operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, and duplicate asset warnings in one API response
+- job detail, project activity, job timeline logs, safe cancel, retry, and resume endpoints are implemented for operator recovery
+- browser workers retry timeout/selector-style provider failures once, and media workers retry timeout-style FFmpeg render failures once, before the job reaches `failed`
+- browser jobs now write per-attempt request metadata and output registration sidecars under project metadata storage and link those paths from job logs
+- operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, duplicate asset warnings, and non-destructive artifact retention candidates in API responses
 - final-video approval, publish-job preparation, publish approval, and queue-backed manual publish handoffs are implemented before manual published completion
 - manual analytics snapshots and first-pass insight generation are implemented for published jobs
-- Redis-backed execution, automated retry policy, and live worker progress updates are still planned
+- Redis-backed execution, automated retry backoff beyond the current inline worker retry, and live progress updates are still planned
 
 ## Core Resources
 ### Brand Profiles
@@ -93,10 +96,14 @@
 - `GET /api/jobs/:id`
 - `POST /api/jobs/:id/cancel`
 - `POST /api/jobs/:id/manual-intervention`
+- `POST /api/jobs/:id/resume`
 - `POST /api/jobs/:id/retry`
 
 ### Operations
 - `GET /api/operations/recovery`
+
+### Analytics
+- `GET /api/analytics/account`
 
 ### Publish Jobs
 - `POST /api/publish-jobs/:id/approve`
@@ -105,6 +112,7 @@
 - `POST /api/publish-jobs/:id/schedule`
 - `POST /api/publish-jobs/:id/mark-published`
 - `POST /api/publish-jobs/:id/sync-analytics`
+- `POST /api/publish-jobs/:id/analytics/queue`
 
 ## Implemented Payloads
 ### `POST /api/brand-profiles`
@@ -228,6 +236,7 @@ Behavior note:
 - creates a completed `generate_ideas` background job with lifecycle logs before returning the generated ideas
 - project-level generation jobs may have `script_id: null` because they run before a script exists
 - source feedback notes are copied to the generation job payload and each returned idea
+- same-brand analytics learnings are copied to the generation job payload and influence idea rationales when available
 - the response contains the newly generated batch; use `GET /api/projects/:id/ideas` for the full saved list
 
 Response excerpt:
@@ -272,6 +281,7 @@ Behavior note:
 - creates a completed `generate_script` background job with lifecycle logs before returning the generated script
 - the generation job is linked to the new script once the script and scene records are persisted
 - source feedback notes are copied to the generation job payload and persisted on the script version
+- same-brand analytics learnings are copied to the generation job payload and shape the script body, caption, and scene notes when available
 
 Response excerpt:
 ```json
@@ -372,6 +382,11 @@ Response excerpt:
   "script_id": "uuid",
   "project_id": "uuid",
   "brand_profile_id": "uuid",
+  "analytics_learning_context": {
+    "available": true,
+    "source_count": 1,
+    "guidance": ["engagement rate from Prior project: Reuse the stronger hook format."]
+  },
   "channel_name": "Creator Lab",
   "target_platform": "youtube_shorts",
   "objective": "Prepare a worker-ready prompt pack",
@@ -555,10 +570,23 @@ Behavior note:
 ### `POST /api/jobs/:id/retry`
 Behavior note:
 - only `failed` and `cancelled` jobs can be retried
+- retry is available for worker-backed browser, media, publish, and analytics jobs; inline idea/script planning jobs should be re-run from the project action
 - retry reuses the existing job, attempts, and related asset records
 - retry resets job state to `queued`, clears job errors, clears stale timestamps, and resets related assets to `planned`
+- retry enforces per-type execution attempt budgets: browser 4 total attempts, media 3, publish 2, analytics 2
 - retry is blocked if another active job of the same type already exists for the same script
 - completed jobs cannot be retried
+
+### `POST /api/jobs/:id/resume`
+Query parameters:
+- `stale_after_minutes` defaults to `30`
+
+Behavior note:
+- only stale `running` browser and media jobs can be resumed
+- recent running jobs return `409 Conflict` so an active worker is not interrupted accidentally
+- resume resets the existing job to `queued`, clears stale running timestamps and errors, and preserves completed attempts and ready/rejected assets
+- unfinished attempts return to `queued`; unfinished related assets return to `planned`
+- resume writes a `job_resumed` warning log with the stale threshold and previous update timestamp
 
 ### `POST /api/jobs/:id/manual-intervention`
 ```json
@@ -569,7 +597,7 @@ Behavior note:
 
 Behavior note:
 - marks the job `waiting_external`
-- preserves the human-readable reason in `error_message`
+- preserves a redacted human-readable reason in `error_message`
 - writes a `manual_intervention_required` job log entry for project activity and recovery queues
 
 ### `GET /api/operations/recovery`
@@ -614,6 +642,45 @@ Behavior note:
 - stale running jobs are `running` jobs whose `updated_at` is older than `stale_after_minutes`
 - quarantined downloads come from `downloads_quarantined` job logs
 - duplicate asset warnings come from `duplicate_asset_detected` job logs
+
+### `GET /api/operations/artifacts/retention-plan`
+Query parameters:
+- `limit` defaults to `50`
+
+Response excerpt:
+```json
+{
+  "candidates": [
+    {
+      "asset_id": "uuid",
+      "project_id": "uuid",
+      "project_title": "3 AI automations I use daily",
+      "script_id": "uuid",
+      "asset_type": "narration_audio",
+      "status": "rejected",
+      "file_path": "storage/projects/{project_id}/audio/rejected.wav",
+      "file_exists": true,
+      "size_bytes": 1048576,
+      "reason": "Asset is rejected and can be moved to retention with a manifest.",
+      "recommended_action": "move_to_retention",
+      "safe_to_cleanup": true,
+      "retention_manifest_path": "storage/projects/{project_id}/retention/asset-abcd1234-retention.json"
+    }
+  ],
+  "summary": {
+    "candidate_count": 1,
+    "safe_candidate_count": 1,
+    "total_reclaimable_bytes": 1048576
+  }
+}
+```
+
+Behavior note:
+- this endpoint is planning-only and does not delete or move files
+- rejected and failed assets with existing files inside the configured storage root are safe candidates for a future retention move
+- missing files return `repair_missing_file` so metadata can be corrected before cleanup
+- assets outside the configured storage root or attached to superseded scripts require `manual_review`
+- safe candidates include a proposed retention manifest path under `storage/projects/{project_id}/retention`
 
 ### `GET /api/projects/:id/assets`
 - returns planned and produced asset records for the project, including placeholder records created before worker execution starts
@@ -801,6 +868,8 @@ Behavior note:
 - requires an approved publish job
 - moves the publish job to `scheduled`
 - moves the project to `scheduled`
+- repeating the same schedule request for an already scheduled job returns the existing scheduled job
+- changing the schedule after a job is already scheduled is blocked for manual review
 
 ### `POST /api/publish-jobs/:id/mark-published`
 ```json
@@ -836,6 +905,30 @@ Behavior note:
 - requires the publish job to already be marked `published`
 - stores a traceable analytics snapshot for the project and publish job
 - generates first-pass insights from engagement and average-view-duration signals
+- retained as a direct compatibility path; the project UI uses the queued analytics endpoint
+
+### `POST /api/publish-jobs/:id/analytics/queue`
+```json
+{
+  "views": 1000,
+  "likes": 90,
+  "comments": 12,
+  "shares": 8,
+  "saves": 5,
+  "watch_time_seconds": 18500,
+  "ctr": 0.041,
+  "avg_view_duration": 18.5,
+  "retention_json": {
+    "three_second_hold": 0.76
+  }
+}
+```
+
+Behavior note:
+- requires the publish job to already be marked `published`
+- creates a `sync_analytics` background job with the supplied metric payload
+- blocks duplicate queued, running, or waiting-external analytics sync jobs for the same publish job
+- the analytics worker persists the snapshot, generates insights, and stores `analytics_snapshot_id` in the completed job payload
 
 ### `GET /api/projects/:id/analytics`
 Response excerpt:
@@ -862,6 +955,43 @@ Response excerpt:
   ]
 }
 ```
+
+### `GET /api/analytics/account`
+Response excerpt:
+```json
+{
+  "overview": {
+    "published_posts": 4,
+    "total_views": 12500,
+    "total_engagements": 930,
+    "average_engagement_rate": 0.0744,
+    "average_view_duration": 18.2,
+    "top_platform": "youtube_shorts"
+  },
+  "top_posts": [
+    {
+      "project_id": "uuid",
+      "publish_job_id": "uuid",
+      "title": "Account analytics source",
+      "views": 1500,
+      "engagement_rate": 0.1067
+    }
+  ],
+  "duration_buckets": [
+    {
+      "key": "20_to_34s",
+      "label": "20-34 seconds",
+      "publish_count": 3,
+      "average_engagement_rate": 0.08
+    }
+  ]
+}
+```
+
+Behavior note:
+- uses the latest analytics snapshot per publish job so repeated syncs do not double-count totals
+- groups performance by hook, duration bucket, posting window, voice label, and platform/content type
+- powers the account-level analytics cards on the dashboard
 
 ## Planned Next Endpoints
 - `POST /api/scripts/:id/regenerate`

@@ -1,0 +1,55 @@
+{
+  "provider_name": "elevenlabs_web",
+  "version": "v1",
+  "workspace_label": "ElevenLabs speech generation",
+  "selectors": {
+    "auth_gate": {
+      "description": "Login prompt or expired-session gate before the workspace loads.",
+      "candidates": [
+        "text=/log in/i",
+        "form[action*='login']",
+        "[data-testid='sign-in-form']"
+      ]
+    },
+    "workspace_shell": {
+      "description": "Top-level speech generation shell that confirms the app is ready.",
+      "candidates": [
+        "[data-testid='speech-generation-workspace']",
+        "main [data-testid='workspace-shell']",
+        "main"
+      ]
+    },
+    "narration_input": {
+      "description": "Editable narration text field used for approved script text.",
+      "candidates": [
+        "textarea[placeholder*='Type']",
+        "[contenteditable='true'][data-testid='prompt-editor']",
+        "textarea"
+      ]
+    },
+    "voice_picker": {
+      "description": "Voice-selection control for choosing the approved narrator profile.",
+      "candidates": [
+        "[data-testid='voice-selector']",
+        "button[aria-label*='voice']",
+        "button:has-text('Voice')"
+      ]
+    },
+    "generate_button": {
+      "description": "Primary generation trigger for narration rendering.",
+      "candidates": [
+        "button[data-testid='generate-speech']",
+        "button:has-text('Generate')",
+        "button[type='submit']"
+      ]
+    },
+    "download_button": {
+      "description": "Completed-output download action for narration assets.",
+      "candidates": [
+        "button[data-testid='download-audio']",
+        "a[download]",
+        "button:has-text('Download')"
+      ]
+    }
+  }
+}

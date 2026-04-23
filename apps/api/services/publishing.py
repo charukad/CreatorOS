@@ -358,6 +358,11 @@ def schedule_publish_job(
     if publish_job.project_id != project.id:
         raise ValueError("The selected publish job does not belong to this project.")
 
+    if publish_job.status == PublishJobStatus.SCHEDULED:
+        if _same_datetime(publish_job.scheduled_for, payload.scheduled_for):
+            return publish_job
+        raise ValueError("Scheduled publish jobs cannot be rescheduled without manual review.")
+
     if publish_job.status != PublishJobStatus.APPROVED:
         raise ValueError("Only approved publish jobs can be scheduled.")
 
@@ -519,6 +524,18 @@ def has_scheduled_publish_job(db: Session, project: Project) -> bool:
         PublishJob.status == PublishJobStatus.SCHEDULED,
     )
     return db.scalar(statement) is not None
+
+
+def _same_datetime(left: datetime | None, right: datetime | None) -> bool:
+    if left is None or right is None:
+        return left is right
+    return _as_aware_datetime(left) == _as_aware_datetime(right)
+
+
+def _as_aware_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def has_published_publish_job(db: Session, project: Project) -> bool:

@@ -22,6 +22,7 @@ Main parts:
 - `workers/browser`: Playwright workers for ElevenLabs/Flow/browser-assisted actions.
 - `workers/media`: FFmpeg-based media assembly and export workers.
 - `workers/publisher`: approval-safe publisher handoff worker for manual or future platform upload adapters.
+- `workers/analytics`: queued analytics snapshot and insight worker.
 - `packages/shared`: shared schemas, enums, helpers, types.
 - `docs`: product, architecture, API, DB, queue, environment, and automation specs.
 
@@ -47,6 +48,7 @@ Main parts:
 - `workers/browser/` browser automation worker
 - `workers/media/` media assembly worker
 - `workers/publisher/` publish handoff and platform adapter worker
+- `workers/analytics/` analytics snapshot and insight worker
 - `packages/shared/` shared contracts and utilities
 - `docs/` docs for Codex and humans
 - `storage/` generated files, downloads, previews, exports (gitignored)
@@ -81,6 +83,7 @@ These commands are the target interface and should exist in the repo:
 - Start browser worker: `python -m workers.browser.main`
 - Start media worker: `python -m workers.media.main`
 - Start publisher worker: `python -m workers.publisher.main`
+- Start analytics worker: `python -m workers.analytics.main`
 - Lint frontend: `pnpm --filter web lint`
 - Typecheck frontend: `pnpm --filter web typecheck`
 - Backend tests: `pytest`

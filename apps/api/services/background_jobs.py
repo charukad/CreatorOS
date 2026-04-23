@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import asc, desc, or_, select
@@ -20,6 +20,7 @@ CLAIMABLE_BROWSER_JOB_TYPES = (
 )
 CLAIMABLE_MEDIA_JOB_TYPES = (BackgroundJobType.COMPOSE_ROUGH_CUT,)
 CLAIMABLE_PUBLISH_JOB_TYPES = (BackgroundJobType.PUBLISH_CONTENT,)
+CLAIMABLE_ANALYTICS_JOB_TYPES = (BackgroundJobType.SYNC_ANALYTICS,)
 ACTIVE_JOB_STATES = {
     BackgroundJobState.QUEUED,
     BackgroundJobState.RUNNING,
@@ -33,6 +34,14 @@ RETRYABLE_JOB_STATES = {
     BackgroundJobState.FAILED,
     BackgroundJobState.CANCELLED,
 }
+RETRY_POLICY_MAX_ATTEMPTS = {
+    BackgroundJobType.GENERATE_AUDIO_BROWSER: 4,
+    BackgroundJobType.GENERATE_VISUALS_BROWSER: 4,
+    BackgroundJobType.COMPOSE_ROUGH_CUT: 3,
+    BackgroundJobType.PUBLISH_CONTENT: 2,
+    BackgroundJobType.SYNC_ANALYTICS: 2,
+}
+RESUMABLE_JOB_TYPES = {*CLAIMABLE_BROWSER_JOB_TYPES, *CLAIMABLE_MEDIA_JOB_TYPES}
 RESETTABLE_ASSET_STATUSES = {
     AssetStatus.PLANNED,
     AssetStatus.GENERATING,
@@ -135,6 +144,38 @@ def claim_next_publish_job(db: Session) -> BackgroundJob | None:
         event_type="job_claimed",
         message="Publisher worker claimed the job.",
         metadata={"worker_type": "publisher"},
+    )
+    db.commit()
+    db.refresh(job)
+    return get_background_job(db, job.id)
+
+
+def claim_next_analytics_job(db: Session) -> BackgroundJob | None:
+    statement = (
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.job_type.in_(CLAIMABLE_ANALYTICS_JOB_TYPES),
+            BackgroundJob.state == BackgroundJobState.QUEUED,
+        )
+        .order_by(asc(BackgroundJob.created_at))
+    )
+    job = db.scalar(statement)
+    if job is None:
+        return None
+
+    now = datetime.now(UTC)
+    job.state = BackgroundJobState.RUNNING
+    job.attempts += 1
+    job.progress_percent = max(job.progress_percent, 10)
+    job.started_at = now
+    job.error_message = None
+    db.add(job)
+    create_job_log(
+        db,
+        job,
+        event_type="job_claimed",
+        message="Analytics worker claimed the job.",
+        metadata={"worker_type": "analytics"},
     )
     db.commit()
     db.refresh(job)
@@ -275,6 +316,8 @@ def retry_background_job(db: Session, job: BackgroundJob) -> BackgroundJob:
     if job.state not in RETRYABLE_JOB_STATES:
         raise ValueError("Only failed or cancelled jobs can be retried.")
 
+    _ensure_job_type_supports_manual_retry(job)
+    _ensure_retry_budget_available(job)
     _ensure_no_other_active_job(db, job)
     previous_state = job.state.value
 
@@ -284,12 +327,18 @@ def retry_background_job(db: Session, job: BackgroundJob) -> BackgroundJob:
     job.started_at = None
     job.finished_at = None
     db.add(job)
+    max_attempts = RETRY_POLICY_MAX_ATTEMPTS[job.job_type]
     create_job_log(
         db,
         job,
         event_type="job_retried",
         message="Job was reset to queued for another attempt.",
-        metadata={"previous_state": previous_state},
+        metadata={
+            "previous_state": previous_state,
+            "attempts_used": job.attempts,
+            "max_attempts": max_attempts,
+            "remaining_attempts": max(max_attempts - job.attempts, 0),
+        },
     )
 
     for attempt in job.generation_attempts:
@@ -303,6 +352,59 @@ def retry_background_job(db: Session, job: BackgroundJob) -> BackgroundJob:
 
     for asset in _list_payload_assets(db, job):
         _reset_asset_for_retry(db, asset)
+
+    db.commit()
+    return get_background_job(db, job.id) or job
+
+
+def resume_stale_running_job(
+    db: Session,
+    job: BackgroundJob,
+    *,
+    stale_after_minutes: int = 30,
+) -> BackgroundJob:
+    if job.job_type not in RESUMABLE_JOB_TYPES:
+        raise ValueError("Only browser and media jobs can be manually resumed.")
+
+    if job.state != BackgroundJobState.RUNNING:
+        raise ValueError("Only running jobs can be resumed.")
+
+    _ensure_job_is_stale(job, stale_after_minutes=stale_after_minutes)
+    _ensure_no_other_active_job(db, job)
+    previous_updated_at = _as_aware_datetime(job.updated_at)
+
+    job.state = BackgroundJobState.QUEUED
+    job.progress_percent = 0
+    job.error_message = None
+    job.started_at = None
+    job.finished_at = None
+    db.add(job)
+    create_job_log(
+        db,
+        job,
+        event_type="job_resumed",
+        message="Stale running job was reset to queued for worker resume.",
+        level="warning",
+        metadata={
+            "previous_state": BackgroundJobState.RUNNING.value,
+            "previous_updated_at": previous_updated_at.isoformat(),
+            "stale_after_minutes": stale_after_minutes,
+        },
+    )
+
+    for attempt in job.generation_attempts:
+        if attempt.state == BackgroundJobState.COMPLETED:
+            continue
+        attempt.state = BackgroundJobState.QUEUED
+        attempt.error_message = None
+        attempt.started_at = None
+        attempt.finished_at = None
+        db.add(attempt)
+        for asset in attempt.assets:
+            _reset_unfinished_asset_for_resume(db, asset)
+
+    for asset in _list_payload_assets(db, job):
+        _reset_unfinished_asset_for_resume(db, asset)
 
     db.commit()
     return get_background_job(db, job.id) or job
@@ -460,7 +562,7 @@ def _promote_project_after_completed_job(db: Session, job: BackgroundJob) -> Non
         _promote_project_to_rough_cut_ready(db, job)
         return
 
-    if job.job_type == BackgroundJobType.PUBLISH_CONTENT:
+    if job.job_type in {BackgroundJobType.PUBLISH_CONTENT, BackgroundJobType.SYNC_ANALYTICS}:
         return
 
     _promote_project_to_asset_review(db, job)
@@ -535,6 +637,52 @@ def _reset_asset_for_retry(db: Session, asset: Asset) -> None:
     asset.status = AssetStatus.PLANNED
     asset.checksum = None
     db.add(asset)
+
+
+def _reset_unfinished_asset_for_resume(db: Session, asset: Asset) -> None:
+    if asset.status in {AssetStatus.READY, AssetStatus.REJECTED}:
+        return
+
+    asset.status = AssetStatus.PLANNED
+    asset.checksum = None
+    db.add(asset)
+
+
+def _ensure_job_type_supports_manual_retry(job: BackgroundJob) -> None:
+    if job.job_type in RETRY_POLICY_MAX_ATTEMPTS:
+        return
+
+    raise ValueError(
+        "This job type does not support manual retry. Re-run the project action "
+        "that created the job instead."
+    )
+
+
+def _ensure_retry_budget_available(job: BackgroundJob) -> None:
+    max_attempts = RETRY_POLICY_MAX_ATTEMPTS[job.job_type]
+    if job.attempts < max_attempts:
+        return
+
+    raise ValueError(
+        f"Retry limit exceeded for {job.job_type.value}. This job has used "
+        f"{job.attempts} of {max_attempts} allowed execution attempt(s)."
+    )
+
+
+def _ensure_job_is_stale(job: BackgroundJob, *, stale_after_minutes: int) -> None:
+    stale_cutoff = datetime.now(UTC) - timedelta(minutes=stale_after_minutes)
+    updated_at = _as_aware_datetime(job.updated_at)
+    if updated_at > stale_cutoff:
+        raise ValueError(
+            "Running job is not stale enough to resume safely. "
+            f"Wait until it has no updates for at least {stale_after_minutes} minute(s)."
+        )
+
+
+def _as_aware_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _ensure_no_other_active_job(db: Session, job: BackgroundJob) -> None:

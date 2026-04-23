@@ -1,6 +1,8 @@
 import { apiBaseUrl } from "./env";
 import type {
+  AccountAnalytics,
   ApiErrorEnvelope,
+  ArtifactRetentionPlan,
   Asset,
   AnalyticsSnapshot,
   AnalyticsSnapshotPayload,
@@ -222,6 +224,10 @@ export function getProjectAnalytics(projectId: string): Promise<ProjectAnalytics
   return apiRequest<ProjectAnalytics>(`/projects/${projectId}/analytics`);
 }
 
+export function getAccountAnalytics(): Promise<AccountAnalytics> {
+  return apiRequest<AccountAnalytics>("/analytics/account");
+}
+
 export function listProjectJobs(projectId: string): Promise<BackgroundJob[]> {
   return apiRequest<BackgroundJob[]>(`/projects/${projectId}/jobs`);
 }
@@ -242,6 +248,12 @@ export function retryJob(jobId: string): Promise<BackgroundJobDetail> {
   });
 }
 
+export function resumeJob(jobId: string): Promise<BackgroundJobDetail> {
+  return apiRequest<BackgroundJobDetail>(`/jobs/${jobId}/resume`, {
+    method: "POST",
+  });
+}
+
 export function markJobManualIntervention(
   jobId: string,
   payload: ManualInterventionPayload,
@@ -258,6 +270,10 @@ export function exportProject(projectId: string): Promise<ProjectExport> {
 
 export function getOperationsRecovery(): Promise<OperationsRecovery> {
   return apiRequest<OperationsRecovery>("/operations/recovery");
+}
+
+export function getArtifactRetentionPlan(): Promise<ArtifactRetentionPlan> {
+  return apiRequest<ArtifactRetentionPlan>("/operations/artifacts/retention-plan");
 }
 
 export function listProjectAssets(projectId: string): Promise<Asset[]> {
@@ -421,6 +437,16 @@ export function syncPublishJobAnalytics(
   payload: AnalyticsSnapshotPayload,
 ): Promise<AnalyticsSnapshot> {
   return apiRequest<AnalyticsSnapshot>(`/publish-jobs/${publishJobId}/sync-analytics`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function queuePublishJobAnalyticsSync(
+  publishJobId: string,
+  payload: AnalyticsSnapshotPayload,
+): Promise<BackgroundJob> {
+  return apiRequest<BackgroundJob>(`/publish-jobs/${publishJobId}/analytics/queue`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

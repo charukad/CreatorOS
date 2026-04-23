@@ -1,0 +1,55 @@
+{
+  "provider_name": "flow_web",
+  "version": "v1",
+  "workspace_label": "Flow scene generation workspace",
+  "selectors": {
+    "auth_gate": {
+      "description": "Login or human-verification surface before Flow becomes usable.",
+      "candidates": [
+        "text=/sign in/i",
+        "iframe[title*='challenge']",
+        "[data-testid='auth-required']"
+      ]
+    },
+    "workspace_shell": {
+      "description": "Primary Flow shell that confirms the scene workspace is open.",
+      "candidates": [
+        "[data-testid='flow-workspace']",
+        "main [data-testid='workspace-shell']",
+        "main"
+      ]
+    },
+    "scene_prompt_input": {
+      "description": "Prompt editor for single-scene or batched scene generation requests.",
+      "candidates": [
+        "textarea[data-testid='scene-prompt']",
+        "[contenteditable='true'][data-testid='prompt-editor']",
+        "textarea"
+      ]
+    },
+    "batch_submit_button": {
+      "description": "Submission trigger for scene or batch generation.",
+      "candidates": [
+        "button[data-testid='submit-generation']",
+        "button:has-text('Generate')",
+        "button[type='submit']"
+      ]
+    },
+    "render_ready_badge": {
+      "description": "Completion indicator for generated visuals before download.",
+      "candidates": [
+        "[data-testid='render-ready']",
+        "text=/ready/i",
+        "text=/completed/i"
+      ]
+    },
+    "download_button": {
+      "description": "Completed-output download action for image or clip exports.",
+      "candidates": [
+        "button[data-testid='download-output']",
+        "a[download]",
+        "button:has-text('Download')"
+      ]
+    }
+  }
+}
