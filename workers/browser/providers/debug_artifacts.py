@@ -34,6 +34,31 @@ def write_failure_debug_artifacts(
     return [str(screenshot_path), str(html_path)]
 
 
+def write_checkpoint_debug_artifacts(
+    debug_root: Path,
+    *,
+    checkpoint_name: str,
+    provider_job_id: str | None,
+    snapshot_html: str | None = None,
+    screenshot_bytes: bytes | None = None,
+) -> list[str]:
+    checkpoint_root = debug_root / "checkpoints"
+    checkpoint_root.mkdir(parents=True, exist_ok=True)
+
+    prefix = _artifact_prefix(provider_job_id)
+    safe_checkpoint_name = _safe_filename(checkpoint_name)
+    screenshot_path = checkpoint_root / f"{prefix}-{safe_checkpoint_name}-screenshot.png"
+    html_path = checkpoint_root / f"{prefix}-{safe_checkpoint_name}-snapshot.html"
+
+    screenshot_path.write_bytes(screenshot_bytes or _PLACEHOLDER_SCREENSHOT)
+    html_path.write_text(
+        snapshot_html or _fallback_checkpoint_html(checkpoint_name=checkpoint_name),
+        encoding="utf-8",
+    )
+
+    return [str(screenshot_path), str(html_path)]
+
+
 def capture_playwright_failure_artifacts(
     page: Any,
     debug_root: Path,
@@ -47,6 +72,24 @@ def capture_playwright_failure_artifacts(
         debug_root,
         provider_job_id=provider_job_id,
         error=error,
+        snapshot_html=snapshot_html,
+        screenshot_bytes=screenshot_bytes,
+    )
+
+
+def capture_playwright_checkpoint_artifacts(
+    page: Any,
+    debug_root: Path,
+    *,
+    checkpoint_name: str,
+    provider_job_id: str | None,
+) -> list[str]:
+    screenshot_bytes = page.screenshot(full_page=True)
+    snapshot_html = page.content()
+    return write_checkpoint_debug_artifacts(
+        debug_root,
+        checkpoint_name=checkpoint_name,
+        provider_job_id=provider_job_id,
         snapshot_html=snapshot_html,
         screenshot_bytes=screenshot_bytes,
     )
@@ -75,6 +118,24 @@ def _fallback_snapshot_html(*, error: Exception, provider_job_id: str | None) ->
             "  <h1>Browser failure snapshot unavailable</h1>",
             f"  <p>Provider job: {escape(provider_job_id or 'unknown')}</p>",
             f"  <p>Error: {escape(str(error))}</p>",
+            "</body>",
+            "</html>",
+        ]
+    )
+
+
+def _fallback_checkpoint_html(*, checkpoint_name: str) -> str:
+    return "\n".join(
+        [
+            "<!doctype html>",
+            '<html lang="en">',
+            "<head>",
+            '  <meta charset="utf-8" />',
+            "  <title>CreatorOS Browser Checkpoint Snapshot</title>",
+            "</head>",
+            "<body>",
+            f"  <h1>{escape(checkpoint_name)}</h1>",
+            "  <p>Checkpoint snapshot captured without a live browser page.</p>",
             "</body>",
             "</html>",
         ]

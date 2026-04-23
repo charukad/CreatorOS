@@ -2003,6 +2003,23 @@ def test_publish_job_approval_schedule_and_manual_publish_flow() -> None:
     assert schedule_response.status_code == 200
     assert schedule_response.json()["status"] == "scheduled"
 
+    idempotent_schedule_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/schedule",
+        json={"scheduled_for": "2030-01-01T00:00:00+00:00"},
+    )
+    assert idempotent_schedule_response.status_code == 200
+    assert idempotent_schedule_response.json()["id"] == publish_job_id
+    assert idempotent_schedule_response.json()["scheduled_for"].startswith(
+        "2030-01-01T00:00:00"
+    )
+
+    reschedule_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/schedule",
+        json={"scheduled_for": "2030-01-02T00:00:00+00:00"},
+    )
+    assert reschedule_response.status_code == 409
+    assert "cannot be rescheduled" in _error_message(reschedule_response)
+
     project_response = client.get(f"/api/projects/{project_id}")
     assert project_response.status_code == 200
     assert project_response.json()["status"] == "scheduled"

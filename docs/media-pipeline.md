@@ -13,6 +13,7 @@ Turn approved script + generated assets into an automatically assembled short-fo
 - the worker also writes an SRT subtitle sidecar registered as a `subtitle_file` asset
 - the worker writes a JSON FFmpeg command-plan sidecar for the future MP4 render
 - optional FFmpeg-based MP4 rendering is available behind `MEDIA_ENABLE_FFMPEG_RENDER=true`
+- timeout-style FFmpeg render failures are retried once inline before the media job fails
 - real local FFmpeg install/manual MP4 QA, transitions, and final export are still pending
 
 ## Inputs

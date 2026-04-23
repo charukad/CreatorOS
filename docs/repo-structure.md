@@ -89,6 +89,8 @@ creatoros/
 - controlled downloads
 - retry/resume
 - screenshots/logging
+- versioned selector registries
+- explicit browser-download ingest manifests
 
 ### `workers/media`
 - timeline assembly
@@ -111,5 +113,7 @@ storage/projects/{project_id}/
 ├─ subtitles/
 ├─ publish/
 ├─ metadata/
+│  ├─ browser-jobs/
+│  └─ browser-downloads/
 └─ retention/
 ```

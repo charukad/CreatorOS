@@ -22,14 +22,17 @@
 - the current idea and script workflow runs synchronously inside the API as a local deterministic generator
 - asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
 - the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
-- browser output ingestion now persists checksums, keeps regeneration paths attempt-specific, logs duplicate asset checksums, and quarantines mismatched downloads
+- browser output ingestion now persists checksums, keeps regeneration paths attempt-specific, handles matching re-ingestion idempotently, logs duplicate asset checksums, and quarantines mismatched or conflicting downloads
+- browser workers now load versioned selector registries, write checkpoint artifacts and staged download manifests, and redact secret-like browser log fields before persisting operator-facing job logs
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
 - after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, FFmpeg command-plan sidecar, and optionally a `video/mp4` rough-cut asset when FFmpeg rendering is enabled
 - job detail, project activity, job timeline logs, safe cancel, retry, and resume endpoints are implemented for operator recovery
+- browser workers retry timeout/selector-style provider failures once, and media workers retry timeout-style FFmpeg render failures once, before the job reaches `failed`
+- browser jobs now write per-attempt request metadata and output registration sidecars under project metadata storage and link those paths from job logs
 - operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, duplicate asset warnings, and non-destructive artifact retention candidates in API responses
 - final-video approval, publish-job preparation, publish approval, and queue-backed manual publish handoffs are implemented before manual published completion
 - manual analytics snapshots and first-pass insight generation are implemented for published jobs
-- Redis-backed execution, automated retry policy, and live worker progress updates are still planned
+- Redis-backed execution, automated retry backoff beyond the current inline worker retry, and live progress updates are still planned
 
 ## Core Resources
 ### Brand Profiles
@@ -594,7 +597,7 @@ Behavior note:
 
 Behavior note:
 - marks the job `waiting_external`
-- preserves the human-readable reason in `error_message`
+- preserves a redacted human-readable reason in `error_message`
 - writes a `manual_intervention_required` job log entry for project activity and recovery queues
 
 ### `GET /api/operations/recovery`
@@ -865,6 +868,8 @@ Behavior note:
 - requires an approved publish job
 - moves the publish job to `scheduled`
 - moves the project to `scheduled`
+- repeating the same schedule request for an already scheduled job returns the existing scheduled job
+- changing the schedule after a job is already scheduled is blocked for manual review
 
 ### `POST /api/publish-jobs/:id/mark-published`
 ```json

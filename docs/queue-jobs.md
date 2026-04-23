@@ -10,7 +10,12 @@
 - job detail, job timeline logs, safe cancel, and safe retry operations are available through the API, dedicated job detail screen, and project page
 - queued browser/media job payloads include a `correlation_id` that is also copied into queue log metadata
 - browser provider debug artifacts and failure screenshot/HTML snapshots are captured into per-provider debug folders and linked from job logs
-- browser output ingestion now persists file checksums, writes per-attempt asset paths, logs duplicate checksums, and quarantines mismatched download counts for manual review
+- browser workers now load versioned selector bundles, capture checkpoint screenshot/HTML artifacts during session setup, and log the selector version used for each provider run
+- browser workers retry timeout/selector-style provider failures once before failing the job
+- browser output ingestion now stages raw downloads into explicit project metadata ingest paths, writes per-download manifest sidecars, persists file checksums, treats matching repeated downloads as idempotent, logs duplicate checksums, and quarantines mismatched or conflicting downloads for manual review
+- browser workers now emit per-attempt request metadata and output registration payloads under project `metadata/` paths
+- browser workers now redact secret-like browser log fields and pause auth/captcha/verification failures in `waiting_external` for operator recovery
+- media workers retry timeout-style FFmpeg render failures once before failing the job
 - analytics snapshots can now be queued for published jobs through the API and project analytics panel, then consumed by the analytics worker with first-pass insights persisted for review
 - actual Redis-backed execution for idea/script generation, automated retry policy, and live worker progress updates are still pending
 - automated platform polling adapters for `sync_analytics` are still pending
@@ -192,6 +197,8 @@ Current manual retry behavior:
 - retry enforces the per-job execution attempt budget above using `background_jobs.attempts`
 - retry is blocked when another active job of the same type already exists for the same script
 - completed jobs cannot be retried from the API
+- browser workers also retry timeout/selector-style provider failures once inline before a job reaches `failed`
+- media workers also retry timeout-style FFmpeg render failures once inline before a job reaches `failed`
 
 Current manual resume behavior:
 - `POST /api/jobs/{job_id}/resume` is allowed only for stale `running` browser and media jobs
@@ -224,6 +231,12 @@ The `job_logs` table records operator-facing lifecycle events. Current event typ
 - `job_cancelled`
 - `job_retried`
 - `job_resumed`
+- `browser_provider_retry_scheduled`
+- `media_render_retry_scheduled`
+- `asset_ingestion_idempotent`
+- `asset_ingestion_conflict`
+- `generation_attempt_metadata_written`
+- `attempt_output_registration_written`
 
 Logs include:
 - `level` for UI severity
@@ -233,8 +246,15 @@ Logs include:
 
 Additional current recovery events:
 - `debug_artifacts_captured`
+- `browser_selector_registry_loaded`
+- `browser_session_prepared`
+- `browser_session_validated`
+- `browser_workspace_opened`
+- `browser_checkpoint_artifacts_captured`
 - `browser_failure_artifacts_captured`
 - `browser_failure_artifact_capture_failed`
+- `browser_downloads_tagged`
+- `browser_manual_intervention_detected`
 - `downloads_quarantined`
 - `duplicate_asset_detected`
 - `manual_intervention_required`

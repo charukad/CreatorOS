@@ -13,6 +13,7 @@ from apps.api.models.project_script import ProjectScript
 from apps.api.schemas.enums import AssetStatus, AssetType, BackgroundJobType, ProviderName
 from apps.api.services.background_jobs import (
     claim_next_media_job,
+    create_job_log,
     mark_job_completed,
     mark_job_failed,
     mark_job_progress,
@@ -36,6 +37,7 @@ from workers.media.timeline.validation import validate_timeline_manifest
 logger = logging.getLogger(__name__)
 
 VISUAL_ASSET_TYPES = (AssetType.SCENE_IMAGE, AssetType.SCENE_VIDEO)
+MEDIA_FFMPEG_INLINE_RETRY_LIMIT = 1
 
 
 def run_pending_jobs(
@@ -377,7 +379,7 @@ def _render_mp4_if_enabled(
     session.add(job)
     session.commit()
 
-    run_ffmpeg_command(ffmpeg_command)
+    _run_ffmpeg_command_with_retry(session, job, ffmpeg_command, video_path=video_path)
     if not video_path.exists():
         raise ValueError(f"FFmpeg finished but did not create the expected file: {video_path}")
 
@@ -402,6 +404,54 @@ def _probe_narration_duration(narration_asset: Asset) -> float | None:
         return None
 
     return probe_wav_duration_seconds(narration_path)
+
+
+def _run_ffmpeg_command_with_retry(
+    session: Session,
+    job: BackgroundJob,
+    ffmpeg_command: list[str],
+    *,
+    video_path: Path,
+) -> None:
+    for retry_index in range(MEDIA_FFMPEG_INLINE_RETRY_LIMIT + 1):
+        try:
+            run_ffmpeg_command(ffmpeg_command)
+            return
+        except Exception as error:
+            if video_path.exists():
+                video_path.unlink()
+
+            if retry_index >= MEDIA_FFMPEG_INLINE_RETRY_LIMIT or not _is_retryable_ffmpeg_error(
+                error
+            ):
+                raise
+
+            create_job_log(
+                session,
+                job,
+                event_type="media_render_retry_scheduled",
+                message=(
+                    "FFmpeg render failed with a retryable timeout-style error. "
+                    "Retrying once before failing the media job."
+                ),
+                level="warning",
+                metadata={
+                    "retry_number": retry_index + 1,
+                    "max_inline_retries": MEDIA_FFMPEG_INLINE_RETRY_LIMIT,
+                    "error_message": str(error),
+                },
+            )
+            session.commit()
+
+    raise RuntimeError("FFmpeg retry loop exited unexpectedly.")
+
+
+def _is_retryable_ffmpeg_error(error: Exception) -> bool:
+    if isinstance(error, TimeoutError):
+        return True
+
+    message = str(error).lower()
+    return any(pattern in message for pattern in ("timeout", "timed out"))
 
 
 def _manifest_duration_seconds(manifest: dict[str, object]) -> int:
