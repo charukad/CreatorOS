@@ -56,6 +56,14 @@ type ProjectContentStudioProps = {
   project: Project;
 };
 
+const retryPolicyMaxAttempts: Partial<Record<BackgroundJob["job_type"], number>> = {
+  generate_audio_browser: 4,
+  generate_visuals_browser: 4,
+  compose_rough_cut: 3,
+  publish_content: 2,
+  sync_analytics: 2,
+};
+
 function formatTimestamp(value: string): string {
   return new Date(value).toLocaleString();
 }
@@ -95,8 +103,13 @@ function canCancelJobState(state: BackgroundJob["state"]): boolean {
   return state === "queued" || state === "waiting_external";
 }
 
-function canRetryJobState(state: BackgroundJob["state"]): boolean {
-  return state === "failed" || state === "cancelled";
+function canRetryJob(job: BackgroundJob): boolean {
+  const maxAttempts = retryPolicyMaxAttempts[job.job_type];
+  return (
+    (job.state === "failed" || job.state === "cancelled") &&
+    maxAttempts !== undefined &&
+    job.attempts < maxAttempts
+  );
 }
 
 function canResumeJob(job: BackgroundJob): boolean {
@@ -1018,7 +1031,7 @@ export function ProjectContentStudio({
                     <div className="mt-5 grid gap-4">
                       {visibleWorkflowJobs.map((job) => {
                         const canCancelThisJob = canCancelJobState(job.state);
-                        const canRetryThisJob = canRetryJobState(job.state);
+                        const canRetryThisJob = canRetryJob(job);
                         const canResumeThisJob = canResumeJob(job);
                         const scriptVersion =
                           typeof job.payload_json["script_version"] === "number"

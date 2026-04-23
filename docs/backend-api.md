@@ -567,8 +567,10 @@ Behavior note:
 ### `POST /api/jobs/:id/retry`
 Behavior note:
 - only `failed` and `cancelled` jobs can be retried
+- retry is available for worker-backed browser, media, publish, and analytics jobs; inline idea/script planning jobs should be re-run from the project action
 - retry reuses the existing job, attempts, and related asset records
 - retry resets job state to `queued`, clears job errors, clears stale timestamps, and resets related assets to `planned`
+- retry enforces per-type execution attempt budgets: browser 4 total attempts, media 3, publish 2, analytics 2
 - retry is blocked if another active job of the same type already exists for the same script
 - completed jobs cannot be retried
 

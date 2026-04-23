@@ -16,6 +16,7 @@ from apps.api.schemas.enums import (
     AssetStatus,
     AssetType,
     BackgroundJobState,
+    BackgroundJobType,
     ProjectStatus,
     ProviderName,
 )
@@ -1720,6 +1721,63 @@ def test_retry_failed_job_resets_error_without_duplicate_assets() -> None:
     assert {asset["id"] for asset in retried_detail["related_assets"]} == initial_asset_ids
     assert all(asset["status"] == "planned" for asset in retried_detail["related_assets"])
     assert any(log["event_type"] == "job_retried" for log in retried_detail["job_logs"])
+
+    app.dependency_overrides.clear()
+
+
+def test_retry_policy_blocks_exhausted_and_unsupported_job_types() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Retry policy limits",
+        objective="Validate per-job retry budgets",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    with session_factory() as session:
+        job = get_background_job(session, UUID(job_id))
+        assert job is not None
+        job.state = BackgroundJobState.FAILED
+        job.attempts = 4
+        job.error_message = "Provider exhausted retries."
+        session.add(job)
+        session.commit()
+
+    exhausted_retry_response = client.post(f"/api/jobs/{job_id}/retry")
+    assert exhausted_retry_response.status_code == 409
+    assert "Retry limit exceeded" in _error_message(exhausted_retry_response)
+
+    with session_factory() as session:
+        project = session.get(Project, UUID(project_id))
+        assert project is not None
+        planning_job = BackgroundJob(
+            user_id=project.user_id,
+            project_id=project.id,
+            script_id=None,
+            job_type=BackgroundJobType.GENERATE_IDEAS,
+            provider_name=None,
+            state=BackgroundJobState.FAILED,
+            payload_json={"idea_count": 3},
+            attempts=1,
+            progress_percent=0,
+            error_message="Inline planner failed.",
+            started_at=None,
+            finished_at=datetime.now(UTC),
+        )
+        session.add(planning_job)
+        session.commit()
+        planning_job_id = str(planning_job.id)
+
+    unsupported_retry_response = client.post(f"/api/jobs/{planning_job_id}/retry")
+    assert unsupported_retry_response.status_code == 409
+    assert "does not support manual retry" in _error_message(unsupported_retry_response)
 
     app.dependency_overrides.clear()
 

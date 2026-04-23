@@ -179,14 +179,17 @@ Current manual v1 behavior:
 - official platform upload and analytics polling adapters are still pending
 
 ## Retry Policy
-- browser jobs: up to 3 retries with screenshots, HTML snapshots, and logs
-- media jobs: up to 2 retries for transient FFmpeg failures
-- publish jobs: 1 retry only, then manual review required
+- browser jobs: up to 4 total execution attempts (initial run plus 3 retries) with screenshots, HTML snapshots, and logs
+- media jobs: up to 3 total execution attempts (initial run plus 2 retries) for transient FFmpeg failures
+- publish jobs: up to 2 total execution attempts (initial run plus 1 retry), then manual review required
+- analytics sync jobs: up to 2 total execution attempts for operator-supplied metric snapshots
+- inline idea/script planning jobs do not support manual retry; re-run the project action that created the job instead
 
 Current manual retry behavior:
 - `POST /api/jobs/{job_id}/retry` is allowed only for `failed` or `cancelled` jobs
 - retry resets the existing job to `queued`, clears the job error, and reuses the existing generation attempts and planned assets instead of creating duplicate placeholders
 - retry resets related non-rejected assets to `planned` and clears stale checksums
+- retry enforces the per-job execution attempt budget above using `background_jobs.attempts`
 - retry is blocked when another active job of the same type already exists for the same script
 - completed jobs cannot be retried from the API
 

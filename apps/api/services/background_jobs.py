@@ -34,6 +34,13 @@ RETRYABLE_JOB_STATES = {
     BackgroundJobState.FAILED,
     BackgroundJobState.CANCELLED,
 }
+RETRY_POLICY_MAX_ATTEMPTS = {
+    BackgroundJobType.GENERATE_AUDIO_BROWSER: 4,
+    BackgroundJobType.GENERATE_VISUALS_BROWSER: 4,
+    BackgroundJobType.COMPOSE_ROUGH_CUT: 3,
+    BackgroundJobType.PUBLISH_CONTENT: 2,
+    BackgroundJobType.SYNC_ANALYTICS: 2,
+}
 RESUMABLE_JOB_TYPES = {*CLAIMABLE_BROWSER_JOB_TYPES, *CLAIMABLE_MEDIA_JOB_TYPES}
 RESETTABLE_ASSET_STATUSES = {
     AssetStatus.PLANNED,
@@ -309,6 +316,8 @@ def retry_background_job(db: Session, job: BackgroundJob) -> BackgroundJob:
     if job.state not in RETRYABLE_JOB_STATES:
         raise ValueError("Only failed or cancelled jobs can be retried.")
 
+    _ensure_job_type_supports_manual_retry(job)
+    _ensure_retry_budget_available(job)
     _ensure_no_other_active_job(db, job)
     previous_state = job.state.value
 
@@ -318,12 +327,18 @@ def retry_background_job(db: Session, job: BackgroundJob) -> BackgroundJob:
     job.started_at = None
     job.finished_at = None
     db.add(job)
+    max_attempts = RETRY_POLICY_MAX_ATTEMPTS[job.job_type]
     create_job_log(
         db,
         job,
         event_type="job_retried",
         message="Job was reset to queued for another attempt.",
-        metadata={"previous_state": previous_state},
+        metadata={
+            "previous_state": previous_state,
+            "attempts_used": job.attempts,
+            "max_attempts": max_attempts,
+            "remaining_attempts": max(max_attempts - job.attempts, 0),
+        },
     )
 
     for attempt in job.generation_attempts:
@@ -631,6 +646,27 @@ def _reset_unfinished_asset_for_resume(db: Session, asset: Asset) -> None:
     asset.status = AssetStatus.PLANNED
     asset.checksum = None
     db.add(asset)
+
+
+def _ensure_job_type_supports_manual_retry(job: BackgroundJob) -> None:
+    if job.job_type in RETRY_POLICY_MAX_ATTEMPTS:
+        return
+
+    raise ValueError(
+        "This job type does not support manual retry. Re-run the project action "
+        "that created the job instead."
+    )
+
+
+def _ensure_retry_budget_available(job: BackgroundJob) -> None:
+    max_attempts = RETRY_POLICY_MAX_ATTEMPTS[job.job_type]
+    if job.attempts < max_attempts:
+        return
+
+    raise ValueError(
+        f"Retry limit exceeded for {job.job_type.value}. This job has used "
+        f"{job.attempts} of {max_attempts} allowed execution attempt(s)."
+    )
 
 
 def _ensure_job_is_stale(job: BackgroundJob, *, stale_after_minutes: int) -> None:
