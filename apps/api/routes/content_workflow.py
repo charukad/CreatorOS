@@ -9,6 +9,7 @@ from apps.api.core.config import get_settings
 from apps.api.db.session import get_db
 from apps.api.schemas.approvals import ApprovalDecisionRequest, ApprovalResponse
 from apps.api.schemas.content_workflow import (
+    AccountAnalyticsResponse,
     AnalyticsSnapshotRequest,
     AnalyticsSnapshotResponse,
     AssetResponse,
@@ -39,6 +40,7 @@ from apps.api.schemas.content_workflow import (
     VisualGenerationRequest,
 )
 from apps.api.schemas.enums import AssetType
+from apps.api.services.account_analytics import build_account_analytics_summary
 from apps.api.services.analytics import (
     list_project_analytics,
     queue_publish_job_analytics_sync,
@@ -224,6 +226,12 @@ def get_project_analytics_route(project_id: UUID, db: DbSession) -> ProjectAnaly
         snapshots=[AnalyticsSnapshotResponse.model_validate(snapshot) for snapshot in snapshots],
         insights=[InsightResponse.model_validate(insight) for insight in insights],
     )
+
+
+@router.get("/analytics/account", response_model=AccountAnalyticsResponse)
+def get_account_analytics_route(db: DbSession) -> AccountAnalyticsResponse:
+    user = get_or_create_default_user(db)
+    return AccountAnalyticsResponse.model_validate(build_account_analytics_summary(db, user))
 
 
 @router.get("/projects/{project_id}/jobs", response_model=list[BackgroundJobResponse])

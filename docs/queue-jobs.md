@@ -9,7 +9,7 @@
 - the media worker currently probes WAV narration duration, validates contiguous timeline data, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, an FFmpeg command-plan sidecar with scene overlay text, trim/loop handling, and fade transitions, and optionally renders/registers a `video/mp4` rough cut when `MEDIA_ENABLE_FFMPEG_RENDER=true`
 - job detail, job timeline logs, safe cancel, and safe retry operations are available through the API, dedicated job detail screen, and project page
 - queued browser/media job payloads include a `correlation_id` that is also copied into queue log metadata
-- browser provider debug artifacts are captured into per-provider debug folders and linked from job logs
+- browser provider debug artifacts and failure screenshot/HTML snapshots are captured into per-provider debug folders and linked from job logs
 - browser output ingestion now persists file checksums, writes per-attempt asset paths, logs duplicate checksums, and quarantines mismatched download counts for manual review
 - analytics snapshots can now be queued for published jobs through the API and project analytics panel, then consumed by the analytics worker with first-pass insights persisted for review
 - actual Redis-backed execution for idea/script generation, automated retry policy, and live worker progress updates are still pending
@@ -174,11 +174,12 @@ Current manual v1 behavior:
 - `POST /api/publish-jobs/{publish_job_id}/sync-analytics` records an operator-supplied analytics snapshot only after the publish job is marked `published`
 - the direct sync endpoint remains for compatibility, but the project UI uses the queued worker path
 - analytics sync persists engagement metrics, optional retention data, and generated project-level insights
+- `GET /api/analytics/account` summarizes latest snapshots per publish job across hook, duration, posting window, voice, and content type
 - the project page can display the latest snapshot and insight cards for review
 - official platform upload and analytics polling adapters are still pending
 
 ## Retry Policy
-- browser jobs: up to 3 retries with screenshots and logs
+- browser jobs: up to 3 retries with screenshots, HTML snapshots, and logs
 - media jobs: up to 2 retries for transient FFmpeg failures
 - publish jobs: 1 retry only, then manual review required
 
@@ -221,6 +222,8 @@ Logs include:
 
 Additional current recovery events:
 - `debug_artifacts_captured`
+- `browser_failure_artifacts_captured`
+- `browser_failure_artifact_capture_failed`
 - `downloads_quarantined`
 - `duplicate_asset_detected`
 - `manual_intervention_required`

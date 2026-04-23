@@ -7,6 +7,7 @@ import {
 import { DashboardWorkspace } from "../components/dashboard-workspace";
 import { StatusBadge } from "../components/status-badge";
 import {
+  getAccountAnalytics,
   listBrandProfiles,
   getOperationsRecovery,
   listProjectActivity,
@@ -16,6 +17,7 @@ import {
 } from "../lib/api";
 import { apiBaseUrl } from "../lib/env";
 import type {
+  AccountAnalytics,
   ApprovalRecord,
   BackgroundJob,
   BrandProfile,
@@ -28,6 +30,7 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   let initialError: string | null = null;
+  let accountAnalytics: AccountAnalytics | null = null;
   let approvals: ApprovalRecord[] = [];
   let brandProfiles: BrandProfile[] = [];
   let jobs: BackgroundJob[] = [];
@@ -36,10 +39,11 @@ export default async function HomePage() {
   let recentActivity: ProjectActivity[] = [];
 
   try {
-    [brandProfiles, projects, operationsRecovery] = await Promise.all([
+    [brandProfiles, projects, operationsRecovery, accountAnalytics] = await Promise.all([
       listBrandProfiles(),
       listProjects(),
       getOperationsRecovery(),
+      getAccountAnalytics(),
     ]);
     const [projectJobs, projectApprovals, projectActivity] = await Promise.all([
       Promise.all(projects.map((project) => listProjectJobs(project.id))),
@@ -85,6 +89,7 @@ export default async function HomePage() {
 
       <DashboardWorkspace
         initialActivity={recentActivity}
+        initialAccountAnalytics={accountAnalytics}
         initialApprovals={approvals}
         initialBrandProfiles={brandProfiles}
         initialError={initialError}

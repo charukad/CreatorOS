@@ -110,5 +110,6 @@ storage/projects/{project_id}/
 ├─ final/
 ├─ subtitles/
 ├─ publish/
-└─ metadata/
+├─ metadata/
+└─ retention/
 ```

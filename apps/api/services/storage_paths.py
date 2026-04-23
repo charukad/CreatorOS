@@ -11,6 +11,7 @@ ProjectStorageSection = Literal[
     "subtitles",
     "metadata",
     "publish",
+    "retention",
 ]
 
 

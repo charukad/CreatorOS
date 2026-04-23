@@ -1,6 +1,8 @@
 import { apiBaseUrl } from "./env";
 import type {
+  AccountAnalytics,
   ApiErrorEnvelope,
+  ArtifactRetentionPlan,
   Asset,
   AnalyticsSnapshot,
   AnalyticsSnapshotPayload,
@@ -222,6 +224,10 @@ export function getProjectAnalytics(projectId: string): Promise<ProjectAnalytics
   return apiRequest<ProjectAnalytics>(`/projects/${projectId}/analytics`);
 }
 
+export function getAccountAnalytics(): Promise<AccountAnalytics> {
+  return apiRequest<AccountAnalytics>("/analytics/account");
+}
+
 export function listProjectJobs(projectId: string): Promise<BackgroundJob[]> {
   return apiRequest<BackgroundJob[]>(`/projects/${projectId}/jobs`);
 }
@@ -258,6 +264,10 @@ export function exportProject(projectId: string): Promise<ProjectExport> {
 
 export function getOperationsRecovery(): Promise<OperationsRecovery> {
   return apiRequest<OperationsRecovery>("/operations/recovery");
+}
+
+export function getArtifactRetentionPlan(): Promise<ArtifactRetentionPlan> {
+  return apiRequest<ArtifactRetentionPlan>("/operations/artifacts/retention-plan");
 }
 
 export function listProjectAssets(projectId: string): Promise<Asset[]> {

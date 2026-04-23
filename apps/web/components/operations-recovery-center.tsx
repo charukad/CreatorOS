@@ -1,18 +1,43 @@
 import {
+  assetStatusLabels,
   backgroundJobStateLabels,
   backgroundJobTypeLabels,
   projectStatusLabels,
 } from "@creatoros/shared";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import type { OperationsRecovery, RecoveryJob, RecoveryLog } from "../types/api";
+import type {
+  ArtifactRetentionCandidate,
+  ArtifactRetentionPlan,
+  OperationsRecovery,
+  RecoveryJob,
+  RecoveryLog,
+} from "../types/api";
 
 type OperationsRecoveryCenterProps = {
   recovery: OperationsRecovery;
+  retentionPlan: ArtifactRetentionPlan;
 };
 
 function formatTimestamp(value: string): string {
   return new Date(value).toLocaleString();
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatLabel(value: string): string {
+  return value
+    .split("_")
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }
 
 function formatMetadata(metadata: Record<string, unknown>): string {
@@ -114,6 +139,58 @@ function RecoveryLogCard({ item }: { item: RecoveryLog }) {
   );
 }
 
+function RetentionCandidateCard({ item }: { item: ArtifactRetentionCandidate }) {
+  return (
+    <article className="rounded-2xl border border-white/8 bg-slate-950/40 p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex flex-wrap gap-2">
+            <span
+              className={
+                item.safe_to_cleanup
+                  ? "rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100"
+                  : "rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-amber-100"
+              }
+            >
+              {item.safe_to_cleanup ? "Safe retention move" : "Manual check"}
+            </span>
+            <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
+              {assetStatusLabels[item.status]}
+            </span>
+            <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100">
+              {formatLabel(item.asset_type)}
+            </span>
+          </div>
+          <h3 className="mt-4 text-lg font-semibold text-white">{item.project_title}</h3>
+          <p className="mt-3 text-sm leading-6 text-slate-300">{item.reason}</p>
+        </div>
+        <div className="flex flex-wrap gap-3 lg:justify-end">
+          <Link
+            className="rounded-full border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10"
+            href={`/projects/${item.project_id}`}
+          >
+            Open project
+          </Link>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 text-sm text-slate-300 md:grid-cols-3">
+        <p>Action: {item.recommended_action.replaceAll("_", " ")}</p>
+        <p>File: {item.file_exists ? "found" : "missing"}</p>
+        <p>Size: {item.size_bytes === null ? "Not available" : formatBytes(item.size_bytes)}</p>
+      </div>
+      <p className="mt-3 break-all rounded-2xl border border-white/8 bg-black/30 p-4 text-xs leading-5 text-slate-300">
+        {item.file_path}
+      </p>
+      {item.retention_manifest_path ? (
+        <p className="mt-3 break-all text-xs uppercase tracking-[0.16em] text-slate-500">
+          Retention manifest: {item.retention_manifest_path}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
 function RecoverySection({
   children,
   count,
@@ -149,8 +226,12 @@ function EmptyRecoveryState({ label }: { label: string }) {
   );
 }
 
-export function OperationsRecoveryCenter({ recovery }: OperationsRecoveryCenterProps) {
+export function OperationsRecoveryCenter({
+  recovery,
+  retentionPlan,
+}: OperationsRecoveryCenterProps) {
   const totalAttentionItems = recovery.summary.total_attention_items;
+  const retentionSummary = retentionPlan.summary;
 
   return (
     <section className="grid gap-6">
@@ -186,6 +267,33 @@ export function OperationsRecoveryCenter({ recovery }: OperationsRecoveryCenterP
             <p className="mt-2 text-3xl font-semibold text-white">{value}</p>
           </article>
         ))}
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <article className="rounded-2xl border border-emerald-300/20 bg-emerald-400/10 p-5">
+          <p className="text-xs uppercase tracking-[0.16em] text-emerald-100/70">
+            Safe retention candidates
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-white">
+            {retentionSummary.safe_candidate_count}
+          </p>
+        </article>
+        <article className="rounded-2xl border border-white/8 bg-white/4 p-5">
+          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+            Total retention candidates
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-white">
+            {retentionSummary.candidate_count}
+          </p>
+        </article>
+        <article className="rounded-2xl border border-white/8 bg-white/4 p-5">
+          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+            Reclaimable after approval
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-white">
+            {formatBytes(retentionSummary.total_reclaimable_bytes)}
+          </p>
+        </article>
       </section>
 
       <RecoverySection
@@ -250,6 +358,20 @@ export function OperationsRecoveryCenter({ recovery }: OperationsRecoveryCenterP
         ) : (
           recovery.duplicate_asset_warnings.map((item) => (
             <RecoveryLogCard item={item} key={item.id} />
+          ))
+        )}
+      </RecoverySection>
+
+      <RecoverySection
+        count={retentionPlan.candidates.length}
+        description="This is a planning-only view. Files are not deleted here; safe candidates should be moved with a retention manifest, while missing or superseded artifacts need a manual check first."
+        title="Artifact Retention Plan"
+      >
+        {retentionPlan.candidates.length === 0 ? (
+          <EmptyRecoveryState label="artifact retention candidates" />
+        ) : (
+          retentionPlan.candidates.map((item) => (
+            <RetentionCandidateCard item={item} key={item.asset_id} />
           ))
         )}
       </RecoverySection>

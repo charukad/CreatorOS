@@ -63,6 +63,7 @@
 - the media worker writes subtitle sidecars under `storage/projects/{project_id}/subtitles`
 - the media worker writes an FFmpeg command-plan JSON file beside rough-cut previews
 - the publisher worker writes manual upload handoffs under `storage/projects/{project_id}/publish`
+- future cleanup moves should write retention manifests under `storage/projects/{project_id}/retention` before any generated artifact leaves canonical storage
 - MP4 rendering requires FFmpeg to be installed and `MEDIA_ENABLE_FFMPEG_RENDER=true`
 
 ## Setup Steps

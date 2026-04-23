@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from workers.browser.config import BrowserWorkerSettings
 from workers.browser.providers import (
+    BrowserProvider,
     DryRunElevenLabsProvider,
     DryRunFlowProvider,
     ProviderJobPayload,
@@ -65,8 +66,12 @@ def run_pending_jobs(
 
 def _process_job(session: Session, settings: BrowserWorkerSettings, job: BackgroundJob) -> None:
     provider = _get_provider(settings, job.job_type)
-    provider.ensure_session()
-    provider.open_workspace()
+    try:
+        provider.ensure_session()
+        provider.open_workspace()
+    except Exception as error:
+        _capture_failure_artifacts(session, provider, job, None, None, error)
+        raise
 
     attempts = sorted(job.generation_attempts, key=lambda attempt: attempt.created_at)
     total_attempts = len(attempts)
@@ -75,24 +80,29 @@ def _process_job(session: Session, settings: BrowserWorkerSettings, job: Backgro
         mark_attempt_running(session, attempt)
         _refresh_job(session, job)
 
-        provider_payload = _build_provider_payload(job, attempt)
-        provider_job_id = provider.submit_job(provider_payload)
-        provider.wait_for_completion(provider_job_id)
-        debug_artifact_paths = provider.capture_debug_artifacts(provider_job_id)
-        if debug_artifact_paths:
-            create_job_log(
-                session,
-                job,
-                event_type="debug_artifacts_captured",
-                message="Browser provider debug artifacts were captured.",
-                attempt=attempt,
-                metadata={
-                    "provider_job_id": provider_job_id,
-                    "debug_artifact_paths": debug_artifact_paths,
-                },
-            )
-            session.commit()
-        download_paths = provider.collect_downloads(provider_job_id)
+        provider_job_id: str | None = None
+        try:
+            provider_payload = _build_provider_payload(job, attempt)
+            provider_job_id = provider.submit_job(provider_payload)
+            provider.wait_for_completion(provider_job_id)
+            debug_artifact_paths = provider.capture_debug_artifacts(provider_job_id)
+            if debug_artifact_paths:
+                create_job_log(
+                    session,
+                    job,
+                    event_type="debug_artifacts_captured",
+                    message="Browser provider debug artifacts were captured.",
+                    attempt=attempt,
+                    metadata={
+                        "provider_job_id": provider_job_id,
+                        "debug_artifact_paths": debug_artifact_paths,
+                    },
+                )
+                session.commit()
+            download_paths = provider.collect_downloads(provider_job_id)
+        except Exception as error:
+            _capture_failure_artifacts(session, provider, job, attempt, provider_job_id, error)
+            raise
 
         _refresh_attempt(session, attempt)
         _materialize_attempt_outputs(session, attempt, download_paths)
@@ -116,6 +126,52 @@ def _get_provider(settings: BrowserWorkerSettings, job_type: BackgroundJobType):
     if job_type == BackgroundJobType.GENERATE_VISUALS_BROWSER:
         return DryRunFlowProvider(settings.playwright_download_root)
     raise ValueError(f"Unsupported browser job type: {job_type.value}")
+
+
+def _capture_failure_artifacts(
+    session: Session,
+    provider: BrowserProvider,
+    job: BackgroundJob,
+    attempt: GenerationAttempt | None,
+    provider_job_id: str | None,
+    error: Exception,
+) -> None:
+    try:
+        failure_artifact_paths = provider.capture_failure_artifacts(provider_job_id, error)
+    except Exception as capture_error:  # pragma: no cover - defensive recovery logging
+        create_job_log(
+            session,
+            job,
+            event_type="browser_failure_artifact_capture_failed",
+            message="Browser provider failure artifacts could not be captured.",
+            level="warning",
+            attempt=attempt,
+            metadata={
+                "provider_job_id": provider_job_id,
+                "capture_error": str(capture_error),
+                "original_error": str(error),
+            },
+        )
+        session.commit()
+        return
+
+    if not failure_artifact_paths:
+        return
+
+    create_job_log(
+        session,
+        job,
+        event_type="browser_failure_artifacts_captured",
+        message="Browser provider failure screenshot and HTML snapshot were captured.",
+        level="warning",
+        attempt=attempt,
+        metadata={
+            "provider_job_id": provider_job_id,
+            "failure_artifact_paths": failure_artifact_paths,
+            "error_message": str(error),
+        },
+    )
+    session.commit()
 
 
 def _build_provider_payload(job: BackgroundJob, attempt: GenerationAttempt) -> ProviderJobPayload:

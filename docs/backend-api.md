@@ -26,7 +26,7 @@
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
 - after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, FFmpeg command-plan sidecar, and optionally a `video/mp4` rough-cut asset when FFmpeg rendering is enabled
 - job detail, project activity, job timeline logs, safe cancel, and safe retry endpoints are implemented for operator recovery
-- operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, and duplicate asset warnings in one API response
+- operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, duplicate asset warnings, and non-destructive artifact retention candidates in API responses
 - final-video approval, publish-job preparation, publish approval, and queue-backed manual publish handoffs are implemented before manual published completion
 - manual analytics snapshots and first-pass insight generation are implemented for published jobs
 - Redis-backed execution, automated retry policy, and live worker progress updates are still planned
@@ -98,6 +98,9 @@
 ### Operations
 - `GET /api/operations/recovery`
 
+### Analytics
+- `GET /api/analytics/account`
+
 ### Publish Jobs
 - `POST /api/publish-jobs/:id/approve`
 - `PATCH /api/publish-jobs/:id/metadata`
@@ -105,6 +108,7 @@
 - `POST /api/publish-jobs/:id/schedule`
 - `POST /api/publish-jobs/:id/mark-published`
 - `POST /api/publish-jobs/:id/sync-analytics`
+- `POST /api/publish-jobs/:id/analytics/queue`
 
 ## Implemented Payloads
 ### `POST /api/brand-profiles`
@@ -622,6 +626,45 @@ Behavior note:
 - quarantined downloads come from `downloads_quarantined` job logs
 - duplicate asset warnings come from `duplicate_asset_detected` job logs
 
+### `GET /api/operations/artifacts/retention-plan`
+Query parameters:
+- `limit` defaults to `50`
+
+Response excerpt:
+```json
+{
+  "candidates": [
+    {
+      "asset_id": "uuid",
+      "project_id": "uuid",
+      "project_title": "3 AI automations I use daily",
+      "script_id": "uuid",
+      "asset_type": "narration_audio",
+      "status": "rejected",
+      "file_path": "storage/projects/{project_id}/audio/rejected.wav",
+      "file_exists": true,
+      "size_bytes": 1048576,
+      "reason": "Asset is rejected and can be moved to retention with a manifest.",
+      "recommended_action": "move_to_retention",
+      "safe_to_cleanup": true,
+      "retention_manifest_path": "storage/projects/{project_id}/retention/asset-abcd1234-retention.json"
+    }
+  ],
+  "summary": {
+    "candidate_count": 1,
+    "safe_candidate_count": 1,
+    "total_reclaimable_bytes": 1048576
+  }
+}
+```
+
+Behavior note:
+- this endpoint is planning-only and does not delete or move files
+- rejected and failed assets with existing files inside the configured storage root are safe candidates for a future retention move
+- missing files return `repair_missing_file` so metadata can be corrected before cleanup
+- assets outside the configured storage root or attached to superseded scripts require `manual_review`
+- safe candidates include a proposed retention manifest path under `storage/projects/{project_id}/retention`
+
 ### `GET /api/projects/:id/assets`
 - returns planned and produced asset records for the project, including placeholder records created before worker execution starts
 
@@ -893,6 +936,43 @@ Response excerpt:
   ]
 }
 ```
+
+### `GET /api/analytics/account`
+Response excerpt:
+```json
+{
+  "overview": {
+    "published_posts": 4,
+    "total_views": 12500,
+    "total_engagements": 930,
+    "average_engagement_rate": 0.0744,
+    "average_view_duration": 18.2,
+    "top_platform": "youtube_shorts"
+  },
+  "top_posts": [
+    {
+      "project_id": "uuid",
+      "publish_job_id": "uuid",
+      "title": "Account analytics source",
+      "views": 1500,
+      "engagement_rate": 0.1067
+    }
+  ],
+  "duration_buckets": [
+    {
+      "key": "20_to_34s",
+      "label": "20-34 seconds",
+      "publish_count": 3,
+      "average_engagement_rate": 0.08
+    }
+  ]
+}
+```
+
+Behavior note:
+- uses the latest analytics snapshot per publish job so repeated syncs do not double-count totals
+- groups performance by hook, duration bucket, posting window, voice label, and platform/content type
+- powers the account-level analytics cards on the dashboard
 
 ## Planned Next Endpoints
 - `POST /api/scripts/:id/regenerate`

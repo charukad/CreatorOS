@@ -235,6 +235,35 @@ class OperationsRecoveryResponse(BaseModel):
     summary: dict[str, int]
 
 
+class ArtifactRetentionCandidateResponse(BaseModel):
+    asset_id: UUID
+    project_id: UUID
+    project_title: str
+    script_id: UUID
+    asset_type: AssetType
+    status: AssetStatus
+    file_path: str
+    file_exists: bool
+    size_bytes: int | None
+    created_at: datetime
+    updated_at: datetime
+    reason: str
+    recommended_action: str
+    safe_to_cleanup: bool
+    retention_manifest_path: str | None
+
+
+class ArtifactRetentionSummaryResponse(BaseModel):
+    candidate_count: int
+    safe_candidate_count: int
+    total_reclaimable_bytes: int
+
+
+class ArtifactRetentionPlanResponse(BaseModel):
+    candidates: list[ArtifactRetentionCandidateResponse]
+    summary: ArtifactRetentionSummaryResponse
+
+
 class GenerationAttemptResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -336,6 +365,62 @@ class InsightResponse(BaseModel):
 class ProjectAnalyticsResponse(BaseModel):
     snapshots: list[AnalyticsSnapshotResponse]
     insights: list[InsightResponse]
+
+
+class AccountAnalyticsOverviewResponse(BaseModel):
+    published_posts: int
+    total_views: int
+    total_engagements: int
+    average_engagement_rate: float
+    average_view_duration: float | None
+    top_platform: str | None
+
+
+class AccountAnalyticsPostResponse(BaseModel):
+    project_id: UUID
+    project_title: str
+    publish_job_id: UUID
+    platform: str
+    title: str
+    hook: str
+    duration_seconds: int
+    views: int
+    engagement_rate: float
+    avg_view_duration: float | None
+    published_at: datetime
+
+
+class AccountAnalyticsSummaryItemResponse(BaseModel):
+    key: str
+    label: str
+    publish_count: int
+    total_views: int
+    total_engagements: int
+    average_engagement_rate: float
+    average_view_duration: float | None
+    sample_project_id: UUID
+    sample_project_title: str
+
+
+class AccountAnalyticsRecommendationResponse(BaseModel):
+    insight_id: UUID
+    project_id: UUID
+    project_title: str
+    insight_type: str
+    summary: str
+    confidence_score: float
+    created_at: datetime
+
+
+class AccountAnalyticsResponse(BaseModel):
+    overview: AccountAnalyticsOverviewResponse
+    top_posts: list[AccountAnalyticsPostResponse]
+    hook_patterns: list[AccountAnalyticsSummaryItemResponse]
+    duration_buckets: list[AccountAnalyticsSummaryItemResponse]
+    posting_windows: list[AccountAnalyticsSummaryItemResponse]
+    voice_labels: list[AccountAnalyticsSummaryItemResponse]
+    content_types: list[AccountAnalyticsSummaryItemResponse]
+    recommendations: list[AccountAnalyticsRecommendationResponse]
 
 
 class JobLogResponse(BaseModel):

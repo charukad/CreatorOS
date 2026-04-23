@@ -369,7 +369,7 @@ The repo now has final-video approve/reject routes, publish job persistence, app
 ## Phase 17 - Analytics Sync and Learning Loop
 
 Current implementation note:
-The repo now queues manual analytics snapshots for published jobs, processes them through an analytics worker, exposes project analytics through the API, generates first-pass engagement/duration insights, shows analytics job state plus insight cards on the project page, and feeds same-brand learnings back into idea/script generation payloads and prompt packs. Real platform API sync and account-level analytics are still pending.
+The repo now queues manual analytics snapshots for published jobs, processes them through an analytics worker, exposes project and account analytics through the API, generates first-pass engagement/duration insights, shows analytics job state plus insight cards on the project page, surfaces account-level dashboard summaries, and feeds same-brand learnings back into idea/script generation payloads and prompt packs. Real platform API sync is still pending.
 
 ### Build tasks
 - [x] Implement analytics snapshot persistence and APIs
@@ -377,8 +377,8 @@ The repo now queues manual analytics snapshots for published jobs, processes the
 - [x] Add manual analytics sync flow for published content
 - [x] Store views, likes, comments, shares, saves, watch time, CTR, average view duration, and retention data
 - [x] Build project analytics screen
-- [ ] Build account-level insights views
-- [ ] Add performance summaries by hook, duration, posting time, voice, and content type
+- [x] Build account-level insights views
+- [x] Add performance summaries by hook, duration, posting time, voice, and content type
 - [x] Build first-pass insight generation and recommendation persistence
 - [x] Add project-level recommendation UI for strategy updates
 - [x] Feed analytics-derived learnings back into idea and script generation context
@@ -391,24 +391,27 @@ The repo now queues manual analytics snapshots for published jobs, processes the
 ## Phase 18 - Observability, Reliability, and Manual Override Tooling
 
 Current implementation note:
-The repo now has structured logs, API request correlation, job detail pages, project activity, safe cancel/retry, manual intervention state, project-level manual overrides, export/backup support, and an operations recovery page for failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, and duplicate asset warnings. Live-provider screenshots/HTML captures, resumable running-job recovery, and retention tooling are still pending.
+The repo now has structured logs, API request correlation, job detail pages, project activity, safe cancel/retry, manual intervention state, project-level manual overrides, export/backup support, browser failure screenshot/HTML snapshot capture hooks, an operations recovery page for failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, duplicate asset warnings, and a planning-only artifact retention view. Resumable running-job recovery is still pending.
 
 ### Build tasks
 - [x] Add structured logs across API, browser worker, and media worker
 - [x] Add API request correlation IDs and response headers
 - [x] Add error reporting and correlation IDs across job chains
 - [x] Add per-provider dry-run debug artifact storage for prompt and failure notes
-- [ ] Add live-provider screenshot and HTML snapshot capture for browser failures
+- [x] Add live-provider screenshot and HTML snapshot capture for browser failures
 - [ ] Add manual retry and resume tools for browser and media jobs
 - [x] Add manual override controls for blocked workflow states
 - [x] Add explicit `manual_intervention_required` handling where needed
 - [x] Add operator-facing status pages for failed jobs, stuck jobs, and quarantined assets
-- [ ] Add cleanup and retention strategy for generated artifacts without destructive permanent deletion
+- [x] Add cleanup and retention strategy for generated artifacts without destructive permanent deletion
 - [x] Add backup/export strategy for project metadata and approvals
 
 ### Manual checks
 - [ ] Manual check: a failed job can be debugged without reading raw code
 - [ ] Manual check: manual interventions leave an audit trail and do not hide the original failure
+- [ ] Manual check: browser failure screenshots and HTML snapshots are useful for diagnosing selector or timeout failures
+- [ ] Manual check: retention candidates are understandable before any operator moves files
+- [ ] Manual check: missing or superseded artifact cleanup stays blocked behind manual review
 
 ## Phase 19 - Security, Config, and Environment Hardening
 

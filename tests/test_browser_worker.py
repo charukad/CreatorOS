@@ -14,6 +14,8 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 from workers.browser.config import BrowserWorkerSettings
+from workers.browser.providers import ProviderJobPayload
+from workers.browser.providers.debug_artifacts import write_failure_debug_artifacts
 from workers.browser.runtime import _materialize_attempt_outputs, run_pending_jobs
 
 
@@ -205,6 +207,96 @@ def test_browser_worker_processes_queued_generation_jobs(tmp_path: Path, monkeyp
     project_response = client.get(f"/api/projects/{project_id}")
     assert project_response.status_code == 200
     assert project_response.json()["status"] == "asset_pending_approval"
+
+    app.dependency_overrides.clear()
+
+
+class FailingBrowserProvider:
+    def __init__(self, debug_root: Path) -> None:
+        self._debug_root = debug_root
+
+    def ensure_session(self) -> None:
+        return None
+
+    def open_workspace(self) -> None:
+        return None
+
+    def submit_job(self, payload: ProviderJobPayload) -> str:
+        return f"failing-provider-{payload.project_id}"
+
+    def wait_for_completion(self, job_id: str) -> None:
+        raise RuntimeError(f"Selector #render-button timed out for {job_id}")
+
+    def collect_downloads(self, job_id: str) -> list[str]:
+        return []
+
+    def capture_debug_artifacts(self, job_id: str) -> list[str]:
+        return []
+
+    def capture_failure_artifacts(self, job_id: str | None, error: Exception) -> list[str]:
+        return write_failure_debug_artifacts(
+            self._debug_root,
+            provider_job_id=job_id,
+            error=error,
+            snapshot_html="<html><body>provider panel at failure</body></html>",
+        )
+
+
+def test_browser_worker_captures_failure_screenshot_and_html_artifacts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    session_factory = _create_test_session()
+    client = _make_test_client(session_factory)
+
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Capture browser failures",
+        objective="Validate provider failure debug artifacts",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    monkeypatch.setattr(
+        "workers.browser.runtime._get_provider",
+        lambda settings, job_type: FailingBrowserProvider(
+            tmp_path / "downloads" / "debug" / "failing"
+        ),
+    )
+
+    processed_jobs = _run_browser_worker(tmp_path=tmp_path, session_factory=session_factory)
+    assert processed_jobs == 1
+
+    detail_response = client.get(f"/api/jobs/{job_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["job"]["state"] == "failed"
+    event_types = {log["event_type"] for log in detail["job_logs"]}
+    assert "browser_failure_artifacts_captured" in event_types
+    assert "job_failed" in event_types
+
+    failure_log = next(
+        log
+        for log in detail["job_logs"]
+        if log["event_type"] == "browser_failure_artifacts_captured"
+    )
+    artifact_paths = failure_log["metadata_json"]["failure_artifact_paths"]
+    assert len(artifact_paths) == 2
+
+    screenshot_path = next(Path(path) for path in artifact_paths if path.endswith(".png"))
+    snapshot_path = next(Path(path) for path in artifact_paths if path.endswith(".html"))
+    assert screenshot_path.exists()
+    assert screenshot_path.read_bytes().startswith(b"\x89PNG")
+    assert snapshot_path.exists()
+    assert "provider panel at failure" in snapshot_path.read_text(encoding="utf-8")
 
     app.dependency_overrides.clear()
 

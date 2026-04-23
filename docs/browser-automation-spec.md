@@ -7,6 +7,7 @@ Use Playwright-based browser automation to operate subscription-based tools thro
 - the browser worker can already claim queued narration and visual jobs from the database
 - local development currently uses a `dry_run` provider mode that writes WAV narration placeholders and SVG visual placeholders
 - dry-run providers now write prompt/debug notes under per-provider `debug` folders and job logs link to those artifact paths
+- browser provider failures now capture screenshot and HTML snapshot artifact paths through the provider contract before marking the job failed
 - browser worker ingestion now hashes materialized files, logs duplicate checksums, and quarantines mismatched download counts under project storage for manual review
 - live Playwright navigation, selectors, screenshots, and download handling are still pending for the real providers
 
@@ -35,7 +36,10 @@ Each provider module should expose:
 Current debug artifact convention:
 - `storage/downloads/debug/elevenlabs/*-prompt.txt`
 - `storage/downloads/debug/flow/*-prompt.txt`
+- `storage/downloads/debug/{provider}/failures/*-screenshot.png`
+- `storage/downloads/debug/{provider}/failures/*-snapshot.html`
 - job logs use `debug_artifacts_captured` with `debug_artifact_paths`
+- failure logs use `browser_failure_artifacts_captured` with `failure_artifact_paths`
 
 ## Selector Strategy
 - keep selectors in dedicated versioned files
@@ -61,7 +65,7 @@ Current debug artifact convention:
 6. Tag each clip with scene mapping.
 
 ## Failure Handling
-- on selector failure: screenshot + HTML snapshot + log entry
+- on selector failure: screenshot + HTML snapshot + `browser_failure_artifacts_captured` log entry
 - on timeout: retry once in-page, then fail job
 - on download mismatch: quarantine file for manual review
 - on auth issue: mark job `manual_intervention_required` / `waiting_external`

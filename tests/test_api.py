@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import apps.api.models  # noqa: F401
@@ -1514,6 +1515,95 @@ def test_operations_recovery_snapshot_surfaces_jobs_and_ingest_warnings() -> Non
     app.dependency_overrides.clear()
 
 
+def test_artifact_retention_plan_surfaces_safe_and_manual_cleanup_candidates(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Retention review project",
+        objective="Plan safe cleanup without deleting generated files",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+
+    stored_asset_path = Path("storage") / "projects" / project_id / "audio" / "rejected.wav"
+    stored_asset_path.parent.mkdir(parents=True, exist_ok=True)
+    stored_asset_path.write_bytes(b"rejected narration")
+    missing_asset_path = f"storage/projects/{project_id}/audio/missing.wav"
+
+    with session_factory() as session:
+        project = session.get(Project, UUID(project_id))
+        script_model = session.get(ProjectScript, UUID(str(script["id"])))
+        assert project is not None
+        assert script_model is not None
+
+        rejected_asset = Asset(
+            user_id=project.user_id,
+            project_id=project.id,
+            script_id=script_model.id,
+            scene_id=None,
+            generation_attempt_id=None,
+            asset_type=AssetType.NARRATION_AUDIO,
+            status=AssetStatus.REJECTED,
+            provider_name=ProviderName.ELEVENLABS_WEB,
+            file_path=str(stored_asset_path),
+            mime_type="audio/wav",
+            duration_seconds=12,
+            width=None,
+            height=None,
+            checksum="rejected-audio-checksum",
+        )
+        missing_asset = Asset(
+            user_id=project.user_id,
+            project_id=project.id,
+            script_id=script_model.id,
+            scene_id=None,
+            generation_attempt_id=None,
+            asset_type=AssetType.SCENE_VIDEO,
+            status=AssetStatus.FAILED,
+            provider_name=ProviderName.FLOW_WEB,
+            file_path=missing_asset_path,
+            mime_type="video/mp4",
+            duration_seconds=8,
+            width=1080,
+            height=1920,
+            checksum=None,
+        )
+        session.add_all([rejected_asset, missing_asset])
+        session.commit()
+
+    response = client.get("/api/operations/artifacts/retention-plan?limit=10")
+    assert response.status_code == 200
+    retention_plan = response.json()
+    candidates_by_path = {
+        candidate["file_path"]: candidate for candidate in retention_plan["candidates"]
+    }
+
+    safe_candidate = candidates_by_path[str(stored_asset_path)]
+    assert safe_candidate["safe_to_cleanup"] is True
+    assert safe_candidate["recommended_action"] == "move_to_retention"
+    assert safe_candidate["file_exists"] is True
+    assert safe_candidate["size_bytes"] == len(b"rejected narration")
+    assert "/retention/asset-" in safe_candidate["retention_manifest_path"]
+
+    repair_candidate = candidates_by_path[missing_asset_path]
+    assert repair_candidate["safe_to_cleanup"] is False
+    assert repair_candidate["recommended_action"] == "repair_missing_file"
+    assert repair_candidate["file_exists"] is False
+    assert repair_candidate["retention_manifest_path"] is None
+
+    assert retention_plan["summary"]["candidate_count"] == 2
+    assert retention_plan["summary"]["safe_candidate_count"] == 1
+    assert retention_plan["summary"]["total_reclaimable_bytes"] == len(b"rejected narration")
+
+    app.dependency_overrides.clear()
+
+
 def test_cancel_queued_generation_job_marks_attempts_and_assets_failed() -> None:
     client = _make_test_client()
     brand_profile_id = _create_brand_profile_for_tests(client)
@@ -2169,5 +2259,80 @@ def test_analytics_learnings_feed_future_generation_context() -> None:
     assert prompt_pack["analytics_learning_context"]["source_count"] >= 1
     assert "Learning focus" in prompt_pack["scenes"][0]["image_generation_prompt"]
     assert "Apply this learning focus" in prompt_pack["scenes"][0]["narration_direction"]
+
+    app.dependency_overrides.clear()
+
+
+def test_account_analytics_summarizes_cross_project_performance() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Summarize account analytics",
+        objective="Compare hooks duration voice and platform performance",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    audio_response = client.post(
+        f"/api/projects/{project_id}/generate/audio",
+        json={"voice_label": "Warm guide"},
+    )
+    assert audio_response.status_code == 201
+
+    _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+    client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Account analytics source",
+            "description": "Published source used to validate account summaries.",
+            "hashtags": ["#CreatorOS", "#Analytics"],
+        },
+    )
+    publish_job_id = prepare_response.json()["id"]
+    client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    client.post(
+        f"/api/publish-jobs/{publish_job_id}/mark-published",
+        json={"external_post_id": "account-summary-1"},
+    )
+    sync_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/sync-analytics",
+        json={
+            "views": 1500,
+            "likes": 120,
+            "comments": 22,
+            "shares": 10,
+            "saves": 8,
+            "avg_view_duration": 17.5,
+        },
+    )
+    assert sync_response.status_code == 201
+
+    account_response = client.get("/api/analytics/account")
+    assert account_response.status_code == 200
+    account_analytics = account_response.json()
+    assert account_analytics["overview"]["published_posts"] == 1
+    assert account_analytics["overview"]["total_views"] == 1500
+    assert account_analytics["overview"]["total_engagements"] == 160
+    assert account_analytics["overview"]["top_platform"] == "youtube_shorts"
+
+    top_post = account_analytics["top_posts"][0]
+    assert top_post["publish_job_id"] == publish_job_id
+    assert top_post["project_id"] == project_id
+    assert top_post["views"] == 1500
+    assert top_post["duration_seconds"] == script["estimated_duration_seconds"]
+
+    assert account_analytics["hook_patterns"][0]["sample_project_id"] == project_id
+    assert account_analytics["duration_buckets"][0]["publish_count"] == 1
+    assert account_analytics["posting_windows"][0]["publish_count"] == 1
+    assert account_analytics["voice_labels"][0]["label"] == "Warm guide"
+    assert account_analytics["content_types"][0]["key"] == "youtube_shorts"
+    assert account_analytics["recommendations"]
 
     app.dependency_overrides.clear()

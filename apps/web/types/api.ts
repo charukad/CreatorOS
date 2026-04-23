@@ -313,6 +313,33 @@ export type OperationsRecovery = {
   };
 };
 
+export type ArtifactRetentionCandidate = {
+  asset_id: string;
+  project_id: string;
+  project_title: string;
+  script_id: string;
+  asset_type: AssetType;
+  status: AssetStatus;
+  file_path: string;
+  file_exists: boolean;
+  size_bytes: number | null;
+  created_at: string;
+  updated_at: string;
+  reason: string;
+  recommended_action: string;
+  safe_to_cleanup: boolean;
+  retention_manifest_path: string | null;
+};
+
+export type ArtifactRetentionPlan = {
+  candidates: ArtifactRetentionCandidate[];
+  summary: {
+    candidate_count: number;
+    safe_candidate_count: number;
+    total_reclaimable_bytes: number;
+  };
+};
+
 export type PublishJob = {
   id: string;
   user_id: string;
@@ -367,6 +394,60 @@ export type Insight = {
 export type ProjectAnalytics = {
   snapshots: AnalyticsSnapshot[];
   insights: Insight[];
+};
+
+export type AccountAnalyticsSummaryItem = {
+  key: string;
+  label: string;
+  publish_count: number;
+  total_views: number;
+  total_engagements: number;
+  average_engagement_rate: number;
+  average_view_duration: number | null;
+  sample_project_id: string;
+  sample_project_title: string;
+};
+
+export type AccountAnalyticsPost = {
+  project_id: string;
+  project_title: string;
+  publish_job_id: string;
+  platform: string;
+  title: string;
+  hook: string;
+  duration_seconds: number;
+  views: number;
+  engagement_rate: number;
+  avg_view_duration: number | null;
+  published_at: string;
+};
+
+export type AccountAnalyticsRecommendation = {
+  insight_id: string;
+  project_id: string;
+  project_title: string;
+  insight_type: string;
+  summary: string;
+  confidence_score: number;
+  created_at: string;
+};
+
+export type AccountAnalytics = {
+  overview: {
+    published_posts: number;
+    total_views: number;
+    total_engagements: number;
+    average_engagement_rate: number;
+    average_view_duration: number | null;
+    top_platform: string | null;
+  };
+  top_posts: AccountAnalyticsPost[];
+  hook_patterns: AccountAnalyticsSummaryItem[];
+  duration_buckets: AccountAnalyticsSummaryItem[];
+  posting_windows: AccountAnalyticsSummaryItem[];
+  voice_labels: AccountAnalyticsSummaryItem[];
+  content_types: AccountAnalyticsSummaryItem[];
+  recommendations: AccountAnalyticsRecommendation[];
 };
 
 export type GenerationAttempt = {
