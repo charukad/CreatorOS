@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -63,6 +63,7 @@ from apps.api.services.background_jobs import (
     list_job_related_assets,
     list_project_job_logs,
     mark_job_manual_intervention_required,
+    resume_stale_running_job,
     retry_background_job,
 )
 from apps.api.services.content_workflow import (
@@ -283,6 +284,29 @@ def retry_job_route(job_id: UUID, db: DbSession) -> BackgroundJobDetailResponse:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return _job_detail_response(db, retried_job)
+
+
+@router.post("/jobs/{job_id}/resume", response_model=BackgroundJobDetailResponse)
+def resume_job_route(
+    job_id: UUID,
+    db: DbSession,
+    stale_after_minutes: Annotated[int, Query(ge=1, le=1440)] = 30,
+) -> BackgroundJobDetailResponse:
+    user = get_or_create_default_user(db)
+    job = get_owned_background_job(db, user, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    try:
+        resumed_job = resume_stale_running_job(
+            db,
+            job,
+            stale_after_minutes=stale_after_minutes,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return _job_detail_response(db, resumed_job)
 
 
 @router.post("/jobs/{job_id}/manual-intervention", response_model=BackgroundJobDetailResponse)

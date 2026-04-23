@@ -8,7 +8,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
-import { cancelJob, markJobManualIntervention, retryJob } from "../lib/api";
+import { cancelJob, markJobManualIntervention, resumeJob, retryJob } from "../lib/api";
 import type { BackgroundJob, BackgroundJobDetail } from "../types/api";
 
 type JobDetailProps = {
@@ -32,6 +32,15 @@ function canCancelJobState(state: BackgroundJob["state"]): boolean {
 
 function canRetryJobState(state: BackgroundJob["state"]): boolean {
   return state === "failed" || state === "cancelled";
+}
+
+function canResumeJob(job: BackgroundJob): boolean {
+  return (
+    job.state === "running" &&
+    ["generate_audio_browser", "generate_visuals_browser", "compose_rough_cut"].includes(
+      job.job_type,
+    )
+  );
 }
 
 function logLevelClassName(level: string): string {
@@ -143,7 +152,7 @@ export function JobDetail({ detail }: JobDetailProps) {
             <h2 className="text-xl font-semibold text-white">Safe operations</h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">
               Cancel only before active execution; retry only after failed or cancelled states.
-              Manual intervention keeps the job visible in recovery queues.
+              Resume is for stale running browser/media jobs after a worker interruption.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -162,6 +171,14 @@ export function JobDetail({ detail }: JobDetailProps) {
               type="button"
             >
               {pendingAction === "retry" ? "Retrying..." : "Retry job"}
+            </button>
+            <button
+              className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={!canResumeJob(job) || pendingAction !== null}
+              onClick={() => runAction("resume", () => resumeJob(job.id))}
+              type="button"
+            >
+              {pendingAction === "resume" ? "Resuming..." : "Resume stale job"}
             </button>
           </div>
         </div>

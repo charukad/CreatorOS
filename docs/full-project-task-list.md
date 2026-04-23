@@ -219,7 +219,7 @@ The repo now persists inline-local idea/script generation jobs, queued narration
 - [x] Add dedicated job detail UI screens beyond the project-page job cards
 - [x] Add project activity timeline entries for approvals and job lifecycle events
 - [x] Add tests for persisted job logs and project activity visibility
-- [ ] Add worker-aware resume support for interrupted running jobs
+- [x] Add worker-aware resume support for interrupted running jobs
 
 ### Manual checks
 - [ ] Manual check: long-running jobs visibly update progress in the UI
@@ -391,7 +391,7 @@ The repo now queues manual analytics snapshots for published jobs, processes the
 ## Phase 18 - Observability, Reliability, and Manual Override Tooling
 
 Current implementation note:
-The repo now has structured logs, API request correlation, job detail pages, project activity, safe cancel/retry, manual intervention state, project-level manual overrides, export/backup support, browser failure screenshot/HTML snapshot capture hooks, an operations recovery page for failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, duplicate asset warnings, and a planning-only artifact retention view. Resumable running-job recovery is still pending.
+The repo now has structured logs, API request correlation, job detail pages, project activity, safe cancel/retry/resume, manual intervention state, project-level manual overrides, export/backup support, browser failure screenshot/HTML snapshot capture hooks, an operations recovery page for failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, duplicate asset warnings, and a planning-only artifact retention view.
 
 ### Build tasks
 - [x] Add structured logs across API, browser worker, and media worker
@@ -399,7 +399,7 @@ The repo now has structured logs, API request correlation, job detail pages, pro
 - [x] Add error reporting and correlation IDs across job chains
 - [x] Add per-provider dry-run debug artifact storage for prompt and failure notes
 - [x] Add live-provider screenshot and HTML snapshot capture for browser failures
-- [ ] Add manual retry and resume tools for browser and media jobs
+- [x] Add manual retry and resume tools for browser and media jobs
 - [x] Add manual override controls for blocked workflow states
 - [x] Add explicit `manual_intervention_required` handling where needed
 - [x] Add operator-facing status pages for failed jobs, stuck jobs, and quarantined assets

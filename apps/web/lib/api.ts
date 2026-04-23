@@ -248,6 +248,12 @@ export function retryJob(jobId: string): Promise<BackgroundJobDetail> {
   });
 }
 
+export function resumeJob(jobId: string): Promise<BackgroundJobDetail> {
+  return apiRequest<BackgroundJobDetail>(`/jobs/${jobId}/resume`, {
+    method: "POST",
+  });
+}
+
 export function markJobManualIntervention(
   jobId: string,
   payload: ManualInterventionPayload,

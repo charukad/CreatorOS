@@ -190,6 +190,13 @@ Current manual retry behavior:
 - retry is blocked when another active job of the same type already exists for the same script
 - completed jobs cannot be retried from the API
 
+Current manual resume behavior:
+- `POST /api/jobs/{job_id}/resume` is allowed only for stale `running` browser and media jobs
+- `stale_after_minutes` defaults to `30` so recently updated workers are not interrupted accidentally
+- resume resets the existing job to `queued`, clears stale running timestamps/errors, and preserves completed attempts plus ready/rejected assets
+- unfinished attempts return to `queued`; unfinished related assets return to `planned`
+- resume writes a `job_resumed` warning log for the job timeline and operations review
+
 Current manual cancel behavior:
 - `POST /api/jobs/{job_id}/cancel` is allowed only for `queued` or `waiting_external` jobs
 - cancellation marks the job and unfinished generation attempts as `cancelled`
@@ -213,6 +220,7 @@ The `job_logs` table records operator-facing lifecycle events. Current event typ
 - `job_failed`
 - `job_cancelled`
 - `job_retried`
+- `job_resumed`
 
 Logs include:
 - `level` for UI severity

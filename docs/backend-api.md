@@ -25,7 +25,7 @@
 - browser output ingestion now persists checksums, keeps regeneration paths attempt-specific, logs duplicate asset checksums, and quarantines mismatched downloads
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
 - after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, FFmpeg command-plan sidecar, and optionally a `video/mp4` rough-cut asset when FFmpeg rendering is enabled
-- job detail, project activity, job timeline logs, safe cancel, and safe retry endpoints are implemented for operator recovery
+- job detail, project activity, job timeline logs, safe cancel, retry, and resume endpoints are implemented for operator recovery
 - operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, duplicate asset warnings, and non-destructive artifact retention candidates in API responses
 - final-video approval, publish-job preparation, publish approval, and queue-backed manual publish handoffs are implemented before manual published completion
 - manual analytics snapshots and first-pass insight generation are implemented for published jobs
@@ -93,6 +93,7 @@
 - `GET /api/jobs/:id`
 - `POST /api/jobs/:id/cancel`
 - `POST /api/jobs/:id/manual-intervention`
+- `POST /api/jobs/:id/resume`
 - `POST /api/jobs/:id/retry`
 
 ### Operations
@@ -570,6 +571,17 @@ Behavior note:
 - retry resets job state to `queued`, clears job errors, clears stale timestamps, and resets related assets to `planned`
 - retry is blocked if another active job of the same type already exists for the same script
 - completed jobs cannot be retried
+
+### `POST /api/jobs/:id/resume`
+Query parameters:
+- `stale_after_minutes` defaults to `30`
+
+Behavior note:
+- only stale `running` browser and media jobs can be resumed
+- recent running jobs return `409 Conflict` so an active worker is not interrupted accidentally
+- resume resets the existing job to `queued`, clears stale running timestamps and errors, and preserves completed attempts and ready/rejected assets
+- unfinished attempts return to `queued`; unfinished related assets return to `planned`
+- resume writes a `job_resumed` warning log with the stale threshold and previous update timestamp
 
 ### `POST /api/jobs/:id/manual-intervention`
 ```json

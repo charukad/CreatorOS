@@ -1724,6 +1724,63 @@ def test_retry_failed_job_resets_error_without_duplicate_assets() -> None:
     app.dependency_overrides.clear()
 
 
+def test_resume_stale_running_browser_job_requeues_unfinished_work() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Resume stale browser job",
+        objective="Recover interrupted running work safely",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    with session_factory() as session:
+        job = get_background_job(session, UUID(job_id))
+        assert job is not None
+        attempt = job.generation_attempts[0]
+        asset = attempt.assets[0]
+        job.state = BackgroundJobState.RUNNING
+        job.progress_percent = 45
+        job.updated_at = datetime.now(UTC)
+        attempt.state = BackgroundJobState.RUNNING
+        asset.status = AssetStatus.GENERATING
+        asset.checksum = "partial-checksum"
+        session.add_all([job, attempt, asset])
+        session.commit()
+
+    recent_resume_response = client.post(f"/api/jobs/{job_id}/resume")
+    assert recent_resume_response.status_code == 409
+    assert "not stale enough" in _error_message(recent_resume_response)
+
+    with session_factory() as session:
+        stale_cutoff = datetime.now(UTC) - timedelta(hours=2)
+        job = get_background_job(session, UUID(job_id))
+        assert job is not None
+        job.state = BackgroundJobState.RUNNING
+        job.updated_at = stale_cutoff
+        session.add(job)
+        session.commit()
+
+    resume_response = client.post(f"/api/jobs/{job_id}/resume")
+    assert resume_response.status_code == 200
+    resumed_detail = resume_response.json()
+    assert resumed_detail["job"]["state"] == "queued"
+    assert resumed_detail["job"]["progress_percent"] == 0
+    assert resumed_detail["job"]["error_message"] is None
+    assert resumed_detail["generation_attempts"][0]["state"] == "queued"
+    assert resumed_detail["related_assets"][0]["status"] == "planned"
+    assert resumed_detail["related_assets"][0]["checksum"] is None
+    assert any(log["event_type"] == "job_resumed" for log in resumed_detail["job_logs"])
+
+    app.dependency_overrides.clear()
+
+
 def test_job_controls_block_invalid_states() -> None:
     client = _make_test_client()
     brand_profile_id = _create_brand_profile_for_tests(client)

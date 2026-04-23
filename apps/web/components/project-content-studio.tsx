@@ -30,6 +30,7 @@ import {
   rejectIdea,
   rejectScript,
   reorderScriptScenes,
+  resumeJob,
   retryJob,
   updateScene,
 } from "../lib/api";
@@ -96,6 +97,15 @@ function canCancelJobState(state: BackgroundJob["state"]): boolean {
 
 function canRetryJobState(state: BackgroundJob["state"]): boolean {
   return state === "failed" || state === "cancelled";
+}
+
+function canResumeJob(job: BackgroundJob): boolean {
+  return (
+    job.state === "running" &&
+    ["generate_audio_browser", "generate_visuals_browser", "compose_rough_cut"].includes(
+      job.job_type,
+    )
+  );
 }
 
 function isPlanningJob(job: BackgroundJob): boolean {
@@ -1009,6 +1019,7 @@ export function ProjectContentStudio({
                       {visibleWorkflowJobs.map((job) => {
                         const canCancelThisJob = canCancelJobState(job.state);
                         const canRetryThisJob = canRetryJobState(job.state);
+                        const canResumeThisJob = canResumeJob(job);
                         const scriptVersion =
                           typeof job.payload_json["script_version"] === "number"
                             ? `Script version: ${job.payload_json["script_version"] as number}`
@@ -1091,7 +1102,19 @@ export function ProjectContentStudio({
                                   ? "Retrying..."
                                   : "Retry job"}
                               </button>
-                              {!canCancelThisJob && !canRetryThisJob ? (
+                              <button
+                                className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-45"
+                                disabled={!canResumeThisJob || pendingAction !== null}
+                                onClick={() =>
+                                  runAction(`resume-job-${job.id}`, () => resumeJob(job.id))
+                                }
+                                type="button"
+                              >
+                                {pendingAction === `resume-job-${job.id}`
+                                  ? "Resuming..."
+                                  : "Resume stale"}
+                              </button>
+                              {!canCancelThisJob && !canRetryThisJob && !canResumeThisJob ? (
                                 <span className="rounded-full border border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                                   No safe manual action
                                 </span>

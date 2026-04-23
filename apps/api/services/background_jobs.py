@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import asc, desc, or_, select
@@ -34,6 +34,7 @@ RETRYABLE_JOB_STATES = {
     BackgroundJobState.FAILED,
     BackgroundJobState.CANCELLED,
 }
+RESUMABLE_JOB_TYPES = {*CLAIMABLE_BROWSER_JOB_TYPES, *CLAIMABLE_MEDIA_JOB_TYPES}
 RESETTABLE_ASSET_STATUSES = {
     AssetStatus.PLANNED,
     AssetStatus.GENERATING,
@@ -341,6 +342,59 @@ def retry_background_job(db: Session, job: BackgroundJob) -> BackgroundJob:
     return get_background_job(db, job.id) or job
 
 
+def resume_stale_running_job(
+    db: Session,
+    job: BackgroundJob,
+    *,
+    stale_after_minutes: int = 30,
+) -> BackgroundJob:
+    if job.job_type not in RESUMABLE_JOB_TYPES:
+        raise ValueError("Only browser and media jobs can be manually resumed.")
+
+    if job.state != BackgroundJobState.RUNNING:
+        raise ValueError("Only running jobs can be resumed.")
+
+    _ensure_job_is_stale(job, stale_after_minutes=stale_after_minutes)
+    _ensure_no_other_active_job(db, job)
+    previous_updated_at = _as_aware_datetime(job.updated_at)
+
+    job.state = BackgroundJobState.QUEUED
+    job.progress_percent = 0
+    job.error_message = None
+    job.started_at = None
+    job.finished_at = None
+    db.add(job)
+    create_job_log(
+        db,
+        job,
+        event_type="job_resumed",
+        message="Stale running job was reset to queued for worker resume.",
+        level="warning",
+        metadata={
+            "previous_state": BackgroundJobState.RUNNING.value,
+            "previous_updated_at": previous_updated_at.isoformat(),
+            "stale_after_minutes": stale_after_minutes,
+        },
+    )
+
+    for attempt in job.generation_attempts:
+        if attempt.state == BackgroundJobState.COMPLETED:
+            continue
+        attempt.state = BackgroundJobState.QUEUED
+        attempt.error_message = None
+        attempt.started_at = None
+        attempt.finished_at = None
+        db.add(attempt)
+        for asset in attempt.assets:
+            _reset_unfinished_asset_for_resume(db, asset)
+
+    for asset in _list_payload_assets(db, job):
+        _reset_unfinished_asset_for_resume(db, asset)
+
+    db.commit()
+    return get_background_job(db, job.id) or job
+
+
 def mark_job_manual_intervention_required(
     db: Session,
     job: BackgroundJob,
@@ -568,6 +622,31 @@ def _reset_asset_for_retry(db: Session, asset: Asset) -> None:
     asset.status = AssetStatus.PLANNED
     asset.checksum = None
     db.add(asset)
+
+
+def _reset_unfinished_asset_for_resume(db: Session, asset: Asset) -> None:
+    if asset.status in {AssetStatus.READY, AssetStatus.REJECTED}:
+        return
+
+    asset.status = AssetStatus.PLANNED
+    asset.checksum = None
+    db.add(asset)
+
+
+def _ensure_job_is_stale(job: BackgroundJob, *, stale_after_minutes: int) -> None:
+    stale_cutoff = datetime.now(UTC) - timedelta(minutes=stale_after_minutes)
+    updated_at = _as_aware_datetime(job.updated_at)
+    if updated_at > stale_cutoff:
+        raise ValueError(
+            "Running job is not stale enough to resume safely. "
+            f"Wait until it has no updates for at least {stale_after_minutes} minute(s)."
+        )
+
+
+def _as_aware_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _ensure_no_other_active_job(db: Session, job: BackgroundJob) -> None:
