@@ -12,6 +12,7 @@ from apps.api.models.asset import Asset
 from apps.api.models.background_job import BackgroundJob
 from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
+from apps.api.models.user import User
 from apps.api.schemas.enums import (
     AssetStatus,
     AssetType,
@@ -27,7 +28,7 @@ from apps.api.services.background_jobs import (
     mark_job_manual_intervention_required,
 )
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, update
+from sqlalchemy import create_engine, select, update
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -229,6 +230,30 @@ def test_redaction_helper_handles_urls_and_secret_assignments() -> None:
     assert "session-value" not in redacted
     assert "raw-key" not in redacted
     assert "[redacted]" in redacted
+
+
+def test_session_route_returns_single_user_identity() -> None:
+    client, session_factory = _make_test_client_with_session()
+
+    first_response = client.get("/api/session")
+    second_response = client.get("/api/session")
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+    first_payload = first_response.json()
+    second_payload = second_response.json()
+
+    assert first_payload["auth_mode"] == "single_user_local"
+    assert first_payload["requires_approval_checkpoints"] is True
+    assert first_payload["user"]["email"] == "creatoros-local@example.com"
+    assert first_payload["user"]["name"] == "CreatorOS Local User"
+    assert first_payload["user"]["id"] == second_payload["user"]["id"]
+
+    with session_factory() as session:
+      users = session.scalars(select(User)).all()
+
+    assert len(users) == 1
 
 
 def test_http_errors_use_global_error_model() -> None:

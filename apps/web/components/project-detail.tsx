@@ -9,6 +9,7 @@ import { ProjectForm } from "./project-form";
 import { ProjectPublishCenter } from "./project-publish-center";
 import { ProjectStatusActions } from "./project-status-actions";
 import { StatusBadge } from "./status-badge";
+import { useToast } from "./toast-provider";
 import { updateProject } from "../lib/api";
 import type {
   Asset,
@@ -59,6 +60,7 @@ export function ProjectDetail({
   publishJobs,
 }: ProjectDetailProps) {
   const router = useRouter();
+  const { pushToast } = useToast();
 
   async function handleSubmit(payload: ProjectPayload) {
     if (!project) {
@@ -66,6 +68,11 @@ export function ProjectDetail({
     }
 
     await updateProject(project.id, payload);
+    pushToast({
+      title: "Project saved",
+      description: "Project settings and workflow metadata were updated successfully.",
+      tone: "success",
+    });
     router.refresh();
   }
 

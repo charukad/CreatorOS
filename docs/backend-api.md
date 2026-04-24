@@ -10,6 +10,7 @@
 
 ## Personal-Use Bootstrap Note
 - until auth/session is implemented, v1 local development can attach brand profiles and projects to a single configured default user
+- `GET /api/session` now exposes that single-user local identity so the web app can confirm the active personal workspace owner before interactive actions run
 
 ## Logging and Correlation
 - the API, browser worker, and media worker use structured JSON logs
@@ -42,6 +43,9 @@
 - `GET /api/brand-profiles/:id/prompt-context`
 - `PATCH /api/brand-profiles/:id`
 - `GET /api/brand-profiles`
+
+### Session
+- `GET /api/session`
 
 ### Projects
 - `POST /api/projects`
@@ -115,6 +119,25 @@
 - `POST /api/publish-jobs/:id/analytics/queue`
 
 ## Implemented Payloads
+### `GET /api/session`
+Response excerpt:
+```json
+{
+  "auth_mode": "single_user_local",
+  "environment": "development",
+  "requires_approval_checkpoints": true,
+  "user": {
+    "id": "uuid",
+    "email": "creatoros-local@example.com",
+    "name": "CreatorOS Local User"
+  }
+}
+```
+
+Behavior note:
+- the response creates or reuses the configured default user record for personal local development
+- the web shell uses this endpoint for session checks and operator display, not for multi-user auth
+
 ### `POST /api/brand-profiles`
 ```json
 {

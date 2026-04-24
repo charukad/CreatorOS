@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BrandProfileForm } from "./brand-profile-form";
+import { useToast } from "./toast-provider";
 import { updateBrandProfile } from "../lib/api";
 import type {
   BrandProfile,
@@ -29,6 +30,7 @@ export function BrandProfileDetail({
   readiness,
 }: BrandProfileDetailProps) {
   const router = useRouter();
+  const { pushToast } = useToast();
 
   async function handleSubmit(payload: BrandProfilePayload) {
     if (!brandProfile) {
@@ -36,6 +38,11 @@ export function BrandProfileDetail({
     }
 
     await updateBrandProfile(brandProfile.id, payload);
+    pushToast({
+      title: "Brand profile saved",
+      description: "Creator positioning updates will flow into future idea and script generation.",
+      tone: "success",
+    });
     router.refresh();
   }
 

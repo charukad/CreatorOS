@@ -8,6 +8,7 @@ Use this before pushing a larger CreatorOS milestone or asking someone else to t
 - Run `.venv/bin/ruff check .`
 - Run `.venv/bin/pytest`
 - Run `pnpm --filter web lint`
+- Run `pnpm --filter web test`
 - Run `pnpm typecheck`
 - Run `DATABASE_URL=sqlite+pysqlite:///:memory: .venv/bin/alembic upgrade head`
 - Run `pnpm --filter web build`

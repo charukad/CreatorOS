@@ -85,18 +85,21 @@ Legend:
 
 ## Phase 4 - Web App Foundation and UX Shell
 
+Current implementation note:
+The web app now has a shared shell with global navigation, personal-session visibility from `GET /api/session`, route-aware workspace and operations navigation, reusable async toast feedback for saves and workflow actions, and a Vitest plus Testing Library setup covering the shell and toast infrastructure. More reusable primitives and manual UI QA are still pending.
+
 ### Build tasks
 - [ ] Create Next.js app structure with TypeScript, Tailwind, and shadcn/ui
-- [ ] Add global layout, navigation, and project-level routing
+- [x] Add global layout, navigation, and project-level routing
 - [x] Add API client layer and typed response handling
 - [x] Add shared UI states for loading, empty, error, and retry flows
 - [x] Add dashboard notification pattern for items awaiting approval
-- [ ] Add toast pattern for asynchronous job updates
+- [x] Add toast pattern for asynchronous job updates
 - [ ] Add reusable cards, tables, status badges, forms, dialogs, and approval components
 - [x] Add application-wide status color mapping for project, asset, job, approval, and publish states
 - [x] Add basic dashboard home page showing projects, jobs, approvals, and recent activity
-- [ ] Add route guards or session checks as needed for personal-use auth
-- [ ] Add frontend test and typecheck setup
+- [x] Add route guards or session checks as needed for personal-use auth
+- [x] Add frontend test and typecheck setup
 
 ### Manual checks
 - [ ] Manual check: the UI shell works on desktop and mobile widths

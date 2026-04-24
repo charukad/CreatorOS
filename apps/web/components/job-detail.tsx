@@ -8,6 +8,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
+import { useToast } from "./toast-provider";
 import { cancelJob, markJobManualIntervention, resumeJob, retryJob } from "../lib/api";
 import type { BackgroundJob, BackgroundJobDetail } from "../types/api";
 
@@ -77,10 +78,26 @@ function retryPolicyLabel(job: BackgroundJob): string {
 
 export function JobDetail({ detail }: JobDetailProps) {
   const router = useRouter();
+  const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [manualReason, setManualReason] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const { job } = detail;
+
+  function successMessage(actionKey: string): string {
+    switch (actionKey) {
+      case "cancel":
+        return "The job moved to cancelled and will not continue without an explicit retry.";
+      case "retry":
+        return "A fresh attempt was queued using the persisted retry policy.";
+      case "resume":
+        return "The stale running job was reset so a worker can pick it up again.";
+      case "manual-intervention":
+        return "The job now waits for operator recovery with the note saved in its audit trail.";
+      default:
+        return "The job action completed successfully.";
+    }
+  }
 
   function runAction(actionKey: string, callback: () => Promise<unknown>) {
     setError(null);
@@ -88,11 +105,23 @@ export function JobDetail({ detail }: JobDetailProps) {
     startTransition(() => {
       void callback()
         .then(() => {
+          pushToast({
+            title: "Job updated",
+            description: successMessage(actionKey),
+            tone: "success",
+          });
           router.refresh();
           setPendingAction(null);
         })
         .catch((actionError) => {
-          setError(actionError instanceof Error ? actionError.message : "Job action failed.");
+          const message =
+            actionError instanceof Error ? actionError.message : "Job action failed.";
+          setError(message);
+          pushToast({
+            title: "Job action failed",
+            description: message,
+            tone: "error",
+          });
           setPendingAction(null);
         });
     });
@@ -100,7 +129,13 @@ export function JobDetail({ detail }: JobDetailProps) {
 
   function handleManualIntervention() {
     if (manualReason.trim().length === 0) {
-      setError("Add a reason before marking this job for manual intervention.");
+      const message = "Add a reason before marking this job for manual intervention.";
+      setError(message);
+      pushToast({
+        title: "Manual intervention needs a reason",
+        description: message,
+        tone: "error",
+      });
       return;
     }
 

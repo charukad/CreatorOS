@@ -7,6 +7,7 @@ import { useDeferredValue, useState } from "react";
 import { BrandProfileForm } from "./brand-profile-form";
 import { ProjectForm } from "./project-form";
 import { StatusBadge } from "./status-badge";
+import { useToast } from "./toast-provider";
 import { createBrandProfile, createProject } from "../lib/api";
 import type {
   AccountAnalytics,
@@ -71,6 +72,7 @@ export function DashboardWorkspace({
   initialProjects,
 }: DashboardWorkspaceProps) {
   const router = useRouter();
+  const { pushToast } = useToast();
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
   const brandProfiles = initialBrandProfiles;
@@ -114,11 +116,21 @@ export function DashboardWorkspace({
 
   async function handleCreateBrandProfile(payload: BrandProfilePayload) {
     await createBrandProfile(payload);
+    pushToast({
+      title: "Brand profile created",
+      description: "The new creator profile is ready for project setup and prompt context generation.",
+      tone: "success",
+    });
     router.refresh();
   }
 
   async function handleCreateProject(payload: ProjectPayload) {
     await createProject(payload);
+    pushToast({
+      title: "Project created",
+      description: "The workspace has a new project ready for idea generation and approvals.",
+      tone: "success",
+    });
     router.refresh();
   }
 

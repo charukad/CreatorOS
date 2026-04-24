@@ -37,6 +37,7 @@ import type {
   SceneUpdatePayload,
   ScriptPromptPack,
   ScriptGeneratePayload,
+  ViewerSession,
   VisualGenerationPayload,
 } from "../types/api";
 
@@ -123,6 +124,10 @@ type ProjectTransitionPayload = {
 
 export function listBrandProfiles(): Promise<BrandProfile[]> {
   return apiRequest<BrandProfile[]>("/brand-profiles");
+}
+
+export function getViewerSession(): Promise<ViewerSession> {
+  return apiRequest<ViewerSession>("/session");
 }
 
 export function createBrandProfile(payload: BrandProfilePayload): Promise<BrandProfile> {

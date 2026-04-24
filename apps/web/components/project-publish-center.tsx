@@ -4,6 +4,7 @@ import { approvalDecisionLabels, publishJobStatusLabels } from "@creatoros/share
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
+import { useToast } from "./toast-provider";
 import {
   approveFinalVideo,
   approvePublishJob,
@@ -258,6 +259,7 @@ export function ProjectPublishCenter({
   publishJobs,
 }: ProjectPublishCenterProps) {
   const router = useRouter();
+  const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [scheduledFor, setScheduledFor] = useState(defaultScheduleValue);
@@ -305,20 +307,36 @@ export function ProjectPublishCenter({
   ).length;
   const publishedCount = publishCommandRows.filter((row) => row.job.status === "published").length;
 
-  function runAction(actionKey: string, callback: () => Promise<unknown>) {
+  function runAction(
+    actionKey: string,
+    successMessage: string,
+    callback: () => Promise<unknown>,
+  ) {
     setError(null);
     setPendingAction(actionKey);
     startTransition(() => {
       void Promise.resolve()
         .then(callback)
         .then(() => {
+          pushToast({
+            title: "Publish workflow updated",
+            description: successMessage,
+            tone: "success",
+          });
           router.refresh();
           setPendingAction(null);
         })
         .catch((actionError) => {
-          setError(
-            actionError instanceof Error ? actionError.message : "Publish workflow action failed.",
-          );
+          const message =
+            actionError instanceof Error
+              ? actionError.message
+              : "Publish workflow action failed.";
+          setError(message);
+          pushToast({
+            title: "Publish workflow action failed",
+            description: message,
+            tone: "error",
+          });
           setPendingAction(null);
         });
     });
@@ -387,7 +405,13 @@ export function ProjectPublishCenter({
             <button
               className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canReviewFinal || pendingAction !== null}
-              onClick={() => runAction("approve-final", () => approveFinalVideo(project.id))}
+              onClick={() =>
+                runAction(
+                  "approve-final",
+                  "The rough cut was approved as the current final-review artifact.",
+                  () => approveFinalVideo(project.id),
+                )
+              }
               type="button"
             >
               {pendingAction === "approve-final" ? "Approving..." : "Approve final video"}
@@ -395,7 +419,13 @@ export function ProjectPublishCenter({
             <button
               className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canReviewFinal || pendingAction !== null}
-              onClick={() => runAction("reject-final", () => rejectFinalVideo(project.id))}
+              onClick={() =>
+                runAction(
+                  "reject-final",
+                  "The current final-review artifact was rejected and kept out of publish prep.",
+                  () => rejectFinalVideo(project.id),
+                )
+              }
               type="button"
             >
               {pendingAction === "reject-final" ? "Rejecting..." : "Reject final video"}
@@ -414,7 +444,7 @@ export function ProjectPublishCenter({
             disabled={!canPreparePublish || pendingAction !== null || currentScript === null}
             onClick={() =>
               currentScript
-                ? runAction("prepare-publish", () =>
+                ? runAction("prepare-publish", "A publish job draft was prepared from the approved script metadata.", () =>
                     preparePublishJob(project.id, {
                       description: currentScript.caption,
                       hashtags: currentScript.hashtags,
@@ -695,7 +725,7 @@ export function ProjectPublishCenter({
                     className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!canEditMetadata || pendingAction !== null}
                     onClick={() =>
-                      runAction(`update-publish-metadata-${job.id}`, () =>
+                      runAction(`update-publish-metadata-${job.id}`, "Publish metadata was saved and any required re-approval can continue from this draft.", () =>
                         updatePublishJobMetadata(job.id, {
                           change_notes: metadataDraft.changeNotes.trim() || null,
                           description: metadataDraft.description.trim(),
@@ -746,7 +776,11 @@ export function ProjectPublishCenter({
                   className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={job.status !== "pending_approval" || pendingAction !== null}
                   onClick={() =>
-                    runAction(`approve-publish-${job.id}`, () => approvePublishJob(job.id))
+                    runAction(
+                      `approve-publish-${job.id}`,
+                      "The publish job was approved and can now be scheduled or queued for handoff.",
+                      () => approvePublishJob(job.id),
+                    )
                   }
                   type="button"
                 >
@@ -756,7 +790,7 @@ export function ProjectPublishCenter({
                   className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={job.status !== "approved" || pendingAction !== null}
                   onClick={() =>
-                    runAction(`schedule-publish-${job.id}`, () =>
+                    runAction(`schedule-publish-${job.id}`, "The publish job was scheduled and is ready for the handoff lane.", () =>
                       schedulePublishJob(job.id, {
                         scheduled_for: toIsoDateTime(metadataDraft.scheduledFor || scheduledFor),
                       }),
@@ -784,7 +818,7 @@ export function ProjectPublishCenter({
                     !["approved", "scheduled"].includes(job.status) || pendingAction !== null
                   }
                   onClick={() =>
-                    runAction(`mark-published-${job.id}`, () =>
+                    runAction(`mark-published-${job.id}`, "Manual publish completion was recorded for analytics and audit history.", () =>
                       markPublishJobPublished(job.id, {
                         external_post_id: externalPostId || null,
                         manual_publish_notes: manualPublishNotes || null,
@@ -809,7 +843,11 @@ export function ProjectPublishCenter({
                     className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!canQueueHandoff || pendingAction !== null}
                     onClick={() =>
-                      runAction(`queue-publish-handoff-${job.id}`, () => queuePublishJob(job.id))
+                      runAction(
+                        `queue-publish-handoff-${job.id}`,
+                        "The publisher handoff package was queued for background preparation.",
+                        () => queuePublishJob(job.id),
+                      )
                     }
                     type="button"
                   >

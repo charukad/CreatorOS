@@ -28,6 +28,17 @@ export type BrandProfile = {
   updated_at: string;
 };
 
+export type ViewerSession = {
+  auth_mode: "single_user_local";
+  environment: string;
+  requires_approval_checkpoints: boolean;
+  user: {
+    id: string;
+    email: string;
+    name: string;
+  };
+};
+
 export type BrandProfilePayload = {
   channel_name: string;
   niche: string;

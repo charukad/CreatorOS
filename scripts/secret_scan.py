@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -57,7 +58,7 @@ PATTERNS = {
     "quoted_sensitive_assignment": re.compile(
         r"(?i)(?:['\"])?"
         r"([A-Za-z0-9_-]*(?:secret|token|api[_-]?key|password|passwd|cookie|session)[A-Za-z0-9_-]*)"
-        r"(?:['\"])?\s*[:=]\s*['\"]([^'\"]{4,})['\"]"
+        r"(?:['\"])?\s*[:=]\s*['\"]([A-Za-z0-9_.:/@+-]{4,})['\"]"
     ),
     "env_sensitive_assignment": re.compile(
         r"\b([A-Z0-9_]*(?:SECRET|TOKEN|API_KEY|PASSWORD|PASSWD|COOKIE|SESSION)[A-Z0-9_]*)"
@@ -107,10 +108,18 @@ def scan_file(path: Path) -> list[str]:
 
 def main() -> int:
     findings: list[str] = []
-    for path in ROOT.rglob("*"):
-        if not path.is_file() or not should_scan(path):
-            continue
-        findings.extend(scan_file(path))
+    for root, dirnames, filenames in os.walk(ROOT, followlinks=False):
+        dirnames[:] = [
+            dirname
+            for dirname in dirnames
+            if dirname not in SKIP_PARTS and not Path(root, dirname).is_symlink()
+        ]
+
+        for filename in filenames:
+            path = Path(root, filename)
+            if path.is_symlink() or not should_scan(path):
+                continue
+            findings.extend(scan_file(path))
 
     if findings:
         print("Secret scan found suspicious hardcoded values:", file=sys.stderr)

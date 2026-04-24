@@ -35,6 +35,7 @@ import {
   updateScene,
 } from "../lib/api";
 import { SceneEditorCard } from "./scene-editor-card";
+import { useToast } from "./toast-provider";
 import type {
   Asset,
   ApprovalRecord,
@@ -175,6 +176,7 @@ export function ProjectContentStudio({
   project,
 }: ProjectContentStudioProps) {
   const router = useRouter();
+  const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [ideaGenerationNotes, setIdeaGenerationNotes] = useState("");
   const [ideaReviewNotes, setIdeaReviewNotes] = useState<Record<string, string>>({});
@@ -279,20 +281,34 @@ export function ProjectContentStudio({
     return leftSceneOrder - rightSceneOrder;
   });
 
-  function runAction(actionKey: string, callback: () => Promise<unknown>) {
+  function runAction(
+    actionKey: string,
+    successMessage: string,
+    callback: () => Promise<unknown>,
+  ) {
     setError(null);
     setPendingAction(actionKey);
 
     startTransition(() => {
       void callback()
         .then(() => {
+          pushToast({
+            title: "Workflow updated",
+            description: successMessage,
+            tone: "success",
+          });
           router.refresh();
           setPendingAction(null);
         })
         .catch((actionError) => {
-          setError(
-            actionError instanceof Error ? actionError.message : "Workflow action failed.",
-          );
+          const message =
+            actionError instanceof Error ? actionError.message : "Workflow action failed.";
+          setError(message);
+          pushToast({
+            title: "Workflow action failed",
+            description: message,
+            tone: "error",
+          });
           setPendingAction(null);
         });
     });
@@ -309,10 +325,22 @@ export function ProjectContentStudio({
 
     try {
       await updateScene(sceneId, payload);
+      pushToast({
+        title: "Scene saved",
+        description: "The current script scene plan was updated for future prompt packs and renders.",
+        tone: "success",
+      });
       router.refresh();
       setPendingAction(null);
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Unable to save scene.");
+      const message =
+        actionError instanceof Error ? actionError.message : "Unable to save scene.";
+      setError(message);
+      pushToast({
+        title: "Scene save failed",
+        description: message,
+        tone: "error",
+      });
       setPendingAction(null);
       throw actionError;
     }
@@ -332,7 +360,10 @@ export function ProjectContentStudio({
     const [movedScene] = reorderedScenes.splice(sceneIndex, 1);
     reorderedScenes.splice(targetIndex, 0, movedScene);
 
-    runAction(`scene-reorder-${currentScript.id}`, () =>
+    runAction(
+      `scene-reorder-${currentScript.id}`,
+      "Scene order updated for the current script version.",
+      () =>
       reorderScriptScenes(currentScript.id, {
         scene_ids: reorderedScenes.map((scene) => scene.id),
       }),
@@ -377,7 +408,7 @@ export function ProjectContentStudio({
               className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canGenerateIdeas || pendingAction !== null}
               onClick={() =>
-                runAction("generate-ideas", async () => {
+                runAction("generate-ideas", "A new idea batch was generated for review.", async () => {
                   await generateProjectIdeas(project.id, {
                     source_feedback_notes: optionalNotes(ideaGenerationNotes),
                   });
@@ -482,7 +513,7 @@ export function ProjectContentStudio({
                               className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                               disabled={pendingAction !== null}
                               onClick={() =>
-                                runAction(`approve-${idea.id}`, async () => {
+                                runAction(`approve-${idea.id}`, "Idea approved. Script generation can continue from this angle.", async () => {
                                   await approveIdea(idea.id, {
                                     feedback_notes: optionalNotes(ideaReviewNotes[idea.id] ?? ""),
                                   });
@@ -500,7 +531,7 @@ export function ProjectContentStudio({
                               className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                               disabled={pendingAction !== null}
                               onClick={() =>
-                                runAction(`reject-${idea.id}`, async () => {
+                                runAction(`reject-${idea.id}`, "Idea rejected with review feedback saved for the next pass.", async () => {
                                   await rejectIdea(idea.id, {
                                     feedback_notes: optionalNotes(ideaReviewNotes[idea.id] ?? ""),
                                   });
@@ -538,7 +569,7 @@ export function ProjectContentStudio({
               className="rounded-full border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-amber-100 transition hover:border-amber-200/50 hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canGenerateScript || pendingAction !== null}
               onClick={() =>
-                runAction("generate-script", async () => {
+                runAction("generate-script", "A fresh script draft and scene plan were generated.", async () => {
                   await generateProjectScript(project.id, {
                     source_feedback_notes: optionalNotes(scriptGenerationNotes),
                   });
@@ -647,7 +678,7 @@ export function ProjectContentStudio({
                         className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={pendingAction !== null}
                         onClick={() =>
-                          runAction(`approve-script-${currentScript.id}`, async () => {
+                          runAction(`approve-script-${currentScript.id}`, "Script approved. Asset generation can now be queued safely.", async () => {
                             await approveScript(currentScript.id, {
                               feedback_notes: optionalNotes(scriptReviewNotes),
                             });
@@ -666,7 +697,7 @@ export function ProjectContentStudio({
                         className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={pendingAction !== null}
                         onClick={() =>
-                          runAction(`reject-script-${currentScript.id}`, async () => {
+                          runAction(`reject-script-${currentScript.id}`, "Script rejected. Review notes were carried forward for the next revision.", async () => {
                             await rejectScript(currentScript.id, {
                               feedback_notes: optionalNotes(scriptReviewNotes),
                             });
@@ -970,7 +1001,13 @@ export function ProjectContentStudio({
               <button
                 className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={!canQueueGeneration || activeAudioJob !== null || pendingAction !== null}
-                onClick={() => runAction("queue-audio", () => queueAudioGeneration(project.id))}
+                onClick={() =>
+                  runAction(
+                    "queue-audio",
+                    "Narration generation was queued for the browser worker.",
+                    () => queueAudioGeneration(project.id),
+                  )
+                }
                 type="button"
               >
                 {pendingAction === "queue-audio"
@@ -982,7 +1019,13 @@ export function ProjectContentStudio({
               <button
                 className="rounded-full border border-fuchsia-300/30 bg-fuchsia-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-fuchsia-100 transition hover:border-fuchsia-200/50 hover:bg-fuchsia-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={!canQueueGeneration || activeVisualJob !== null || pendingAction !== null}
-                onClick={() => runAction("queue-visuals", () => queueVisualGeneration(project.id))}
+                onClick={() =>
+                  runAction(
+                    "queue-visuals",
+                    "Visual generation jobs were queued for the current scene plan.",
+                    () => queueVisualGeneration(project.id),
+                  )
+                }
                 type="button"
               >
                 {pendingAction === "queue-visuals"
@@ -1095,7 +1138,11 @@ export function ProjectContentStudio({
                                 className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-100 transition hover:border-amber-200/50 hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-45"
                                 disabled={!canCancelThisJob || pendingAction !== null}
                                 onClick={() =>
-                                  runAction(`cancel-job-${job.id}`, () => cancelJob(job.id))
+                                  runAction(
+                                    `cancel-job-${job.id}`,
+                                    "The selected job was cancelled safely.",
+                                    () => cancelJob(job.id),
+                                  )
                                 }
                                 type="button"
                               >
@@ -1107,7 +1154,11 @@ export function ProjectContentStudio({
                                 className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-45"
                                 disabled={!canRetryThisJob || pendingAction !== null}
                                 onClick={() =>
-                                  runAction(`retry-job-${job.id}`, () => retryJob(job.id))
+                                  runAction(
+                                    `retry-job-${job.id}`,
+                                    "A new execution attempt was queued for the selected job.",
+                                    () => retryJob(job.id),
+                                  )
                                 }
                                 type="button"
                               >
@@ -1119,7 +1170,11 @@ export function ProjectContentStudio({
                                 className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-45"
                                 disabled={!canResumeThisJob || pendingAction !== null}
                                 onClick={() =>
-                                  runAction(`resume-job-${job.id}`, () => resumeJob(job.id))
+                                  runAction(
+                                    `resume-job-${job.id}`,
+                                    "The stale running job was reset so a worker can resume it.",
+                                    () => resumeJob(job.id),
+                                  )
                                 }
                                 type="button"
                               >
@@ -1174,7 +1229,11 @@ export function ProjectContentStudio({
                         className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={pendingAction !== null}
                         onClick={() =>
-                          runAction("approve-assets", () => approveProjectAssets(project.id))
+                          runAction(
+                            "approve-assets",
+                            "The current asset set was approved for rough-cut composition.",
+                            () => approveProjectAssets(project.id),
+                          )
                         }
                         type="button"
                       >
@@ -1186,7 +1245,11 @@ export function ProjectContentStudio({
                         className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={pendingAction !== null}
                         onClick={() =>
-                          runAction("reject-assets", () => rejectProjectAssets(project.id))
+                          runAction(
+                            "reject-assets",
+                            "The current asset set was rejected and can be regenerated.",
+                            () => rejectProjectAssets(project.id),
+                          )
                         }
                         type="button"
                       >
@@ -1212,7 +1275,13 @@ export function ProjectContentStudio({
                         <button
                           className="rounded-full border border-cyan-200/40 bg-cyan-300/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-50 transition hover:border-cyan-100/70 hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
                           disabled={!canQueueRoughCut || pendingAction !== null}
-                          onClick={() => runAction("queue-rough-cut", () => queueRoughCut(project.id))}
+                          onClick={() =>
+                            runAction(
+                              "queue-rough-cut",
+                              "Rough-cut composition was queued for the media worker.",
+                              () => queueRoughCut(project.id),
+                            )
+                          }
                           type="button"
                         >
                           {pendingAction === "queue-rough-cut"
@@ -1360,7 +1429,7 @@ export function ProjectContentStudio({
                                     className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-45"
                                     disabled={pendingAction !== null}
                                     onClick={() =>
-                                      runAction(`approve-asset-${asset.id}`, () =>
+                                      runAction(`approve-asset-${asset.id}`, "The asset was approved and kept in the current review set.", () =>
                                         approveAsset(asset.id),
                                       )
                                     }
@@ -1376,7 +1445,7 @@ export function ProjectContentStudio({
                                     className="rounded-full border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-45"
                                     disabled={pendingAction !== null}
                                     onClick={() =>
-                                      runAction(`reject-asset-${asset.id}`, () =>
+                                      runAction(`reject-asset-${asset.id}`, "The asset was rejected and flagged for recovery or regeneration.", () =>
                                         rejectAsset(asset.id),
                                       )
                                     }
@@ -1392,7 +1461,7 @@ export function ProjectContentStudio({
                                     className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-45"
                                     disabled={pendingAction !== null}
                                     onClick={() =>
-                                      runAction(`regenerate-asset-${asset.id}`, () =>
+                                      runAction(`regenerate-asset-${asset.id}`, "A regeneration job was queued for the selected asset.", () =>
                                         regenerateAsset(asset.id),
                                       )
                                     }
