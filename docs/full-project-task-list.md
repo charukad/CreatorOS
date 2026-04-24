@@ -229,11 +229,11 @@ The repo now persists inline-local idea/script generation jobs, queued narration
 ## Phase 11 - Browser Worker Foundation
 
 Current implementation note:
-The browser worker can now claim queued jobs, run `dry_run` providers that emit local WAV/SVG artifacts for development, load versioned selector registries, capture checkpoint/failure screenshot and HTML artifacts, stage browser downloads through explicit metadata-tagged ingest paths, redact browser log secrets, and pause auth-style failures in `waiting_external` for operator recovery. Live Playwright-driven provider automation is still pending.
+The browser worker can now claim queued jobs, run `dry_run` providers that emit local WAV/SVG artifacts for development, launch persistent Playwright browser profiles when `BROWSER_PROVIDER_MODE=playwright`, load versioned selector registries, capture checkpoint/failure screenshot and HTML artifacts, stage browser downloads through explicit metadata-tagged ingest paths, redact browser log secrets, and pause auth-style failures in `waiting_external` for operator recovery. Manual live-provider verification is still pending.
 
 ### Build tasks
 - [x] Create the browser worker entrypoint and worker lifecycle management
-- [ ] Add Playwright setup with persistent browser profile support
+- [x] Add Playwright setup with persistent browser profile support
 - [x] Add provider abstraction with `ensure_session`, `open_workspace`, `submit_job`, `wait_for_completion`, `collect_downloads`, and `capture_debug_artifacts`
 - [x] Create centralized selector registry with versioned selector files
 - [x] Add screenshot and HTML snapshot capture for critical checkpoints and failures
@@ -249,16 +249,16 @@ The browser worker can now claim queued jobs, run `dry_run` providers that emit 
 ## Phase 12 - ElevenLabs Browser Automation
 
 Current implementation note:
-There is now a dry-run ElevenLabs-style provider that produces local WAV artifacts for development, and timeout/selector-style provider failures retry once before the job is marked failed. The live authenticated browser flow is still pending.
+There is now a dry-run ElevenLabs-style provider for development and a Playwright-backed ElevenLabs provider module with persistent profile launch, selector fallback, auth checks, workspace navigation, narration input, voice selection, completion checks, and download capture. Manual live verification is still pending.
 
 ### Build tasks
-- [ ] Implement ElevenLabs provider module
-- [ ] Add session/authentication check flow
-- [ ] Add navigation to the speech generation workspace
-- [ ] Add narration text input using approved script or scene narration source
-- [ ] Add voice selection and settings application
-- [ ] Add generation trigger and completion detection
-- [ ] Add narration audio download handling
+- [x] Implement ElevenLabs provider module
+- [x] Add session/authentication check flow
+- [x] Add navigation to the speech generation workspace
+- [x] Add narration text input using approved script or scene narration source
+- [x] Add voice selection and settings application
+- [x] Add generation trigger and completion detection
+- [x] Add narration audio download handling
 - [x] Emit generation attempt metadata and output asset registration payloads
 - [x] Add retry-on-timeout and selector-failure behavior
 - [x] Add smoke tests or dry-run scripts for ElevenLabs automation
@@ -271,18 +271,18 @@ There is now a dry-run ElevenLabs-style provider that produces local WAV artifac
 ## Phase 13 - Flow Browser Automation for Visual Generation
 
 Current implementation note:
-There is now a dry-run Flow-style provider that produces local SVG scene artifacts for development, and timeout/selector-style provider failures retry once before the job is marked failed. The live authenticated browser flow is still pending.
+There is now a dry-run Flow-style provider for development and a Playwright-backed Flow provider module with persistent profile launch, selector fallback, auth checks, workspace navigation, prompt submission, completion checks, and download capture. Manual live verification is still pending.
 
 ### Build tasks
-- [ ] Implement Google Flow provider module
-- [ ] Add session/authentication check flow
-- [ ] Add project/workspace navigation
-- [ ] Add scene prompt submission for single-scene and batch flows
-- [ ] Add completion detection for generated visuals
-- [ ] Add clip/image download handling
+- [x] Implement Google Flow provider module
+- [x] Add session/authentication check flow
+- [x] Add project/workspace navigation
+- [x] Add scene prompt submission for single-scene and batch flows
+- [x] Add completion detection for generated visuals
+- [x] Add clip/image download handling
 - [x] Map downloaded outputs back to project, scene, and generation attempt records
 - [x] Add retry and timeout handling
-- [ ] Add selector fallback strategy where reasonable
+- [x] Add selector fallback strategy where reasonable
 - [x] Add smoke tests or dry-run scripts for Flow automation
 
 ### Manual checks
@@ -416,22 +416,23 @@ The repo now has structured logs, API request correlation, job detail pages, pro
 ## Phase 19 - Security, Config, and Environment Hardening
 
 Current implementation note:
-The API readiness response and shared JSON log formatter now redact URL credentials plus common token, cookie, password, secret, session, and API-key fields. API/browser/media settings also validate unsafe production defaults, empty critical paths, browser worker path separation, browser provider mode, max jobs, and FFmpeg binary configuration. Full secret scanning and provider debug artifact redaction are still pending.
+The API readiness response and shared JSON log formatter now redact URL credentials plus common token, cookie, password, secret, session, and API-key fields. API/browser/media settings also validate unsafe production defaults, empty critical paths, browser worker path separation, browser provider mode, max jobs, and FFmpeg binary configuration. Service settings now support layered `.env.local` and `.env.*.secrets.local` loading patterns, browser/media workers reject storage writes outside configured roots, provider debug HTML artifacts are redacted before persistence, and CI now includes secret scanning plus a scheduled dependency-audit workflow.
 
 ### Build tasks
 - [x] Add env validation for all services
-- [ ] Ensure no secrets are hardcoded anywhere in code, docs, or tests
-- [ ] Add safe secret-loading patterns for local development
+- [x] Ensure no secrets are hardcoded anywhere in code, docs, or tests
+- [x] Add safe secret-loading patterns for local development
 - [x] Add storage permission checks for downloads, profiles, temp files, and exports
-- [ ] Add config separation for development, testing, and production-like local environments
+- [x] Add config separation for development, testing, and production-like local environments
 - [x] Add safe logging redaction for tokens, cookies, and provider credentials
 - [x] Redact connection credentials from readiness responses
-- [ ] Add validation for external file paths before ingest or processing
-- [ ] Add dependency audit and update workflow
+- [x] Add validation for external file paths before ingest or processing
+- [x] Add dependency audit and update workflow
 
 ### Manual checks
 - [ ] Manual check: local setup works without exposing secrets in logs or screenshots
 - [ ] Manual check: browser profiles and downloads are stored in the intended private locations
+- [ ] Manual check: layered env files resolve the expected values for development, testing, and local-production without reading tracked secret files
 
 ## Phase 20 - Testing, QA, and Launch Readiness
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -36,6 +37,14 @@ class SelectorBundle:
         if selector is None:
             raise KeyError(f"Unknown selector key for {self.provider_name.value}: {key}")
         return selector.candidates
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSelectorCandidate:
+    key: str
+    candidate: str
+    candidate_index: int
+    description: str
 
 
 def get_latest_selector_version(provider_name: ProviderName) -> str:
@@ -112,3 +121,27 @@ def selector_bundle_summary(bundle: SelectorBundle) -> dict[str, object]:
         "selector_keys": list(bundle.selector_keys()),
         "candidate_count": sum(len(selector.candidates) for selector in bundle.selectors.values()),
     }
+
+
+def resolve_selector_candidate(
+    bundle: SelectorBundle,
+    key: str,
+    *,
+    predicate: Callable[[str], bool],
+) -> ResolvedSelectorCandidate:
+    selector = bundle.selectors.get(key)
+    if selector is None:
+        raise KeyError(f"Unknown selector key for {bundle.provider_name.value}: {key}")
+
+    for candidate_index, candidate in enumerate(selector.candidates):
+        if predicate(candidate):
+            return ResolvedSelectorCandidate(
+                key=key,
+                candidate=candidate,
+                candidate_index=candidate_index,
+                description=selector.description,
+            )
+
+    raise LookupError(
+        f"No selector candidates matched for key {key!r} in {bundle.provider_name.value}."
+    )

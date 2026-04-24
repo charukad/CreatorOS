@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pytest
 from apps.api.core.config import Settings
+from apps.api.core.config_validation import normalize_app_env, resolve_path_within_roots
+from apps.api.core.env_files import build_settings_env_files
 from pydantic import ValidationError
 from workers.browser.config import BrowserWorkerSettings
 from workers.media.config import MediaWorkerSettings
@@ -27,6 +29,57 @@ def test_browser_settings_validate_provider_mode_and_paths() -> None:
         BrowserWorkerSettings(
             PLAYWRIGHT_PROFILE_ROOT=Path("storage/downloads"),
             PLAYWRIGHT_DOWNLOAD_ROOT=Path("storage/downloads"),
+        )
+
+    settings = BrowserWorkerSettings(BROWSER_PROVIDER_MODE="playwright")
+    assert settings.browser_provider_mode == "playwright"
+
+    with pytest.raises(ValidationError, match="ELEVENLABS_WORKSPACE_URL"):
+        BrowserWorkerSettings(
+            BROWSER_PROVIDER_MODE="playwright",
+            ELEVENLABS_WORKSPACE_URL="",
+        )
+
+    with pytest.raises(ValidationError, match="FLOW_WORKSPACE_URL"):
+        BrowserWorkerSettings(
+            BROWSER_PROVIDER_MODE="playwright",
+            FLOW_WORKSPACE_URL="",
+        )
+
+
+def test_env_file_builder_supports_local_secret_patterns_by_environment() -> None:
+    files = build_settings_env_files("workers/browser", app_env="localprod")
+
+    assert files[0] == "workers/browser/.env"
+    assert "workers/browser/.env.local" in files
+    assert "workers/browser/.env.localprod" in files
+    assert "workers/browser/.env.localprod.local" in files
+    assert "workers/browser/.env.secrets.local" in files
+    assert "workers/browser/.env.localprod.secrets.local" in files
+    assert ".env.localprod" in files
+    assert ".env.localprod.secrets.local" in files
+    assert normalize_app_env("test") == "testing"
+    assert normalize_app_env("localprod") == "localprod"
+
+
+def test_resolve_path_within_roots_blocks_paths_outside_allowed_root(tmp_path: Path) -> None:
+    storage_root = tmp_path / "storage"
+    storage_root.mkdir()
+    inside_path = storage_root / "projects" / "demo.txt"
+    outside_path = tmp_path / "outside.txt"
+
+    resolved_inside = resolve_path_within_roots(
+        inside_path,
+        allowed_roots=(storage_root,),
+        path_name="Artifact path",
+    )
+    assert resolved_inside == inside_path.resolve()
+
+    with pytest.raises(ValueError, match="Artifact path must stay within configured roots"):
+        resolve_path_within_roots(
+            outside_path,
+            allowed_roots=(storage_root,),
+            path_name="Artifact path",
         )
 
 

@@ -6,6 +6,7 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from apps.api.core.config_validation import validate_non_empty_path, validate_secret_key
+from apps.api.core.env_files import build_settings_env_files
 
 
 class Settings(BaseSettings):
@@ -31,7 +32,7 @@ class Settings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(
-        env_file=("apps/api/.env", ".env"),
+        env_file=build_settings_env_files("apps/api"),
         env_file_encoding="utf-8",
         extra="ignore",
     )

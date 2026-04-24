@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Self
 
 from apps.api.core.config_validation import validate_non_empty_path
+from apps.api.core.env_files import build_settings_env_files
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,7 +16,7 @@ class MediaWorkerSettings(BaseSettings):
     media_enable_ffmpeg_render: bool = Field(default=False, alias="MEDIA_ENABLE_FFMPEG_RENDER")
 
     model_config = SettingsConfigDict(
-        env_file=("workers/media/.env", ".env"),
+        env_file=build_settings_env_files("workers/media"),
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,

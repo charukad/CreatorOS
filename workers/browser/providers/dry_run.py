@@ -4,6 +4,8 @@ import wave
 from pathlib import Path
 from uuid import uuid4
 
+from apps.api.core.redaction import redact_sensitive_value
+
 from workers.browser.providers.base import BrowserProvider, ProviderJobPayload
 from workers.browser.providers.debug_artifacts import write_failure_debug_artifacts
 
@@ -45,7 +47,9 @@ class DryRunElevenLabsProvider(BrowserProvider):
 
         artifact_path = self._debug_root / f"{job_id}-prompt.txt"
         artifact_path.write_text(
-            payload.prompt or "No prompt captured for this dry-run narration job.",
+            redact_sensitive_value(
+                payload.prompt or "No prompt captured for this dry-run narration job."
+            ),
             encoding="utf-8",
         )
         return [str(artifact_path)]
@@ -109,7 +113,9 @@ class DryRunFlowProvider(BrowserProvider):
 
         artifact_path = self._debug_root / f"{job_id}-prompt.txt"
         artifact_path.write_text(
-            payload.prompt or "No prompt captured for this dry-run visual job.",
+            redact_sensitive_value(
+                payload.prompt or "No prompt captured for this dry-run visual job."
+            ),
             encoding="utf-8",
         )
         return [str(artifact_path)]

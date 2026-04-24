@@ -5,6 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 from uuid import UUID
 
+from apps.api.core.config_validation import resolve_path_within_roots
 from apps.api.db.session import SessionLocal
 from apps.api.models.asset import Asset
 from apps.api.models.background_job import BackgroundJob
@@ -98,7 +99,10 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
     if narration_asset is None:
         raise ValueError("A ready narration asset is required for rough-cut composition.")
 
-    narration_duration_seconds = _probe_narration_duration(narration_asset)
+    narration_duration_seconds = _probe_narration_duration(
+        narration_asset,
+        storage_root=settings.storage_root,
+    )
     scene_assets = _select_scene_visual_assets(session, script)
     manifest = build_timeline_manifest(
         project=project,
@@ -112,11 +116,31 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
     validate_timeline_manifest(manifest)
     mark_job_progress(session, job, 45)
 
-    manifest_path = Path(str(job.payload_json["manifest_path"]))
-    preview_path = Path(output_asset.file_path or str(job.payload_json["preview_path"]))
-    subtitle_path = Path(subtitle_asset.file_path or str(job.payload_json["subtitle_path"]))
-    video_path = Path(str(job.payload_json["video_path"]))
-    ffmpeg_command_path = Path(str(job.payload_json["ffmpeg_command_path"]))
+    manifest_path = _resolve_media_storage_path(
+        Path(str(job.payload_json["manifest_path"])),
+        storage_root=settings.storage_root,
+        path_name="Rough-cut manifest path",
+    )
+    preview_path = _resolve_media_storage_path(
+        Path(output_asset.file_path or str(job.payload_json["preview_path"])),
+        storage_root=settings.storage_root,
+        path_name="Rough-cut preview path",
+    )
+    subtitle_path = _resolve_media_storage_path(
+        Path(subtitle_asset.file_path or str(job.payload_json["subtitle_path"])),
+        storage_root=settings.storage_root,
+        path_name="Subtitle output path",
+    )
+    video_path = _resolve_media_storage_path(
+        Path(str(job.payload_json["video_path"])),
+        storage_root=settings.storage_root,
+        path_name="FFmpeg video output path",
+    )
+    ffmpeg_command_path = _resolve_media_storage_path(
+        Path(str(job.payload_json["ffmpeg_command_path"])),
+        storage_root=settings.storage_root,
+        path_name="FFmpeg command-plan path",
+    )
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     preview_path.parent.mkdir(parents=True, exist_ok=True)
     subtitle_path.parent.mkdir(parents=True, exist_ok=True)
@@ -303,7 +327,12 @@ def _build_ffmpeg_command(
 
     scene_visuals = [
         SceneVisualInput(
-            path=Path(str(scene["visual_asset_path"])),
+            path=_resolve_media_storage_path(
+                Path(str(scene["visual_asset_path"])),
+                storage_root=settings.storage_root,
+                path_name="Scene visual asset path",
+                must_exist=True,
+            ),
             duration_seconds=float(scene["duration_seconds"]),
             overlay_text=str(scene.get("overlay_text", "")),
             visual_asset_type=str(scene.get("visual_asset_type", "")),
@@ -314,7 +343,12 @@ def _build_ffmpeg_command(
     return build_static_scene_video_command(
         ffmpeg_binary=settings.ffmpeg_binary,
         scene_visuals=scene_visuals,
-        narration_path=Path(str(narration_asset.file_path)),
+        narration_path=_resolve_media_storage_path(
+            Path(str(narration_asset.file_path)),
+            storage_root=settings.storage_root,
+            path_name="Narration asset path",
+            must_exist=True,
+        ),
         subtitle_path=subtitle_path,
         output_path=video_path,
         profile=profile,
@@ -395,11 +429,16 @@ def _render_mp4_if_enabled(
     return video_asset
 
 
-def _probe_narration_duration(narration_asset: Asset) -> float | None:
+def _probe_narration_duration(narration_asset: Asset, *, storage_root: Path) -> float | None:
     if narration_asset.file_path is None:
         return None
 
-    narration_path = Path(narration_asset.file_path)
+    narration_path = _resolve_media_storage_path(
+        Path(narration_asset.file_path),
+        storage_root=storage_root,
+        path_name="Narration asset path",
+        must_exist=True,
+    )
     if narration_asset.mime_type != "audio/wav" and narration_path.suffix.lower() != ".wav":
         return None
 
@@ -464,3 +503,18 @@ def _file_sha256(path: Path) -> str:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _resolve_media_storage_path(
+    value: Path,
+    *,
+    storage_root: Path,
+    path_name: str,
+    must_exist: bool = False,
+) -> Path:
+    return resolve_path_within_roots(
+        value,
+        allowed_roots=(storage_root,),
+        path_name=path_name,
+        must_exist=must_exist,
+    )

@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Self
 
 from apps.api.core.config_validation import validate_non_empty_path
+from apps.api.core.env_files import build_settings_env_files
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,7 +14,7 @@ class PublisherWorkerSettings(BaseSettings):
     storage_root: Path = Field(default=Path("storage"), alias="STORAGE_ROOT")
 
     model_config = SettingsConfigDict(
-        env_file=("workers/publisher/.env", ".env"),
+        env_file=build_settings_env_files("workers/publisher"),
         env_file_encoding="utf-8",
         extra="ignore",
     )

@@ -4,13 +4,14 @@
 - `generate_ideas` and `generate_script` now create project-level background job records and lifecycle logs before running the local deterministic generator inline
 - `generate_audio_browser` and `generate_visuals_browser` can now be queued through the API
 - queue submission persists `background_jobs`, `generation_attempts`, and planned `assets`
-- the browser worker can now execute those queued jobs in local `dry_run` mode and materialize WAV/SVG development artifacts
+- the browser worker can now execute those queued jobs in local `dry_run` mode or through persistent-profile Playwright provider modules
 - `compose_rough_cut` can now be queued after asset approval and consumed by the media worker
 - the media worker currently probes WAV narration duration, validates contiguous timeline data, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, an FFmpeg command-plan sidecar with scene overlay text, trim/loop handling, and fade transitions, and optionally renders/registers a `video/mp4` rough cut when `MEDIA_ENABLE_FFMPEG_RENDER=true`
 - job detail, job timeline logs, safe cancel, and safe retry operations are available through the API, dedicated job detail screen, and project page
 - queued browser/media job payloads include a `correlation_id` that is also copied into queue log metadata
 - browser provider debug artifacts and failure screenshot/HTML snapshots are captured into per-provider debug folders and linked from job logs
 - browser workers now load versioned selector bundles, capture checkpoint screenshot/HTML artifacts during session setup, and log the selector version used for each provider run
+- Playwright-backed ElevenLabs and Flow providers now use selector fallback resolution, provider workspace URLs, and persistent Chromium profiles when `BROWSER_PROVIDER_MODE=playwright`
 - browser workers retry timeout/selector-style provider failures once before failing the job
 - browser output ingestion now stages raw downloads into explicit project metadata ingest paths, writes per-download manifest sidecars, persists file checksums, treats matching repeated downloads as idempotent, logs duplicate checksums, and quarantines mismatched or conflicting downloads for manual review
 - browser workers now emit per-attempt request metadata and output registration payloads under project `metadata/` paths

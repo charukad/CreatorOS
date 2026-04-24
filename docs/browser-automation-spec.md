@@ -5,18 +5,22 @@ Use Playwright-based browser automation to operate subscription-based tools thro
 
 ## Current Implementation Note
 - the browser worker can already claim queued narration and visual jobs from the database
-- local development currently uses a `dry_run` provider mode that writes WAV narration placeholders and SVG visual placeholders
+- the browser worker now supports `dry_run` placeholder providers and a `playwright` provider mode with persistent Chromium profiles
+- local development can still use `dry_run` mode to write WAV narration placeholders and SVG visual placeholders
 - dry-run providers now write prompt/debug notes under per-provider `debug` folders and job logs link to those artifact paths
+- Playwright-backed ElevenLabs and Flow provider modules now exist behind `BROWSER_PROVIDER_MODE=playwright`
 - browser provider failures now capture screenshot and HTML snapshot artifact paths through the provider contract before marking the job failed
 - browser workers now load versioned selector bundles from dedicated provider registry files before session startup
 - browser workers now write checkpoint screenshot/HTML artifacts for session preparation, session validation, and workspace-opened milestones
+- checkpoint and failure HTML snapshots are redacted before they are written to disk so operator artifacts do not retain raw tokens, cookies, or credentials
 - browser workers now stage provider downloads into explicit project metadata ingest paths and write per-download manifest sidecars before canonical asset registration
 - browser workers now redact common secret/token/cookie fields from operator-facing browser job logs and manual-intervention reasons
 - auth/captcha/verification-style browser failures now move jobs into `waiting_external` instead of immediately failing
 - browser workers now retry timeout/selector-style provider failures once before marking a job failed
 - browser worker ingestion now hashes materialized files, treats matching repeated downloads as idempotent, logs duplicate checksums, and quarantines mismatched or conflicting downloads under project storage for manual review
 - browser workers now write per-attempt request metadata and output registration payload JSON sidecars under project metadata storage
-- live Playwright navigation, selectors, screenshots, and download handling are still pending for the real providers
+- browser worker storage writes are now validated so canonical assets, metadata payloads, and quarantine files cannot resolve outside the configured project storage roots
+- live provider modules now navigate, submit prompts, wait for completion signals, and download artifacts through selector-fallback lookups, but they still require manual verification against the live UIs
 
 ## Supported Providers in v1
 - ElevenLabs web workflow
@@ -59,6 +63,7 @@ Current debug artifact convention:
 - add fallback selectors where reasonable
 - tag every failure with the selector key that failed
 - current registry files live under `workers/browser/selectors/versions/{provider_name}/v1.json`
+- provider modules resolve the first matching selector candidate at runtime so fallback selectors can absorb moderate UI drift
 
 ## ElevenLabs Web Flow
 1. Ensure authenticated session.
@@ -69,6 +74,9 @@ Current debug artifact convention:
 6. Wait until playable/downloadable.
 7. Download and emit metadata.
 
+Current implementation note:
+- `workers/browser/providers/elevenlabs.py` supports persistent-profile Playwright sessions, selector-fallback resolution, voice selection by label, completion checks, and file download capture
+
 ## Flow Web Flow
 1. Ensure authenticated session.
 2. Open project/workspace.
@@ -76,6 +84,9 @@ Current debug artifact convention:
 4. Wait for generation completion.
 5. Download generated clips.
 6. Tag each clip with scene mapping.
+
+Current implementation note:
+- `workers/browser/providers/flow.py` supports persistent-profile Playwright sessions, selector-fallback resolution, prompt submission, completion checks, and file download capture
 
 ## Failure Handling
 - on selector failure: screenshot + HTML snapshot + `browser_failure_artifacts_captured` log entry
@@ -87,4 +98,6 @@ Current debug artifact convention:
 ## Safety Requirements
 - no automatic publish actions through browser worker without upstream approval state
 - no secret values logged
+- no raw secrets retained in operator-facing debug HTML artifacts
+- no asset or quarantine write should escape configured storage roots
 - no destructive clicks without explicit provider-specific safeguards

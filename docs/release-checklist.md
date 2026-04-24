@@ -3,6 +3,8 @@
 Use this before pushing a larger CreatorOS milestone or asking someone else to test the repo.
 
 ## Automated Checks
+- Run `./scripts/secret_scan.py`
+- Run `./scripts/dependency_audit.sh` for milestone or release candidates
 - Run `.venv/bin/ruff check .`
 - Run `.venv/bin/pytest`
 - Run `pnpm --filter web lint`
@@ -16,6 +18,7 @@ Use this before pushing a larger CreatorOS milestone or asking someone else to t
 - Confirm every publish action is blocked until the matching approval exists.
 - Confirm failed or waiting jobs show useful logs, debug artifacts, and manual intervention notes.
 - Confirm generated files stay under `storage/`, browser profiles stay outside git, and readiness output does not expose credentials.
+- Confirm local env overlays load from untracked secret files and that redacted browser snapshots do not expose cookies, tokens, or provider credentials.
 
 ## Documentation Checks
 - Update `docs/backend-api.md` for route or payload changes.

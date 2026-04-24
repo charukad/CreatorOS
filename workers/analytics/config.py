@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from apps.api.core.env_files import build_settings_env_files
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -9,7 +10,7 @@ class AnalyticsWorkerSettings(BaseSettings):
     analytics_max_jobs_per_run: int = Field(default=10, ge=1, alias="ANALYTICS_MAX_JOBS_PER_RUN")
 
     model_config = SettingsConfigDict(
-        env_file=("workers/analytics/.env", ".env"),
+        env_file=build_settings_env_files("workers/analytics"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
