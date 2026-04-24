@@ -1,7 +1,7 @@
 # Queue Jobs
 
 ## Current Implementation Note
-- `generate_ideas` and `generate_script` now create project-level background job records and lifecycle logs before running the local deterministic generator inline
+- `generate_idea_research`, `generate_ideas`, and `generate_script` now create project-level background job records and lifecycle logs before running deterministic local planning inline
 - `generate_audio_browser` and `generate_visuals_browser` can now be queued through the API
 - queue submission persists `background_jobs`, `generation_attempts`, and planned `assets`
 - the browser worker can now execute those queued jobs in local `dry_run` mode or through persistent-profile Playwright provider modules
@@ -30,6 +30,25 @@
   `packages/shared/src/contract-fixtures.ts`.
 
 ## Core Jobs
+### `generate_idea_research`
+Input:
+- project_id
+- brand_profile_id
+- optional focus topic
+- optional source feedback notes
+
+Output:
+- persisted idea research snapshot with summary, trend observations, competitor angles, posting strategies, and recommended topics
+
+Current inline-local payload includes:
+- brand profile id
+- target platform
+- objective
+- optional focus topic
+- source feedback notes
+- same-brand analytics learning context when prior insights exist
+- generated research snapshot id after completion
+
 ### `generate_ideas`
 Input:
 - project_id
@@ -43,6 +62,8 @@ Current inline-local payload includes:
 - brand profile id
 - target platform
 - objective
+- latest research snapshot id when available
+- derived idea research context when available
 - source feedback notes for regeneration
 - same-brand analytics learning context when prior insights exist
 - idea count and generated idea ids after completion
@@ -189,7 +210,7 @@ Current manual v1 behavior:
 - media jobs: up to 3 total execution attempts (initial run plus 2 retries) for transient FFmpeg failures
 - publish jobs: up to 2 total execution attempts (initial run plus 1 retry), then manual review required
 - analytics sync jobs: up to 2 total execution attempts for operator-supplied metric snapshots
-- inline idea/script planning jobs do not support manual retry; re-run the project action that created the job instead
+- inline idea research/idea/script planning jobs do not support manual retry; re-run the project action that created the job instead
 
 Current manual retry behavior:
 - `POST /api/jobs/{job_id}/retry` is allowed only for `failed` or `cancelled` jobs

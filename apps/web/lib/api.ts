@@ -18,6 +18,8 @@ import type {
   ContentIdea,
   IdeaApprovalPayload,
   IdeaGeneratePayload,
+  IdeaResearchGeneratePayload,
+  IdeaResearchSnapshot,
   Project,
   ProjectActivity,
   ProjectAnalytics,
@@ -217,6 +219,10 @@ export function listProjectIdeas(projectId: string): Promise<ContentIdea[]> {
   return apiRequest<ContentIdea[]>(`/projects/${projectId}/ideas`);
 }
 
+export function listProjectIdeaResearch(projectId: string): Promise<IdeaResearchSnapshot[]> {
+  return apiRequest<IdeaResearchSnapshot[]>(`/projects/${projectId}/research`);
+}
+
 export function listProjectApprovals(projectId: string): Promise<ApprovalRecord[]> {
   return apiRequest<ApprovalRecord[]>(`/projects/${projectId}/approvals`);
 }
@@ -302,6 +308,16 @@ export function generateProjectIdeas(
   payload: IdeaGeneratePayload = {},
 ): Promise<ContentIdea[]> {
   return apiRequest<ContentIdea[]>(`/projects/${projectId}/ideas/generate`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function generateProjectIdeaResearch(
+  projectId: string,
+  payload: IdeaResearchGeneratePayload = {},
+): Promise<IdeaResearchSnapshot> {
+  return apiRequest<IdeaResearchSnapshot>(`/projects/${projectId}/research/generate`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

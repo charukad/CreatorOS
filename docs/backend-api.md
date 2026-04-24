@@ -21,6 +21,7 @@
 
 ## Current Workflow Note
 - the current idea and script workflow runs synchronously inside the API as a local deterministic generator
+- optional idea research snapshots can now be generated and persisted before idea generation, then reused automatically by later idea batches
 - asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
 - the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
 - browser output ingestion now persists checksums, keeps regeneration paths attempt-specific, handles matching re-ingestion idempotently, logs duplicate asset checksums, and quarantines mismatched or conflicting downloads
@@ -56,6 +57,7 @@
 - `POST /api/projects/:id/manual-override`
 - `POST /api/projects/:id/transition`
 - `GET /api/projects/:id/ideas`
+- `GET /api/projects/:id/research`
 - `GET /api/projects/:id/activity`
 - `GET /api/projects/:id/export`
 - `GET /api/projects/:id/analytics`
@@ -69,6 +71,7 @@
 - `POST /api/projects/:id/final-video/approve`
 - `POST /api/projects/:id/final-video/reject`
 - `POST /api/projects/:id/publish-jobs/prepare`
+- `POST /api/projects/:id/research/generate`
 - `POST /api/projects/:id/ideas/generate`
 - `GET /api/projects/:id/scripts/current`
 - `POST /api/projects/:id/scripts/generate`
@@ -247,6 +250,33 @@ Behavior note:
 Behavior note:
 - manual overrides bypass guarded transition prerequisites but require a reason and leave a project-event audit trail
 
+### `POST /api/projects/:id/research/generate`
+Request body:
+```json
+{
+  "focus_topic": "AI creator workflows",
+  "source_feedback_notes": "Bias this toward tactical proof-led examples."
+}
+```
+
+Response excerpt:
+```json
+{
+  "id": "uuid",
+  "focus_topic": "AI creator workflows",
+  "summary": "For solo founders on youtube_shorts...",
+  "trend_observations_json": ["..."],
+  "competitor_angles_json": ["..."],
+  "posting_strategies_json": ["..."],
+  "recommended_topics_json": ["AI creator workflows", "..."]
+}
+```
+
+Behavior note:
+- creates a completed `generate_idea_research` background job with lifecycle logs before returning the saved snapshot
+- snapshots are project-scoped and remain available in exports for later review
+- the web app surfaces the latest saved research summary plus its trend, competitor, strategy, and topic lists
+
 ### `POST /api/projects/:id/ideas/generate`
 Request body:
 ```json
@@ -257,6 +287,8 @@ Request body:
 
 Behavior note:
 - creates a completed `generate_ideas` background job with lifecycle logs before returning the generated ideas
+- generated idea records now persist `topic`, `score`, `angle`, `rationale`, and approval status
+- when a saved research snapshot exists, the job payload includes `research_snapshot_id` plus the research context used to steer the new idea batch
 - project-level generation jobs may have `script_id: null` because they run before a script exists
 - source feedback notes are copied to the generation job payload and each returned idea
 - same-brand analytics learnings are copied to the generation job payload and influence idea rationales when available

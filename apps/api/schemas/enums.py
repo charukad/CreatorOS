@@ -75,6 +75,7 @@ class ProviderName(StrEnum):
 
 
 class BackgroundJobType(StrEnum):
+    GENERATE_IDEA_RESEARCH = "generate_idea_research"
     GENERATE_IDEAS = "generate_ideas"
     GENERATE_SCRIPT = "generate_script"
     GENERATE_AUDIO_BROWSER = "generate_audio_browser"

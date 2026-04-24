@@ -23,6 +23,7 @@ class ContentIdeaResponse(BaseModel):
     id: UUID
     user_id: UUID
     project_id: UUID
+    topic: str
     suggested_title: str
     hook: str
     angle: str
@@ -37,6 +38,28 @@ class ContentIdeaResponse(BaseModel):
 
 class IdeaGenerateRequest(BaseModel):
     source_feedback_notes: str | None = Field(default=None, max_length=5000)
+
+
+class IdeaResearchGenerateRequest(BaseModel):
+    focus_topic: str | None = Field(default=None, min_length=1, max_length=255)
+    source_feedback_notes: str | None = Field(default=None, max_length=5000)
+
+
+class IdeaResearchSnapshotResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    project_id: UUID
+    focus_topic: str | None
+    source_feedback_notes: str | None
+    summary: str
+    trend_observations_json: list[str]
+    competitor_angles_json: list[str]
+    posting_strategies_json: list[str]
+    recommended_topics_json: list[str]
+    created_at: datetime
+    updated_at: datetime
 
 
 class IdeaApprovalRequest(BaseModel):
@@ -462,6 +485,7 @@ class ProjectExportResponse(BaseModel):
     exported_at: datetime
     project: dict[str, Any]
     brand_profile: dict[str, Any]
+    idea_research_snapshots: list[dict[str, Any]]
     ideas: list[dict[str, Any]]
     scripts: list[dict[str, Any]]
     approvals: list[dict[str, Any]]

@@ -99,6 +99,7 @@ export type ContentIdea = {
   id: string;
   user_id: string;
   project_id: string;
+  topic: string;
   suggested_title: string;
   hook: string;
   angle: string;
@@ -112,6 +113,26 @@ export type ContentIdea = {
 };
 
 export type IdeaGeneratePayload = {
+  source_feedback_notes?: string | null;
+};
+
+export type IdeaResearchSnapshot = {
+  id: string;
+  user_id: string;
+  project_id: string;
+  focus_topic: string | null;
+  source_feedback_notes: string | null;
+  summary: string;
+  trend_observations_json: string[];
+  competitor_angles_json: string[];
+  posting_strategies_json: string[];
+  recommended_topics_json: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type IdeaResearchGeneratePayload = {
+  focus_topic?: string | null;
   source_feedback_notes?: string | null;
 };
 
@@ -528,6 +549,7 @@ export type ProjectExport = {
   exported_at: string;
   project: Record<string, unknown>;
   brand_profile: Record<string, unknown>;
+  idea_research_snapshots: Record<string, unknown>[];
   ideas: Record<string, unknown>[];
   scripts: Record<string, unknown>[];
   approvals: Record<string, unknown>[];

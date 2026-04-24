@@ -20,6 +20,7 @@ import {
   queueVisualGeneration,
   approveIdea,
   approveScript,
+  generateProjectIdeaResearch,
   generateProjectIdeas,
   getAssetContentUrl,
   generateProjectScript,
@@ -41,6 +42,7 @@ import type {
   ApprovalRecord,
   BackgroundJob,
   ContentIdea,
+  IdeaResearchSnapshot,
   Project,
   ProjectScript,
   SceneUpdatePayload,
@@ -55,6 +57,7 @@ type ProjectContentStudioProps = {
   jobs: BackgroundJob[];
   promptPack: ScriptPromptPack | null;
   project: Project;
+  researchSnapshots: IdeaResearchSnapshot[];
 };
 
 const retryPolicyMaxAttempts: Partial<Record<BackgroundJob["job_type"], number>> = {
@@ -123,7 +126,11 @@ function canResumeJob(job: BackgroundJob): boolean {
 }
 
 function isPlanningJob(job: BackgroundJob): boolean {
-  return job.job_type === "generate_ideas" || job.job_type === "generate_script";
+  return (
+    job.job_type === "generate_idea_research" ||
+    job.job_type === "generate_ideas" ||
+    job.job_type === "generate_script"
+  );
 }
 
 function assetStatusClassName(status: Asset["status"]): string {
@@ -174,6 +181,7 @@ export function ProjectContentStudio({
   jobs,
   promptPack,
   project,
+  researchSnapshots,
 }: ProjectContentStudioProps) {
   const router = useRouter();
   const { pushToast } = useToast();
@@ -181,10 +189,15 @@ export function ProjectContentStudio({
   const [ideaGenerationNotes, setIdeaGenerationNotes] = useState("");
   const [ideaReviewNotes, setIdeaReviewNotes] = useState<Record<string, string>>({});
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [researchFocusTopic, setResearchFocusTopic] = useState("");
+  const [researchNotes, setResearchNotes] = useState("");
   const [scriptGenerationNotes, setScriptGenerationNotes] = useState("");
   const [scriptReviewNotes, setScriptReviewNotes] = useState("");
 
   const approvedIdea = ideas.find((idea) => idea.status === "approved") ?? null;
+  const latestResearchSnapshot = researchSnapshots[0] ?? null;
+  const canGenerateResearch =
+    project.status === "draft" || project.status === "idea_pending_approval";
   const canGenerateIdeas =
     project.status === "draft" || project.status === "idea_pending_approval";
   const canGenerateScript =
@@ -398,7 +411,160 @@ export function ProjectContentStudio({
         <section className="grid gap-5">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-white">1. Generate and review ideas</h3>
+              <h3 className="text-lg font-semibold text-white">1. Refresh idea research</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                Save trend, competitor, and posting-angle context before generating the next idea
+                batch so planning stays traceable instead of living in one-off notes.
+              </p>
+            </div>
+            <button
+              className="rounded-full border border-fuchsia-300/30 bg-fuchsia-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-fuchsia-100 transition hover:border-fuchsia-200/50 hover:bg-fuchsia-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!canGenerateResearch || pendingAction !== null}
+              onClick={() =>
+                runAction(
+                  "generate-idea-research",
+                  "Idea research was refreshed and saved for the next planning pass.",
+                  async () => {
+                    await generateProjectIdeaResearch(project.id, {
+                      focus_topic: optionalNotes(researchFocusTopic),
+                      source_feedback_notes: optionalNotes(researchNotes),
+                    });
+                    setResearchFocusTopic("");
+                    setResearchNotes("");
+                  },
+                )
+              }
+              type="button"
+            >
+              {pendingAction === "generate-idea-research"
+                ? "Refreshing..."
+                : latestResearchSnapshot
+                  ? "Refresh research"
+                  : "Generate research"}
+            </button>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-4">
+              <label
+                className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
+                htmlFor="research-focus-topic"
+              >
+                Focus topic
+              </label>
+              <input
+                className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-fuchsia-300/50"
+                disabled={pendingAction !== null}
+                id="research-focus-topic"
+                onChange={(event) => setResearchFocusTopic(event.target.value)}
+                placeholder="Optional: narrow research to a specific workflow, hook angle, or content pillar."
+                value={researchFocusTopic}
+              />
+              <label
+                className="mt-4 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
+                htmlFor="research-notes"
+              >
+                Research notes
+              </label>
+              <textarea
+                className="mt-3 min-h-24 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-fuchsia-300/50"
+                disabled={pendingAction !== null}
+                id="research-notes"
+                onChange={(event) => setResearchNotes(event.target.value)}
+                placeholder="Optional: add market context, lessons from past posts, or a bias toward a new audience angle."
+                value={researchNotes}
+              />
+            </div>
+
+            {latestResearchSnapshot ? (
+              <article className="rounded-2xl border border-fuchsia-300/20 bg-fuchsia-400/10 p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-fuchsia-100/70">
+                      Latest research snapshot
+                    </p>
+                    <h4 className="mt-2 text-lg font-semibold text-white">
+                      {latestResearchSnapshot.focus_topic ?? project.title}
+                    </h4>
+                  </div>
+                  <p className="text-xs uppercase tracking-[0.16em] text-fuchsia-100/70">
+                    Saved {formatTimestamp(latestResearchSnapshot.updated_at)}
+                  </p>
+                </div>
+                <p className="mt-4 text-sm leading-6 text-slate-100">
+                  {latestResearchSnapshot.summary}
+                </p>
+
+                <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      Trend observations
+                    </p>
+                    <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-200">
+                      {latestResearchSnapshot.trend_observations_json.map((item) => (
+                        <p key={item}>{item}</p>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      Competitor angles
+                    </p>
+                    <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-200">
+                      {latestResearchSnapshot.competitor_angles_json.map((item) => (
+                        <p key={item}>{item}</p>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      Posting strategies
+                    </p>
+                    <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-200">
+                      {latestResearchSnapshot.posting_strategies_json.map((item) => (
+                        <p key={item}>{item}</p>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      Recommended topics
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {latestResearchSnapshot.recommended_topics_json.map((topic) => (
+                        <span
+                          key={topic}
+                          className="rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-fuchsia-100"
+                        >
+                          {topic}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {latestResearchSnapshot.source_feedback_notes ? (
+                  <p className="mt-4 rounded-2xl border border-fuchsia-300/20 bg-fuchsia-400/10 px-4 py-3 text-sm text-fuchsia-50">
+                    Research notes: {latestResearchSnapshot.source_feedback_notes}
+                  </p>
+                ) : null}
+              </article>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-white/10 bg-white/4 p-5 text-sm text-slate-300">
+                <p className="font-semibold text-white">No saved research snapshot yet.</p>
+                <p className="mt-2">
+                  Generate one to capture trend observations, competitor framing, and recommended
+                  topics before the next idea batch.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="grid gap-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-white">2. Generate and review ideas</h3>
               <p className="mt-2 text-sm leading-6 text-slate-300">
                 Ideas are stored and reviewable, so you can pick one angle deliberately instead of
                 losing the earlier passes.
@@ -465,6 +631,9 @@ export function ProjectContentStudio({
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                           Score {idea.score}
+                        </p>
+                        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
+                          Topic: {idea.topic}
                         </p>
                         <h4 className="mt-2 text-lg font-semibold text-white">
                           {idea.suggested_title}
@@ -559,7 +728,7 @@ export function ProjectContentStudio({
         <section className="grid gap-5">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-white">2. Generate a script and scene plan</h3>
+              <h3 className="text-lg font-semibold text-white">3. Generate a script and scene plan</h3>
               <p className="mt-2 text-sm leading-6 text-slate-300">
                 Once one idea is approved, CreatorOS turns it into a reusable short-form script
                 with prompts for later narration and visual generation steps.
@@ -991,7 +1160,7 @@ export function ProjectContentStudio({
         <section className="grid gap-5">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-white">3. Queue asset generation work</h3>
+              <h3 className="text-lg font-semibold text-white">4. Queue asset generation work</h3>
               <p className="mt-2 text-sm leading-6 text-slate-300">
                 Approved scripts can now create persisted browser-job plans for narration and
                 scene visuals. This is the bridge between content approval and the real workers.

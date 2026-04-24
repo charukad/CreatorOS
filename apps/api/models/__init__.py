@@ -6,6 +6,7 @@ from apps.api.models.background_job import BackgroundJob
 from apps.api.models.brand_profile import BrandProfile
 from apps.api.models.content_idea import ContentIdea
 from apps.api.models.generation_attempt import GenerationAttempt
+from apps.api.models.idea_research_snapshot import IdeaResearchSnapshot
 from apps.api.models.insight import Insight
 from apps.api.models.job_log import JobLog
 from apps.api.models.project import Project
@@ -24,6 +25,7 @@ __all__ = [
     "BrandProfile",
     "ContentIdea",
     "GenerationAttempt",
+    "IdeaResearchSnapshot",
     "Insight",
     "JobLog",
     "Project",

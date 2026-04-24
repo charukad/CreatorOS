@@ -2,6 +2,7 @@ import type {
   ArtifactTraceability,
   ComposeRoughCutQueuePayload,
   GenerateAudioQueuePayload,
+  GenerateIdeaResearchQueuePayload,
   GenerateIdeasQueuePayload,
   GenerateScriptQueuePayload,
   GenerateVisualsQueuePayload,
@@ -40,6 +41,18 @@ export const sampleGenerateIdeasPayload = {
   idea_count: 3,
   idea_ids: ["idea-1", "idea-2", "idea-3"],
 } satisfies GenerateIdeasQueuePayload;
+
+export const sampleGenerateIdeaResearchPayload = {
+  job_type: "generate_idea_research",
+  project_id: "project-123",
+  correlation_id: "correlation-research",
+  brand_profile_id: "brand-123",
+  target_platform: "youtube_shorts",
+  objective: "Turn a workflow into a short-form content system",
+  focus_topic: "Founder content systems",
+  source_feedback_notes: "Bias toward repeatable weekly formats.",
+  research_snapshot_id: "research-123",
+} satisfies GenerateIdeaResearchQueuePayload;
 
 export const sampleGenerateScriptPayload = {
   job_type: "generate_script",

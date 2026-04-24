@@ -62,6 +62,7 @@ export const providerNames = ["elevenlabs_web", "flow_web", "local_media"] as co
 export type ProviderName = (typeof providerNames)[number];
 
 export const backgroundJobTypes = [
+  "generate_idea_research",
   "generate_ideas",
   "generate_script",
   "generate_audio_browser",
@@ -160,6 +161,7 @@ export const assetStatusLabels: Record<AssetStatus, string> = {
 };
 
 export const backgroundJobTypeLabels: Record<BackgroundJobType, string> = {
+  generate_idea_research: "Idea Research",
   generate_ideas: "Idea Generation",
   generate_script: "Script Generation",
   generate_audio_browser: "Audio Generation",

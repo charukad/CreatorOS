@@ -10,12 +10,14 @@ from apps.api.models.background_job import BackgroundJob
 from apps.api.models.brand_profile import BrandProfile
 from apps.api.models.content_idea import ContentIdea
 from apps.api.models.generation_attempt import GenerationAttempt
+from apps.api.models.idea_research_snapshot import IdeaResearchSnapshot
 from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
 from apps.api.models.user import User
 from apps.api.schemas.content_workflow import (
     AudioGenerationRequest,
     IdeaGenerateRequest,
+    IdeaResearchGenerateRequest,
     ScenePromptPackResponse,
     ScriptGenerateRequest,
     ScriptPromptPackResponse,
@@ -32,7 +34,13 @@ from apps.api.schemas.enums import (
 )
 from apps.api.services.background_jobs import create_job_log, mark_job_completed, mark_job_failed
 from apps.api.services.content_workflow import generate_content_ideas, generate_project_script
+from apps.api.services.idea_research import (
+    build_idea_research_context,
+    generate_idea_research_snapshot,
+    get_latest_project_idea_research_snapshot,
+)
 from apps.api.services.learning_context import build_analytics_learning_context
+from apps.api.services.project_events import create_project_event
 from apps.api.services.storage_paths import build_project_storage_path
 
 ACTIVE_JOB_STATES = {
@@ -56,6 +64,86 @@ def list_project_assets(db: Session, project: Project) -> list[Asset]:
     return list(db.scalars(statement))
 
 
+def submit_idea_research_job(
+    db: Session,
+    *,
+    user: User,
+    project: Project,
+    brand_profile: BrandProfile,
+    payload: IdeaResearchGenerateRequest,
+) -> IdeaResearchSnapshot:
+    _ensure_no_active_project_level_job(db, project, BackgroundJobType.GENERATE_IDEA_RESEARCH)
+    analytics_learning_context = build_analytics_learning_context(
+        db,
+        user=user,
+        project=project,
+        brand_profile=brand_profile,
+    )
+    job = _create_inline_generation_job(
+        db,
+        user=user,
+        project=project,
+        script=None,
+        job_type=BackgroundJobType.GENERATE_IDEA_RESEARCH,
+        payload={
+            "brand_profile_id": str(brand_profile.id),
+            "target_platform": project.target_platform,
+            "objective": project.objective,
+            "focus_topic": payload.focus_topic,
+            "source_feedback_notes": payload.source_feedback_notes,
+            "analytics_learning_context": analytics_learning_context,
+        },
+        queued_message="Idea research job was submitted.",
+    )
+
+    try:
+        _mark_inline_generation_job_running(
+            db,
+            job,
+            message="Local idea research generation started.",
+        )
+        snapshot = generate_idea_research_snapshot(
+            db,
+            user,
+            project,
+            brand_profile,
+            payload,
+            analytics_learning_context=analytics_learning_context,
+        )
+        completed_job = _reload_job(db, job)
+        completed_job.payload_json = {
+            **completed_job.payload_json,
+            "research_snapshot_id": str(snapshot.id),
+        }
+        db.add(completed_job)
+        create_job_log(
+            db,
+            completed_job,
+            event_type="idea_research_generated",
+            message="Generated a persisted idea research snapshot.",
+            metadata={
+                "research_snapshot_id": str(snapshot.id),
+                "focus_topic": snapshot.focus_topic,
+            },
+        )
+        create_project_event(
+            db,
+            project,
+            event_type="idea_research_generated",
+            title="Idea research refreshed",
+            description=snapshot.summary,
+            metadata={
+                "research_snapshot_id": str(snapshot.id),
+                "focus_topic": snapshot.focus_topic,
+            },
+        )
+        mark_job_completed(db, completed_job)
+        return snapshot
+    except Exception as error:
+        mark_job_failed(db, _reload_job(db, job), str(error))
+        raise
+
+
 def submit_idea_generation_job(
     db: Session,
     *,
@@ -71,6 +159,8 @@ def submit_idea_generation_job(
         project=project,
         brand_profile=brand_profile,
     )
+    latest_research_snapshot = get_latest_project_idea_research_snapshot(db, project)
+    idea_research_context = build_idea_research_context(latest_research_snapshot)
     job = _create_inline_generation_job(
         db,
         user=user,
@@ -81,7 +171,11 @@ def submit_idea_generation_job(
             "brand_profile_id": str(brand_profile.id),
             "target_platform": project.target_platform,
             "objective": project.objective,
+            "research_snapshot_id": (
+                str(latest_research_snapshot.id) if latest_research_snapshot is not None else None
+            ),
             "source_feedback_notes": payload.source_feedback_notes,
+            "idea_research_context": idea_research_context,
             "analytics_learning_context": analytics_learning_context,
         },
         queued_message="Idea generation job was submitted.",
@@ -98,6 +192,7 @@ def submit_idea_generation_job(
             user,
             project,
             brand_profile,
+            idea_research_context=idea_research_context,
             source_feedback_notes=payload.source_feedback_notes,
             analytics_learning_context=analytics_learning_context,
         )

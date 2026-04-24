@@ -67,6 +67,7 @@ export type ContentIdeaContract = {
   id: UUID;
   user_id: UUID;
   project_id: UUID;
+  topic: string;
   suggested_title: string;
   hook: string;
   angle: string;
@@ -75,6 +76,21 @@ export type ContentIdeaContract = {
   source_feedback_notes: Nullable<string>;
   status: ContentIdeaStatus;
   feedback_notes: Nullable<string>;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+};
+
+export type IdeaResearchSnapshotContract = {
+  id: UUID;
+  user_id: UUID;
+  project_id: UUID;
+  focus_topic: Nullable<string>;
+  source_feedback_notes: Nullable<string>;
+  summary: string;
+  trend_observations_json: string[];
+  competitor_angles_json: string[];
+  posting_strategies_json: string[];
+  recommended_topics_json: string[];
   created_at: ISODateTime;
   updated_at: ISODateTime;
 };
@@ -262,10 +278,22 @@ export type GenerateIdeasQueuePayload = QueuePayloadBase & {
   brand_profile_id: UUID;
   target_platform: string;
   objective: string;
+  research_snapshot_id?: UUID;
   source_feedback_notes?: Nullable<string>;
   analytics_learning_context?: AnalyticsLearningContextContract;
   idea_count?: number;
   idea_ids?: UUID[];
+};
+
+export type GenerateIdeaResearchQueuePayload = QueuePayloadBase & {
+  job_type: "generate_idea_research";
+  brand_profile_id: UUID;
+  target_platform: string;
+  objective: string;
+  focus_topic?: Nullable<string>;
+  source_feedback_notes?: Nullable<string>;
+  analytics_learning_context?: AnalyticsLearningContextContract;
+  research_snapshot_id?: UUID;
 };
 
 export type GenerateScriptQueuePayload = QueuePayloadBase & {
@@ -373,6 +401,7 @@ export type SyncAnalyticsQueuePayload = QueuePayloadBase & {
 };
 
 export type QueueJobPayload =
+  | GenerateIdeaResearchQueuePayload
   | GenerateIdeasQueuePayload
   | GenerateScriptQueuePayload
   | GenerateAudioQueuePayload
@@ -484,6 +513,11 @@ export function validateQueuePayload(payload: QueueJobPayload): string[] {
   const errors = validateQueuePayloadBase(payload);
 
   switch (payload.job_type) {
+    case "generate_idea_research":
+      requireString(payload.brand_profile_id, "brand_profile_id", errors);
+      requireString(payload.target_platform, "target_platform", errors);
+      requireString(payload.objective, "objective", errors);
+      break;
     case "generate_ideas":
       requireString(payload.brand_profile_id, "brand_profile_id", errors);
       requireString(payload.target_platform, "target_platform", errors);

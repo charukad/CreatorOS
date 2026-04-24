@@ -7,6 +7,7 @@ import {
   listProjectActivity,
   listProjectAssets,
   listBrandProfiles,
+  listProjectIdeaResearch,
   listProjectApprovals,
   listProjectIdeas,
   listProjectJobs,
@@ -18,6 +19,7 @@ import type {
   BackgroundJob,
   BrandProfile,
   ContentIdea,
+  IdeaResearchSnapshot,
   Project,
   ProjectActivity,
   ProjectAnalytics,
@@ -39,6 +41,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   let project: Project | null = null;
   let brandProfiles: BrandProfile[] = [];
   let ideas: ContentIdea[] = [];
+  let researchSnapshots: IdeaResearchSnapshot[] = [];
   let activity: ProjectActivity[] = [];
   let analytics: ProjectAnalytics = {
     insights: [],
@@ -56,6 +59,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     [
       project,
       brandProfiles,
+      researchSnapshots,
       ideas,
       activity,
       analytics,
@@ -67,6 +71,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     ] = await Promise.all([
       getProject(projectId),
       listBrandProfiles(),
+      listProjectIdeaResearch(projectId),
       listProjectIdeas(projectId),
       listProjectActivity(projectId),
       getProjectAnalytics(projectId),
@@ -98,6 +103,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       promptPack={promptPack}
       project={project}
       publishJobs={publishJobs}
+      researchSnapshots={researchSnapshots}
     />
   );
 }

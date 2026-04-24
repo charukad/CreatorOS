@@ -20,6 +20,8 @@ from apps.api.schemas.content_workflow import (
     GenerationAttemptResponse,
     IdeaApprovalRequest,
     IdeaGenerateRequest,
+    IdeaResearchGenerateRequest,
+    IdeaResearchSnapshotResponse,
     InsightResponse,
     JobLogResponse,
     ManualInterventionRequest,
@@ -87,8 +89,10 @@ from apps.api.services.generation_pipeline import (
     queue_audio_generation_job,
     queue_visual_generation_job,
     submit_idea_generation_job,
+    submit_idea_research_job,
     submit_script_generation_job,
 )
+from apps.api.services.idea_research import list_project_idea_research_snapshots
 from apps.api.services.learning_context import build_analytics_learning_context
 from apps.api.services.media_pipeline import queue_rough_cut_job
 from apps.api.services.project_events import create_project_event, list_project_events
@@ -125,6 +129,23 @@ def list_project_ideas_route(project_id: UUID, db: DbSession) -> list[ContentIde
 
     ideas = list_project_ideas(db, project)
     return [ContentIdeaResponse.model_validate(idea) for idea in ideas]
+
+
+@router.get(
+    "/projects/{project_id}/research",
+    response_model=list[IdeaResearchSnapshotResponse],
+)
+def list_project_idea_research_route(
+    project_id: UUID,
+    db: DbSession,
+) -> list[IdeaResearchSnapshotResponse]:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    snapshots = list_project_idea_research_snapshots(db, project)
+    return [IdeaResearchSnapshotResponse.model_validate(snapshot) for snapshot in snapshots]
 
 
 @router.get("/projects/{project_id}/approvals", response_model=list[ApprovalResponse])
@@ -589,6 +610,42 @@ def reject_final_video_route(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return ApprovalResponse.model_validate(approval)
+
+
+@router.post(
+    "/projects/{project_id}/research/generate",
+    response_model=IdeaResearchSnapshotResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def generate_project_idea_research_route(
+    project_id: UUID,
+    db: DbSession,
+    payload: IdeaResearchGenerateRequest,
+) -> IdeaResearchSnapshotResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    brand_profile = get_owned_brand_profile(db, user, project.brand_profile_id)
+    if brand_profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brand profile not found",
+        )
+
+    try:
+        snapshot = submit_idea_research_job(
+            db,
+            user=user,
+            project=project,
+            brand_profile=brand_profile,
+            payload=payload,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return IdeaResearchSnapshotResponse.model_validate(snapshot)
 
 
 @router.post(

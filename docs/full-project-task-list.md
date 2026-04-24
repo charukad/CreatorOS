@@ -146,14 +146,14 @@ Brand profiles now support create/edit/view/list flows, readiness checks, postin
 ## Phase 7 - Idea Generation and Research Workflow
 
 Current implementation note:
-The repo now has an inline-local `generate_ideas` background job record with lifecycle logs, a deterministic local idea generator, persisted idea records with source feedback notes, explicit approve/reject actions with review comments, and project-page approval history UI. Optional external research is still pending.
+The repo now has inline-local `generate_idea_research` and `generate_ideas` background job records with lifecycle logs, persisted research snapshots for trend and competitor context, a deterministic local idea generator that stores `topic` alongside score/rationale/angle, explicit approve/reject actions with review comments, and project-page research plus approval history UI.
 
 ### Build tasks
 - [x] Implement idea generation job submission from a project
 - [x] Add idea generation service using brand context and topic constraints
-- [ ] Add optional research step for trends, competitor angles, and posting strategies
+- [x] Add optional research step for trends, competitor angles, and posting strategies
 - [x] Persist generated content ideas with title, hook, angle, rationale, score, and approval status
-- [ ] Persist generated content ideas with score, rationale, topic, and angle
+- [x] Persist generated content ideas with score, rationale, topic, and angle
 - [x] Add UI for idea review, comparison, approval, rejection, and regeneration
 - [x] Add revision notes and regenerate-with-feedback flow
 - [ ] Update project status when ideas are pending approval or approved

@@ -624,10 +624,62 @@ def test_generate_project_ideas_updates_project_status() -> None:
     ideas = generate_response.json()
     assert len(ideas) == 3
     assert all(idea["status"] == "proposed" for idea in ideas)
+    assert all(idea["topic"] for idea in ideas)
 
     get_response = client.get(f"/api/projects/{project_id}")
     assert get_response.status_code == 200
     assert get_response.json()["status"] == "idea_pending_approval"
+
+    app.dependency_overrides.clear()
+
+
+def test_idea_research_generation_creates_snapshot_and_completed_job() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Research-backed creator workflow",
+        objective="Seed stronger short-form angles",
+        notes="Favor proof over generic advice",
+    )
+
+    research_response = client.post(
+        f"/api/projects/{project_id}/research/generate",
+        json={
+            "focus_topic": "AI creator workflows",
+            "source_feedback_notes": "Bias the next batch toward tactical proof-led examples.",
+        },
+    )
+
+    assert research_response.status_code == 201
+    snapshot = research_response.json()
+    assert snapshot["focus_topic"] == "AI creator workflows"
+    assert "visible proof" in snapshot["summary"].lower()
+    assert any("proof-led" in item.lower() for item in snapshot["competitor_angles_json"])
+    assert len(snapshot["trend_observations_json"]) == 3
+    assert len(snapshot["recommended_topics_json"]) >= 3
+
+    list_response = client.get(f"/api/projects/{project_id}/research")
+    assert list_response.status_code == 200
+    listed_snapshots = list_response.json()
+    assert len(listed_snapshots) == 1
+    assert listed_snapshots[0]["id"] == snapshot["id"]
+
+    jobs_response = client.get(f"/api/projects/{project_id}/jobs")
+    assert jobs_response.status_code == 200
+    research_job = next(
+        job for job in jobs_response.json() if job["job_type"] == "generate_idea_research"
+    )
+    assert research_job["state"] == "completed"
+    assert research_job["payload_json"]["research_snapshot_id"] == snapshot["id"]
+
+    detail_response = client.get(f"/api/jobs/{research_job['id']}")
+    assert detail_response.status_code == 200
+    event_types = {log["event_type"] for log in detail_response.json()["job_logs"]}
+    assert {"job_queued", "job_started", "idea_research_generated", "job_completed"}.issubset(
+        event_types
+    )
 
     app.dependency_overrides.clear()
 
@@ -733,6 +785,50 @@ def test_idea_generation_creates_completed_project_level_job() -> None:
     app.dependency_overrides.clear()
 
 
+def test_idea_generation_uses_latest_research_snapshot_and_persists_topics() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Use saved research in idea generation",
+        objective="Generate tighter short-form hooks",
+        notes=None,
+    )
+    research_response = client.post(
+        f"/api/projects/{project_id}/research/generate",
+        json={
+            "focus_topic": "Short-form automation",
+            "source_feedback_notes": "Make the ideas feel specific to solo creators.",
+        },
+    )
+    assert research_response.status_code == 201
+    research_snapshot = research_response.json()
+
+    generate_ideas_response = client.post(f"/api/projects/{project_id}/ideas/generate")
+
+    assert generate_ideas_response.status_code == 201
+    ideas = generate_ideas_response.json()
+    assert len(ideas) == 3
+    assert all(idea["topic"] in research_snapshot["recommended_topics_json"] for idea in ideas)
+    assert any("research" in idea["rationale"].lower() for idea in ideas)
+
+    jobs_response = client.get(f"/api/projects/{project_id}/jobs")
+    assert jobs_response.status_code == 200
+    idea_job = next(job for job in jobs_response.json() if job["job_type"] == "generate_ideas")
+    assert idea_job["payload_json"]["research_snapshot_id"] == research_snapshot["id"]
+    assert (
+        idea_job["payload_json"]["idea_research_context"]["research_snapshot_id"]
+        == research_snapshot["id"]
+    )
+    assert (
+        idea_job["payload_json"]["idea_research_context"]["recommended_topics"]
+        == research_snapshot["recommended_topics_json"]
+    )
+
+    app.dependency_overrides.clear()
+
+
 def test_idea_regeneration_persists_source_feedback_notes() -> None:
     client = _make_test_client()
     brand_profile_id = _create_brand_profile_for_tests(client)
@@ -768,6 +864,37 @@ def test_idea_regeneration_persists_source_feedback_notes() -> None:
     assert latest_revision_job["payload_json"]["idea_ids"] == [
         idea["id"] for idea in regenerated_ideas
     ]
+
+    app.dependency_overrides.clear()
+
+
+def test_project_export_includes_idea_research_snapshots() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Export research history",
+        objective="Keep planning exports complete",
+        notes=None,
+    )
+    research_response = client.post(
+        f"/api/projects/{project_id}/research/generate",
+        json={"focus_topic": "Retention-focused creator workflows"},
+    )
+    assert research_response.status_code == 201
+    snapshot = research_response.json()
+
+    export_response = client.get(f"/api/projects/{project_id}/export")
+
+    assert export_response.status_code == 200
+    export_bundle = export_response.json()
+    assert len(export_bundle["idea_research_snapshots"]) == 1
+    assert export_bundle["idea_research_snapshots"][0]["id"] == snapshot["id"]
+    assert (
+        export_bundle["idea_research_snapshots"][0]["focus_topic"]
+        == "Retention-focused creator workflows"
+    )
 
     app.dependency_overrides.clear()
 

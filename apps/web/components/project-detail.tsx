@@ -17,6 +17,7 @@ import type {
   BackgroundJob,
   BrandProfile,
   ContentIdea,
+  IdeaResearchSnapshot,
   Project,
   ProjectActivity,
   ProjectAnalytics,
@@ -39,6 +40,7 @@ type ProjectDetailProps = {
   promptPack: ScriptPromptPack | null;
   project: Project | null;
   publishJobs: PublishJob[];
+  researchSnapshots: IdeaResearchSnapshot[];
 };
 
 function formatTimestamp(value: string): string {
@@ -58,6 +60,7 @@ export function ProjectDetail({
   promptPack,
   project,
   publishJobs,
+  researchSnapshots,
 }: ProjectDetailProps) {
   const router = useRouter();
   const { pushToast } = useToast();
@@ -157,6 +160,7 @@ export function ProjectDetail({
             jobs={jobs}
             promptPack={promptPack}
             project={project}
+            researchSnapshots={researchSnapshots}
           />
           <ProjectPublishCenter
             approvals={approvals}
