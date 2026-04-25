@@ -6,7 +6,8 @@
 - queue submission persists `background_jobs`, `generation_attempts`, and planned `assets`
 - the browser worker can now execute those queued jobs in local `dry_run` mode or through persistent-profile Playwright provider modules
 - `compose_rough_cut` can now be queued after asset approval and consumed by the media worker
-- the media worker currently probes WAV narration duration, validates contiguous timeline data, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, an FFmpeg command-plan sidecar with scene overlay text, trim/loop handling, and fade transitions, and optionally renders/registers a `video/mp4` rough cut when `MEDIA_ENABLE_FFMPEG_RENDER=true`
+- `final_export` can now be queued after a completed rough-cut job for the current script
+- the media worker currently probes WAV narration duration, validates contiguous timeline data, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, an FFmpeg command-plan sidecar with scene overlay text, trim/loop handling, and fade transitions, optionally renders/registers a `video/mp4` rough cut when `MEDIA_ENABLE_FFMPEG_RENDER=true`, and can render or reuse a source MP4 for the dedicated `final_video` export
 - job detail, job timeline logs, safe cancel, and safe retry operations are available through the API, dedicated job detail screen, and project page
 - queued browser/media job payloads include a `correlation_id` that is also copied into queue log metadata
 - browser provider debug artifacts and failure screenshot/HTML snapshots are captured into per-provider debug folders and linked from job logs
@@ -161,11 +162,26 @@ Persisted queue payload includes:
 ### `final_export`
 Input:
 - project_id
-- rough cut id
+- current approved script id
+- rough-cut review asset id
+- completed rough-cut manifest and subtitle sidecars
+- optional ready rough-cut MP4 source asset
+- output final-video asset id
 - export profile
 
 Output:
 - final video asset
+- FFmpeg command-plan sidecar
+
+Persisted queue payload includes:
+- script version
+- scene count
+- rough-cut asset id
+- optional source MP4 asset id and path when a ready rough-cut video exists
+- manifest and subtitle paths copied from the latest completed rough-cut job
+- final-video output asset id and planned storage path
+- planned final-export FFmpeg command-plan path
+- export profile settings used for the render or source-video reuse decision
 
 ### `publish_content`
 Input:

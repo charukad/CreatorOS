@@ -165,6 +165,58 @@ def _move_project_to_final_review_for_tests(
         return str(rough_cut.id)
 
 
+def _move_project_to_final_review_with_export_for_tests(
+    session_factory: sessionmaker[Session],
+    *,
+    project_id: str,
+    script_id: str,
+) -> tuple[str, str]:
+    with session_factory() as session:
+        project = session.get(Project, UUID(project_id))
+        script = session.get(ProjectScript, UUID(script_id))
+        assert project is not None
+        assert script is not None
+
+        rough_cut = Asset(
+            user_id=project.user_id,
+            project_id=project.id,
+            script_id=script.id,
+            scene_id=None,
+            generation_attempt_id=None,
+            asset_type=AssetType.ROUGH_CUT,
+            status=AssetStatus.READY,
+            provider_name=ProviderName.LOCAL_MEDIA,
+            file_path=f"storage/projects/{project.id}/rough-cuts/test-final.html",
+            mime_type="text/html",
+            duration_seconds=script.estimated_duration_seconds,
+            width=1080,
+            height=1920,
+            checksum="test-rough-cut-checksum",
+        )
+        final_video = Asset(
+            user_id=project.user_id,
+            project_id=project.id,
+            script_id=script.id,
+            scene_id=None,
+            generation_attempt_id=None,
+            asset_type=AssetType.FINAL_VIDEO,
+            status=AssetStatus.READY,
+            provider_name=ProviderName.LOCAL_MEDIA,
+            file_path=f"storage/projects/{project.id}/final-exports/test-final.mp4",
+            mime_type="video/mp4",
+            duration_seconds=script.estimated_duration_seconds,
+            width=1080,
+            height=1920,
+            checksum="test-final-video-checksum",
+        )
+        project.status = ProjectStatus.FINAL_PENDING_APPROVAL
+        session.add(rough_cut)
+        session.add(final_video)
+        session.add(project)
+        session.commit()
+        return str(rough_cut.id), str(final_video.id)
+
+
 def _create_ready_thumbnail_for_tests(
     session_factory: sessionmaker[Session],
     *,
@@ -2096,6 +2148,47 @@ def test_final_video_approval_unblocks_publish_prep_with_idempotency() -> None:
     list_response = client.get(f"/api/projects/{project_id}/publish-jobs")
     assert list_response.status_code == 200
     assert [job["id"] for job in list_response.json()] == [publish_job["id"]]
+
+    app.dependency_overrides.clear()
+
+
+def test_final_video_approval_prefers_exported_final_asset_for_publish_prep() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Prefer final export for publish prep",
+        objective="Use the dedicated final video when it exists",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    rough_cut_asset_id, final_video_asset_id = _move_project_to_final_review_with_export_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+
+    approval_response = client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+
+    assert approval_response.status_code == 200
+    approval = approval_response.json()
+    assert approval["target_id"] == final_video_asset_id
+    assert approval["target_id"] != rough_cut_asset_id
+
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Use final export",
+            "description": "Publish from the final MP4 asset.",
+            "hashtags": ["#CreatorOS"],
+        },
+    )
+
+    assert prepare_response.status_code == 201
+    publish_job = prepare_response.json()
+    assert publish_job["final_asset_id"] == final_video_asset_id
 
     app.dependency_overrides.clear()
 

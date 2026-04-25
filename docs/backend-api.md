@@ -28,6 +28,7 @@
 - browser workers now load versioned selector registries, write checkpoint artifacts and staged download manifests, and redact secret-like browser log fields before persisting operator-facing job logs
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
 - after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, FFmpeg command-plan sidecar, and optionally a `video/mp4` rough-cut asset when FFmpeg rendering is enabled
+- once a rough cut is ready, `compose/final-export` can queue a final-export media job that reuses the rough-cut MP4 when FFmpeg rendering is disabled or renders a dedicated `final_video` artifact when FFmpeg execution is available
 - job detail, project activity, job timeline logs, safe cancel, retry, and resume endpoints are implemented for operator recovery
 - browser workers retry timeout/selector-style provider failures once, and media workers retry timeout-style FFmpeg render failures once, before the job reaches `failed`
 - browser jobs now write per-attempt request metadata and output registration sidecars under project metadata storage and link those paths from job logs
@@ -67,6 +68,7 @@
 - `GET /api/projects/:id/publish-jobs`
 - `POST /api/projects/:id/assets/approve`
 - `POST /api/projects/:id/assets/reject`
+- `POST /api/projects/:id/compose/final-export`
 - `POST /api/projects/:id/compose/rough-cut`
 - `POST /api/projects/:id/final-video/approve`
 - `POST /api/projects/:id/final-video/reject`
@@ -837,10 +839,46 @@ Behavior note:
 - every scene must have a ready visual asset and the script must have a ready narration asset
 - the media worker marks the rough-cut and subtitle assets ready, then promotes the project to `rough_cut_ready`
 
+### `POST /api/projects/:id/compose/final-export`
+Response excerpt:
+```json
+{
+  "id": "uuid",
+  "project_id": "uuid",
+  "script_id": "uuid",
+  "job_type": "final_export",
+  "provider_name": "local_media",
+  "state": "queued",
+  "payload_json": {
+    "script_version": 1,
+    "scene_count": 4,
+    "rough_cut_asset_id": "uuid",
+    "source_video_asset_id": "uuid-when-a-ready-rough-cut-mp4-exists",
+    "source_video_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234.mp4",
+    "manifest_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234-manifest.json",
+    "subtitle_path": "storage/projects/{project_id}/subtitles/script-v1-rough-cut-abcd1234.srt",
+    "output_asset_id": "uuid",
+    "video_path": "storage/projects/{project_id}/final-exports/script-v1-final-export-efgh5678.mp4",
+    "ffmpeg_command_path": "storage/projects/{project_id}/final-exports/script-v1-final-export-efgh5678-ffmpeg-command.json",
+    "export_profile": {
+      "frame_rate": 30,
+      "height": 1920,
+      "video_codec": "libx264",
+      "width": 1080
+    }
+  }
+}
+```
+
+Behavior note:
+- the route requires a completed rough-cut job for the current script plus a ready rough-cut review asset
+- only one active final-export job may exist for a script at a time
+- the media worker marks the `final_video` asset ready, then promotes the project to `final_pending_approval`
+
 ### `POST /api/projects/:id/final-video/approve`
 Behavior note:
 - requires the project to be in `final_pending_approval`
-- uses the ready rough-cut artifact as the v1 final-review asset until final exports are implemented
+- prefers the latest ready `final_video` artifact for final review and falls back to the latest ready rough cut when a dedicated final export does not exist yet
 - records a `final_video` approval against the asset
 - moves the project to `ready_to_publish`
 
@@ -1052,7 +1090,6 @@ Behavior note:
 - `POST /api/scripts/:id/regenerate`
 
 ### Rough Cut / Final Video
-- `POST /api/projects/:id/finalize`
 - `GET /api/projects/:id/exports`
 
 ## Example Project State Machine
@@ -1066,6 +1103,7 @@ Behavior note:
 - scene edits are only allowed while the current script is in `draft` or `rejected` state during script approval
 - scene reorders follow the same script approval gate and prompt packs reject non-contiguous scene order data
 - moving into `rough_cut_ready` requires an approved asset set and a ready rough-cut artifact
+- moving into `final_pending_approval` requires a ready rough-cut or final-export review artifact
 - moving into `ready_to_publish` requires final-video approval
 - moving into `scheduled` requires a scheduled publish job
 - moving into `published` requires a publish job marked as published

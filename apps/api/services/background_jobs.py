@@ -11,14 +11,23 @@ from apps.api.models.job_log import JobLog
 from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
 from apps.api.models.user import User
-from apps.api.schemas.enums import AssetStatus, BackgroundJobState, BackgroundJobType, ProjectStatus
+from apps.api.schemas.enums import (
+    AssetStatus,
+    AssetType,
+    BackgroundJobState,
+    BackgroundJobType,
+    ProjectStatus,
+)
 from apps.api.services.assets import can_enter_asset_review, has_ready_rough_cut
 
 CLAIMABLE_BROWSER_JOB_TYPES = (
     BackgroundJobType.GENERATE_AUDIO_BROWSER,
     BackgroundJobType.GENERATE_VISUALS_BROWSER,
 )
-CLAIMABLE_MEDIA_JOB_TYPES = (BackgroundJobType.COMPOSE_ROUGH_CUT,)
+CLAIMABLE_MEDIA_JOB_TYPES = (
+    BackgroundJobType.COMPOSE_ROUGH_CUT,
+    BackgroundJobType.FINAL_EXPORT,
+)
 CLAIMABLE_PUBLISH_JOB_TYPES = (BackgroundJobType.PUBLISH_CONTENT,)
 CLAIMABLE_ANALYTICS_JOB_TYPES = (BackgroundJobType.SYNC_ANALYTICS,)
 ACTIVE_JOB_STATES = {
@@ -38,6 +47,7 @@ RETRY_POLICY_MAX_ATTEMPTS = {
     BackgroundJobType.GENERATE_AUDIO_BROWSER: 4,
     BackgroundJobType.GENERATE_VISUALS_BROWSER: 4,
     BackgroundJobType.COMPOSE_ROUGH_CUT: 3,
+    BackgroundJobType.FINAL_EXPORT: 3,
     BackgroundJobType.PUBLISH_CONTENT: 2,
     BackgroundJobType.SYNC_ANALYTICS: 2,
 }
@@ -481,17 +491,9 @@ def mark_job_failed(db: Session, job: BackgroundJob, error_message: str) -> None
         level="error",
     )
 
-    if job.job_type == BackgroundJobType.COMPOSE_ROUGH_CUT:
-        media_asset_ids = [
-            job.payload_json.get("output_asset_id"),
-            job.payload_json.get("subtitle_asset_id"),
-            job.payload_json.get("video_asset_id"),
-        ]
-        for media_asset_id in media_asset_ids:
-            if media_asset_id is None:
-                continue
-            asset = db.get(Asset, UUID(str(media_asset_id)))
-            if asset is not None and asset.status != AssetStatus.READY:
+    if job.job_type in {BackgroundJobType.COMPOSE_ROUGH_CUT, BackgroundJobType.FINAL_EXPORT}:
+        for asset in _list_payload_assets(db, job):
+            if asset.status != AssetStatus.READY:
                 asset.status = AssetStatus.FAILED
                 db.add(asset)
 
@@ -562,6 +564,10 @@ def _promote_project_after_completed_job(db: Session, job: BackgroundJob) -> Non
         _promote_project_to_rough_cut_ready(db, job)
         return
 
+    if job.job_type == BackgroundJobType.FINAL_EXPORT:
+        _promote_project_to_final_review(db, job)
+        return
+
     if job.job_type in {BackgroundJobType.PUBLISH_CONTENT, BackgroundJobType.SYNC_ANALYTICS}:
         return
 
@@ -598,6 +604,32 @@ def _promote_project_to_rough_cut_ready(db: Session, job: BackgroundJob) -> None
     if has_ready_rough_cut(db, script):
         project.status = ProjectStatus.ROUGH_CUT_READY
         db.add(project)
+
+
+def _promote_project_to_final_review(db: Session, job: BackgroundJob) -> None:
+    db.flush()
+
+    project = db.get(Project, job.project_id)
+    if project is None or project.status not in {
+        ProjectStatus.ROUGH_CUT_READY,
+        ProjectStatus.FINAL_PENDING_APPROVAL,
+    }:
+        return
+
+    script = db.get(ProjectScript, job.script_id)
+    if script is None:
+        return
+
+    statement = select(Asset).where(
+        Asset.script_id == script.id,
+        Asset.asset_type == AssetType.FINAL_VIDEO,
+        Asset.status == AssetStatus.READY,
+    )
+    if db.scalar(statement) is None:
+        return
+
+    project.status = ProjectStatus.FINAL_PENDING_APPROVAL
+    db.add(project)
 
 
 def _extract_payload_asset_ids(payload_json: dict[str, object]) -> list[UUID]:

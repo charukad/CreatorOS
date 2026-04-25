@@ -1,6 +1,7 @@
 import type {
   ArtifactTraceability,
   ComposeRoughCutQueuePayload,
+  FinalExportQueuePayload,
   GenerateAudioQueuePayload,
   GenerateIdeaResearchQueuePayload,
   GenerateIdeasQueuePayload,
@@ -139,6 +140,24 @@ export const sampleComposeRoughCutPayload = {
   video_asset_id: "asset-video",
   ffmpeg_command_path: "storage/projects/project-123/rough-cuts/script-v1-command.json",
 } satisfies ComposeRoughCutQueuePayload;
+
+export const sampleFinalExportPayload = {
+  job_type: "final_export",
+  project_id: "project-123",
+  correlation_id: "correlation-final-export",
+  script_id: "script-123",
+  script_version: 1,
+  scene_count: 2,
+  rough_cut_asset_id: "asset-rough-cut-preview",
+  source_video_asset_id: "asset-rough-cut-video",
+  source_video_path: "storage/projects/project-123/rough-cuts/script-v1.mp4",
+  manifest_path: "storage/projects/project-123/rough-cuts/script-v1-manifest.json",
+  subtitle_path: "storage/projects/project-123/subtitles/script-v1.srt",
+  output_asset_id: "asset-final-video",
+  video_path: "storage/projects/project-123/final-exports/script-v1-final.mp4",
+  ffmpeg_command_path: "storage/projects/project-123/final-exports/script-v1-command.json",
+  export_profile: "final_cut_v1",
+} satisfies FinalExportQueuePayload;
 
 export const samplePromptPack = {
   script_id: "script-123",

@@ -377,6 +377,12 @@ export function queueRoughCut(projectId: string): Promise<BackgroundJob> {
   });
 }
 
+export function queueFinalExport(projectId: string): Promise<BackgroundJob> {
+  return apiRequest<BackgroundJob>(`/projects/${projectId}/compose/final-export`, {
+    method: "POST",
+  });
+}
+
 export function approveFinalVideo(
   projectId: string,
   payload: ApprovalDecisionPayload = {},

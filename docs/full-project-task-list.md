@@ -315,7 +315,7 @@ The worker now stages raw browser downloads through explicit ingest metadata pat
 
 ## Phase 15 - Media Composer, Timeline Builder, and Exports
 
-The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, WAV narration duration probing, deterministic audio-anchored timeline manifest generation, HTML rough-cut preview artifacts, SRT subtitle sidecar generation, FFmpeg command-plan sidecars, optional FFmpeg MP4 rendering behind `MEDIA_ENABLE_FFMPEG_RENDER`, API/UI rough-cut queueing, and smoke tests. Real local FFmpeg install/manual MP4 QA, final exports, and real sample QA are still pending.
+The repo now supports queued `compose_rough_cut` and `final_export` jobs, a media worker runtime, WAV narration duration probing, deterministic audio-anchored timeline manifest generation, HTML rough-cut preview artifacts, SRT subtitle sidecar generation, FFmpeg command-plan sidecars, optional FFmpeg MP4 rendering behind `MEDIA_ENABLE_FFMPEG_RENDER`, dedicated `final_video` export assets, API/UI rough-cut queueing, final-export queueing, and smoke tests. Real local FFmpeg install/manual MP4 QA and real sample QA are still pending.
 
 ### Build tasks
 - [x] Create the media worker entrypoint and job execution pipeline
@@ -331,10 +331,10 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 - [x] Add optional FFmpeg MP4 render execution behind a feature flag
 - [x] Export first-pass rough cut preview artifacts
 - [ ] Manually verify MP4 rough-cut rendering with FFmpeg installed
-- [ ] Export final cut artifacts
+- [x] Export final cut artifacts
 - [x] Persist timeline manifests for every rough-cut attempt
 - [x] Add rough cut preview views in the UI
-- [ ] Add final export views in the UI
+- [x] Add final export views in the UI
 - [x] Add media worker smoke tests for rough-cut manifest and preview generation
 
 ### Manual checks

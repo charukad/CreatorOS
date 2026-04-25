@@ -20,6 +20,7 @@ const retryPolicyMaxAttempts: Partial<Record<BackgroundJob["job_type"], number>>
   generate_audio_browser: 4,
   generate_visuals_browser: 4,
   compose_rough_cut: 3,
+  final_export: 3,
   publish_content: 2,
   sync_analytics: 2,
 };
@@ -51,7 +52,7 @@ function canRetryJob(job: BackgroundJob): boolean {
 function canResumeJob(job: BackgroundJob): boolean {
   return (
     job.state === "running" &&
-    ["generate_audio_browser", "generate_visuals_browser", "compose_rough_cut"].includes(
+    ["generate_audio_browser", "generate_visuals_browser", "compose_rough_cut", "final_export"].includes(
       job.job_type,
     )
   );

@@ -558,20 +558,25 @@ def _validate_final_approval_state(
         raise ValueError("The selected script does not belong to this project.")
 
     if final_asset is None:
-        raise ValueError("A ready rough-cut or final video asset is required for final review.")
+        raise ValueError("A ready final-review asset is required for final review.")
 
 
 def get_latest_ready_final_review_asset(db: Session, script: ProjectScript) -> Asset | None:
-    statement = (
-        select(Asset)
-        .where(
-            Asset.script_id == script.id,
-            Asset.asset_type == AssetType.ROUGH_CUT,
-            Asset.status == AssetStatus.READY,
+    assets = list(
+        db.scalars(
+            select(Asset)
+            .where(
+                Asset.script_id == script.id,
+                Asset.asset_type.in_((AssetType.FINAL_VIDEO, AssetType.ROUGH_CUT)),
+                Asset.status == AssetStatus.READY,
+            )
+            .order_by(desc(Asset.updated_at), desc(Asset.created_at))
         )
-        .order_by(desc(Asset.updated_at), desc(Asset.created_at))
     )
-    return db.scalar(statement)
+    for asset in assets:
+        if asset.asset_type == AssetType.FINAL_VIDEO:
+            return asset
+    return assets[0] if assets else None
 
 
 def _get_publish_job_by_idempotency_key(

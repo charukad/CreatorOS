@@ -68,6 +68,7 @@ export const backgroundJobTypes = [
   "generate_audio_browser",
   "generate_visuals_browser",
   "compose_rough_cut",
+  "final_export",
   "publish_content",
   "sync_analytics",
 ] as const;
@@ -167,6 +168,7 @@ export const backgroundJobTypeLabels: Record<BackgroundJobType, string> = {
   generate_audio_browser: "Audio Generation",
   generate_visuals_browser: "Visual Generation",
   compose_rough_cut: "Rough Cut Composition",
+  final_export: "Final Export",
   publish_content: "Publish Handoff",
   sync_analytics: "Analytics Sync",
 };

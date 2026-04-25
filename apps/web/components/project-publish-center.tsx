@@ -8,8 +8,10 @@ import { useToast } from "./toast-provider";
 import {
   approveFinalVideo,
   approvePublishJob,
+  getAssetContentUrl,
   markPublishJobPublished,
   preparePublishJob,
+  queueFinalExport,
   queuePublishJob,
   rejectFinalVideo,
   schedulePublishJob,
@@ -276,24 +278,49 @@ export function ProjectPublishCenter({
   const readyRoughCutAssets = currentScriptAssets.filter(
     (asset) => asset.asset_type === "rough_cut" && asset.status === "ready",
   );
+  const readyFinalVideoAssets = currentScriptAssets.filter(
+    (asset) => asset.asset_type === "final_video" && asset.status === "ready",
+  );
   const latestReadyRoughCut = readyRoughCutAssets[0] ?? null;
+  const latestReadyFinalVideo = readyFinalVideoAssets[0] ?? null;
+  const latestReadyFinalReviewAsset = latestReadyFinalVideo ?? latestReadyRoughCut;
   const latestFinalApproval =
-    latestReadyRoughCut === null
+    latestReadyFinalReviewAsset === null
       ? null
       : approvals.find(
           (approval) =>
-            approval.stage === "final_video" && approval.target_id === latestReadyRoughCut.id,
+            approval.stage === "final_video" &&
+            approval.target_id === latestReadyFinalReviewAsset.id,
         ) ?? null;
   const activePublishJob =
     publishJobs.find((job) =>
       ["pending_approval", "approved", "scheduled"].includes(job.status),
     ) ?? null;
+  const activeFinalExportJob =
+    jobs.find(
+      (job) =>
+        job.job_type === "final_export" &&
+        job.script_id === currentScript?.id &&
+        ["queued", "running", "waiting_external"].includes(job.state),
+    ) ?? null;
+  const latestFinalExportJob =
+    jobs
+      .filter((job) => job.job_type === "final_export" && job.script_id === currentScript?.id)
+      .sort(
+        (left, right) =>
+          new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
+      )[0] ?? null;
+  const canQueueFinalExport =
+    currentScript !== null &&
+    latestReadyRoughCut !== null &&
+    activeFinalExportJob === null &&
+    (project.status === "rough_cut_ready" || project.status === "final_pending_approval");
   const canReviewFinal =
-    project.status === "final_pending_approval" && latestReadyRoughCut !== null;
+    project.status === "final_pending_approval" && latestReadyFinalReviewAsset !== null;
   const canPreparePublish =
     project.status === "ready_to_publish" &&
     currentScript !== null &&
-    latestReadyRoughCut !== null &&
+    latestReadyFinalReviewAsset !== null &&
     activePublishJob === null;
   const publishCommandRows = buildPublishCommandRows(publishJobs, jobs);
   const waitingHandoffCount = publishCommandRows.filter(
@@ -379,19 +406,73 @@ export function ProjectPublishCenter({
 
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         <article className="rounded-2xl border border-white/8 bg-slate-950/40 p-5">
-          <h3 className="text-lg font-semibold text-white">Final video review</h3>
+          <h3 className="text-lg font-semibold text-white">Final export and review</h3>
           <p className="mt-2 text-sm leading-6 text-slate-300">
-            Use the ready rough cut as the v1 final-review artifact until final export is added.
+            Export a dedicated final MP4 when you can. If that is not available yet, CreatorOS can
+            still fall back to the ready rough cut for review continuity.
           </p>
 
-          {latestReadyRoughCut ? (
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button
+              className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!canQueueFinalExport || pendingAction !== null}
+              onClick={() =>
+                runAction(
+                  "queue-final-export",
+                  "A final-export media job was queued for this script.",
+                  () => queueFinalExport(project.id),
+                )
+              }
+              type="button"
+            >
+              {pendingAction === "queue-final-export"
+                ? "Queueing..."
+                : latestReadyFinalVideo
+                  ? "Re-export final cut"
+                  : "Export final cut"}
+            </button>
+          </div>
+
+          {latestFinalExportJob ? (
             <div className="mt-4 rounded-2xl border border-white/8 bg-white/4 p-4 text-sm text-slate-300">
-              <p className="font-medium text-white">Ready review asset</p>
-              <p className="mt-2 break-all">{latestReadyRoughCut.file_path}</p>
+              <p className="font-medium text-white">Latest final-export job</p>
+              <p className="mt-2">
+                {latestFinalExportJob.state} at {formatTimestamp(latestFinalExportJob.updated_at)}
+              </p>
+            </div>
+          ) : null}
+
+          {latestReadyFinalReviewAsset ? (
+            <div className="mt-4 rounded-2xl border border-white/8 bg-white/4 p-4 text-sm text-slate-300">
+              <p className="font-medium text-white">
+                Ready review asset
+                {latestReadyFinalReviewAsset.asset_type === "final_video"
+                  ? " (final export)"
+                  : " (rough-cut fallback)"}
+              </p>
+              <p className="mt-2 break-all">{latestReadyFinalReviewAsset.file_path}</p>
+              {latestReadyFinalReviewAsset.file_path ? (
+                <div className="mt-4 overflow-hidden rounded-2xl border border-white/8 bg-slate-950/60">
+                  {latestReadyFinalReviewAsset.mime_type?.startsWith("video/") ? (
+                    <video
+                      className="w-full bg-slate-950"
+                      controls
+                      preload="metadata"
+                      src={getAssetContentUrl(latestReadyFinalReviewAsset.id)}
+                    />
+                  ) : latestReadyFinalReviewAsset.mime_type === "text/html" ? (
+                    <iframe
+                      className="h-[420px] w-full bg-slate-950"
+                      src={getAssetContentUrl(latestReadyFinalReviewAsset.id)}
+                      title="Final review asset"
+                    />
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : (
             <p className="mt-4 rounded-2xl border border-dashed border-white/10 bg-white/4 p-4 text-sm text-slate-300">
-              A ready rough-cut asset is required before final approval.
+              A ready rough-cut asset is required before final approval or final export.
             </p>
           )}
 
@@ -408,7 +489,7 @@ export function ProjectPublishCenter({
               onClick={() =>
                 runAction(
                   "approve-final",
-                  "The rough cut was approved as the current final-review artifact.",
+                  "The current final-review artifact was approved for publish preparation.",
                   () => approveFinalVideo(project.id),
                 )
               }

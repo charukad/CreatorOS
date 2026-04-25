@@ -568,10 +568,12 @@ def validate_project_transition_prerequisites(
             raise ValueError(
                 f"Project cannot transition to '{target_status.value}' without a generated script."
             )
-        if not has_ready_rough_cut(db, current_script):
+        from apps.api.services.publishing import get_latest_ready_final_review_asset
+
+        if get_latest_ready_final_review_asset(db, current_script) is None:
             raise ValueError(
                 "Project cannot transition to 'final_pending_approval' until a rough-cut "
-                "artifact is ready for final review."
+                "or final-export artifact is ready for review."
             )
 
     if target_status == ProjectStatus.READY_TO_PUBLISH:

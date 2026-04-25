@@ -93,8 +93,15 @@ export function ProjectStatusActions({
   const hasReadyRoughCutAsset = currentScriptAssets.some(
     (asset) => asset.status === "ready" && asset.asset_type === "rough_cut",
   );
+  const hasReadyFinalVideoAsset = currentScriptAssets.some(
+    (asset) => asset.status === "ready" && asset.asset_type === "final_video",
+  );
   const readyRoughCutAssetIds = currentScriptAssets
-    .filter((asset) => asset.status === "ready" && asset.asset_type === "rough_cut")
+    .filter(
+      (asset) =>
+        asset.status === "ready" &&
+        (asset.asset_type === "rough_cut" || asset.asset_type === "final_video"),
+    )
     .map((asset) => asset.id);
   const latestAssetApproval =
     currentScript === null
@@ -137,8 +144,8 @@ export function ProjectStatusActions({
       return "Queue and run the rough-cut media worker before marking the rough cut ready.";
     }
 
-    if (targetStatus === "final_pending_approval" && !hasReadyRoughCutAsset) {
-      return "Create a ready rough cut before starting final approval.";
+    if (targetStatus === "final_pending_approval" && !hasReadyRoughCutAsset && !hasReadyFinalVideoAsset) {
+      return "Create a ready rough cut or final export before starting final approval.";
     }
 
     if (

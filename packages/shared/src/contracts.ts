@@ -268,8 +268,7 @@ export type QueuePayloadBase = {
 export type ImplementedQueueJobType = BackgroundJobType;
 
 export type PlannedQueueJobType =
-  | "ingest_download"
-  | "final_export";
+  | "ingest_download";
 
 export type QueueJobType = ImplementedQueueJobType | PlannedQueueJobType;
 
@@ -369,9 +368,17 @@ export type IngestDownloadQueuePayload = QueuePayloadBase &
 
 export type FinalExportQueuePayload = QueuePayloadBase & {
   job_type: "final_export";
-  project_id: UUID;
   script_id: UUID;
+  script_version: number;
+  scene_count: number;
   rough_cut_asset_id: UUID;
+  source_video_asset_id?: UUID;
+  source_video_path?: StoragePath;
+  manifest_path: StoragePath;
+  subtitle_path: StoragePath;
+  output_asset_id: UUID;
+  video_path: StoragePath;
+  ffmpeg_command_path: StoragePath;
   export_profile: string;
 };
 
@@ -549,7 +556,15 @@ export function validateQueuePayload(payload: QueueJobPayload): string[] {
       break;
     case "final_export":
       requireString(payload.script_id, "script_id", errors);
+      requirePositiveNumber(payload.script_version, "script_version", errors);
+      requirePositiveNumber(payload.scene_count, "scene_count", errors);
       requireString(payload.rough_cut_asset_id, "rough_cut_asset_id", errors);
+      requireString(payload.manifest_path, "manifest_path", errors);
+      requireString(payload.subtitle_path, "subtitle_path", errors);
+      requireString(payload.output_asset_id, "output_asset_id", errors);
+      requireString(payload.video_path, "video_path", errors);
+      requireString(payload.ffmpeg_command_path, "ffmpeg_command_path", errors);
+      requireString(payload.export_profile, "export_profile", errors);
       break;
     case "publish_content":
       requireString(payload.publish_job_id, "publish_job_id", errors);
