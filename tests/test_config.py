@@ -5,8 +5,10 @@ from apps.api.core.config import Settings
 from apps.api.core.config_validation import normalize_app_env, resolve_path_within_roots
 from apps.api.core.env_files import build_settings_env_files
 from pydantic import ValidationError
+from workers.analytics.config import AnalyticsWorkerSettings
 from workers.browser.config import BrowserWorkerSettings
 from workers.media.config import MediaWorkerSettings
+from workers.publisher.config import PublisherWorkerSettings
 
 
 def test_api_settings_reject_default_secret_in_production() -> None:
@@ -33,6 +35,7 @@ def test_browser_settings_validate_provider_mode_and_paths() -> None:
 
     settings = BrowserWorkerSettings(BROWSER_PROVIDER_MODE="playwright")
     assert settings.browser_provider_mode == "playwright"
+    assert settings.redis_url == "redis://localhost:6379/0"
 
     with pytest.raises(ValidationError, match="ELEVENLABS_WORKSPACE_URL"):
         BrowserWorkerSettings(
@@ -94,3 +97,12 @@ def test_media_settings_validate_required_paths_and_ffmpeg_binary() -> None:
     )
 
     assert settings.ffmpeg_binary == "ffmpeg"
+    assert settings.redis_url == "redis://localhost:6379/0"
+
+
+def test_publisher_and_analytics_settings_include_redis_url() -> None:
+    publisher_settings = PublisherWorkerSettings()
+    analytics_settings = AnalyticsWorkerSettings()
+
+    assert publisher_settings.redis_url == "redis://localhost:6379/0"
+    assert analytics_settings.redis_url == "redis://localhost:6379/0"

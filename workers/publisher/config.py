@@ -10,6 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class PublisherWorkerSettings(BaseSettings):
     app_env: str = Field(default="development", alias="APP_ENV")
+    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     publisher_max_jobs_per_run: int = Field(default=10, ge=1, alias="PUBLISHER_MAX_JOBS_PER_RUN")
     storage_root: Path = Field(default=Path("storage"), alias="STORAGE_ROOT")
 

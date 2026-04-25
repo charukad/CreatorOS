@@ -12,6 +12,7 @@ from apps.api.schemas.content_workflow import AnalyticsSnapshotRequest
 from apps.api.schemas.enums import BackgroundJobState, BackgroundJobType, PublishJobStatus
 from apps.api.services.background_jobs import create_job_log
 from apps.api.services.project_events import create_project_event
+from apps.api.services.queue_events import emit_background_job_event
 
 ACTIVE_ANALYTICS_SYNC_STATES = {
     BackgroundJobState.QUEUED,
@@ -134,6 +135,12 @@ def queue_publish_job_analytics_sync(
     )
     db.commit()
     db.refresh(job)
+    emit_background_job_event(
+        job,
+        event_type="job_queued",
+        publish_to_worker_queue=True,
+        metadata={"queue_reason": "analytics_sync"},
+    )
     return job
 
 

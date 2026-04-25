@@ -10,6 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class MediaWorkerSettings(BaseSettings):
     app_env: str = Field(default="development", alias="APP_ENV")
+    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     storage_root: Path = Field(default=Path("storage"), alias="STORAGE_ROOT")
     downloads_root: Path = Field(default=Path("storage/downloads"), alias="DOWNLOADS_ROOT")
     ffmpeg_binary: str = Field(default="ffmpeg", alias="FFMPEG_BINARY")

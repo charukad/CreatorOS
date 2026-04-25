@@ -12,6 +12,7 @@ SUPPORTED_BROWSER_PROVIDER_MODES = {"dry_run", "playwright"}
 
 class BrowserWorkerSettings(BaseSettings):
     app_env: str = Field(default="development", alias="APP_ENV")
+    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     browser_provider_mode: str = Field(default="dry_run", alias="BROWSER_PROVIDER_MODE")
     browser_max_jobs_per_run: int = Field(default=10, ge=1, alias="BROWSER_MAX_JOBS_PER_RUN")
     playwright_headless: bool = Field(default=True, alias="PLAYWRIGHT_HEADLESS")

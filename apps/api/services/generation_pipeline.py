@@ -41,6 +41,7 @@ from apps.api.services.idea_research import (
 )
 from apps.api.services.learning_context import build_analytics_learning_context
 from apps.api.services.project_events import create_project_event
+from apps.api.services.queue_events import emit_background_job_event
 from apps.api.services.storage_paths import build_project_storage_path
 
 ACTIVE_JOB_STATES = {
@@ -390,6 +391,12 @@ def queue_audio_generation_job(
     _promote_project_to_asset_generation(db, project)
     db.commit()
     db.refresh(job)
+    emit_background_job_event(
+        job,
+        event_type="job_queued",
+        publish_to_worker_queue=True,
+        metadata={"queue_reason": "audio_generation"},
+    )
     return job
 
 
@@ -499,6 +506,12 @@ def queue_visual_generation_job(
     _promote_project_to_asset_generation(db, project)
     db.commit()
     db.refresh(job)
+    emit_background_job_event(
+        job,
+        event_type="job_queued",
+        publish_to_worker_queue=True,
+        metadata={"queue_reason": "visual_generation"},
+    )
     return job
 
 

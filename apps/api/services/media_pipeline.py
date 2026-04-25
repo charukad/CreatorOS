@@ -18,6 +18,7 @@ from apps.api.schemas.enums import (
 )
 from apps.api.services.assets import has_approved_asset_review
 from apps.api.services.background_jobs import create_job_log
+from apps.api.services.queue_events import emit_background_job_event
 from apps.api.services.storage_paths import build_project_storage_path
 
 ACTIVE_JOB_STATES = {
@@ -145,6 +146,12 @@ def queue_rough_cut_job(
     db.add(job)
     db.commit()
     db.refresh(job)
+    emit_background_job_event(
+        job,
+        event_type="job_queued",
+        publish_to_worker_queue=True,
+        metadata={"queue_reason": "rough_cut"},
+    )
     return job
 
 
@@ -257,6 +264,12 @@ def queue_final_export_job(
     db.add(job)
     db.commit()
     db.refresh(job)
+    emit_background_job_event(
+        job,
+        event_type="job_queued",
+        publish_to_worker_queue=True,
+        metadata={"queue_reason": "final_export"},
+    )
     return job
 
 

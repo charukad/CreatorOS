@@ -19,6 +19,7 @@ from apps.api.schemas.enums import (
     ProjectStatus,
 )
 from apps.api.services.assets import can_enter_asset_review, has_ready_rough_cut
+from apps.api.services.queue_events import emit_background_job_event
 
 CLAIMABLE_BROWSER_JOB_TYPES = (
     BackgroundJobType.GENERATE_AUDIO_BROWSER,
@@ -93,6 +94,7 @@ def claim_next_browser_job(db: Session) -> BackgroundJob | None:
     )
     db.commit()
     db.refresh(job)
+    emit_background_job_event(job, event_type="job_claimed")
     return get_background_job(db, job.id)
 
 
@@ -125,6 +127,7 @@ def claim_next_media_job(db: Session) -> BackgroundJob | None:
     )
     db.commit()
     db.refresh(job)
+    emit_background_job_event(job, event_type="job_claimed")
     return get_background_job(db, job.id)
 
 
@@ -157,6 +160,7 @@ def claim_next_publish_job(db: Session) -> BackgroundJob | None:
     )
     db.commit()
     db.refresh(job)
+    emit_background_job_event(job, event_type="job_claimed")
     return get_background_job(db, job.id)
 
 
@@ -189,6 +193,7 @@ def claim_next_analytics_job(db: Session) -> BackgroundJob | None:
     )
     db.commit()
     db.refresh(job)
+    emit_background_job_event(job, event_type="job_claimed")
     return get_background_job(db, job.id)
 
 
@@ -319,7 +324,9 @@ def cancel_background_job(
         _mark_unfinished_asset_failed(db, asset)
 
     db.commit()
-    return get_background_job(db, job.id) or job
+    refreshed_job = get_background_job(db, job.id) or job
+    emit_background_job_event(refreshed_job, event_type="job_cancelled")
+    return refreshed_job
 
 
 def retry_background_job(db: Session, job: BackgroundJob) -> BackgroundJob:
@@ -364,7 +371,13 @@ def retry_background_job(db: Session, job: BackgroundJob) -> BackgroundJob:
         _reset_asset_for_retry(db, asset)
 
     db.commit()
-    return get_background_job(db, job.id) or job
+    refreshed_job = get_background_job(db, job.id) or job
+    emit_background_job_event(
+        refreshed_job,
+        event_type="job_retried",
+        publish_to_worker_queue=True,
+    )
+    return refreshed_job
 
 
 def resume_stale_running_job(
@@ -417,7 +430,13 @@ def resume_stale_running_job(
         _reset_unfinished_asset_for_resume(db, asset)
 
     db.commit()
-    return get_background_job(db, job.id) or job
+    refreshed_job = get_background_job(db, job.id) or job
+    emit_background_job_event(
+        refreshed_job,
+        event_type="job_resumed",
+        publish_to_worker_queue=True,
+    )
+    return refreshed_job
 
 
 def mark_job_manual_intervention_required(
@@ -442,7 +461,9 @@ def mark_job_manual_intervention_required(
         metadata={"previous_state": previous_state},
     )
     db.commit()
-    return get_background_job(db, job.id) or job
+    refreshed_job = get_background_job(db, job.id) or job
+    emit_background_job_event(refreshed_job, event_type="manual_intervention_required")
+    return refreshed_job
 
 
 def mark_job_progress(db: Session, job: BackgroundJob, progress_percent: int) -> None:
@@ -457,6 +478,11 @@ def mark_job_progress(db: Session, job: BackgroundJob, progress_percent: int) ->
     )
     db.commit()
     db.refresh(job)
+    emit_background_job_event(
+        job,
+        event_type="job_progress_updated",
+        metadata={"progress_percent": progress_percent},
+    )
 
 
 def mark_job_completed(db: Session, job: BackgroundJob) -> None:
@@ -475,6 +501,7 @@ def mark_job_completed(db: Session, job: BackgroundJob) -> None:
     _promote_project_after_completed_job(db, job)
     db.commit()
     db.refresh(job)
+    emit_background_job_event(job, event_type="job_completed")
 
 
 def mark_job_failed(db: Session, job: BackgroundJob, error_message: str) -> None:
@@ -512,6 +539,7 @@ def mark_job_failed(db: Session, job: BackgroundJob, error_message: str) -> None
 
     db.commit()
     db.refresh(job)
+    emit_background_job_event(job, event_type="job_failed")
 
 
 def mark_attempt_running(db: Session, attempt: GenerationAttempt) -> None:

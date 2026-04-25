@@ -70,7 +70,7 @@ Legend:
 - [x] Create FastAPI app entrypoint and configuration loading
 - [x] Add health and readiness endpoints
 - [x] Add database session management and dependency injection
-- [ ] Add Redis connection setup
+- [x] Add Redis connection setup
 - [x] Add structured logging and request correlation IDs
 - [x] Add global error model matching `docs/backend-api.md`
 - [x] Add API router registration and versioned route structure
@@ -189,7 +189,7 @@ The repo now has an inline-local `generate_script` background job record with li
 ### Build tasks
 - [x] Implement approval records for idea and script stages
 - [x] Add immutable approval history persistence
-- [ ] Add API endpoints for approve, reject, and regenerate feedback actions for all stages
+- [x] Add API endpoints for approve, reject, and regenerate feedback actions for all stages
 - [x] Add reusable approval UI components for idea and script stages
 - [x] Add approval comments/feedback capture
 - [x] Add rules so downstream jobs cannot start unless the current stage is approved
@@ -204,7 +204,7 @@ The repo now has an inline-local `generate_script` background job record with li
 ## Phase 10 - Queue System, Background Jobs, and Progress Tracking
 
 Current implementation note:
-The repo now persists inline-local idea/script generation jobs, queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, per-type retry budgets, publish scheduling idempotency, file-ingestion idempotency/conflict quarantine, and safe cancel/retry/resume operations from the project page and dedicated job detail screen. The browser worker can execute queued browser jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, automated retry backoff, and live progress updates are still pending.
+The repo now persists inline-local idea/script generation jobs, queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, per-type retry budgets, publish scheduling idempotency, file-ingestion idempotency/conflict quarantine, and safe cancel/retry/resume operations from the project page and dedicated job detail screen. `/api/health/ready` now performs real database and Redis checks, and queued browser/media/publisher/analytics jobs now publish Redis wake-up signals plus general job events after commit. The browser worker can execute queued browser jobs in local `dry_run` mode and materialize development artifacts, but the full Redis-backed blocking runner architecture, automated retry backoff, and live progress updates are still pending.
 
 ### Build tasks
 - [ ] Choose and implement the job runner architecture backed by Redis

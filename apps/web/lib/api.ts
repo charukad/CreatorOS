@@ -423,6 +423,16 @@ export function approvePublishJob(
   });
 }
 
+export function rejectPublishJob(
+  publishJobId: string,
+  payload: ApprovalDecisionPayload = {},
+): Promise<PublishJob> {
+  return apiRequest<PublishJob>(`/publish-jobs/${publishJobId}/reject`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function queuePublishJob(publishJobId: string): Promise<BackgroundJob> {
   return apiRequest<BackgroundJob>(`/publish-jobs/${publishJobId}/queue`, {
     method: "POST",

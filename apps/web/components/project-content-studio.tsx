@@ -35,6 +35,7 @@ import {
   retryJob,
   updateScene,
 } from "../lib/api";
+import { ApprovalFeedbackPanel } from "./approval-feedback-panel";
 import { SceneEditorCard } from "./scene-editor-card";
 import { useToast } from "./toast-provider";
 import type {
@@ -198,6 +199,23 @@ export function ProjectContentStudio({
   const [scriptReviewNotes, setScriptReviewNotes] = useState("");
 
   const approvedIdea = ideas.find((idea) => idea.status === "approved") ?? null;
+  const latestRejectedIdeaApproval =
+    approvals.find(
+      (approval) => approval.stage === "idea" && approval.decision === "rejected",
+    ) ?? null;
+  const latestRejectedScriptApproval =
+    (currentScript
+      ? approvals.find(
+          (approval) =>
+            approval.stage === "script" &&
+            approval.decision === "rejected" &&
+            approval.target_id === currentScript.id,
+        )
+      : null) ??
+    approvals.find(
+      (approval) => approval.stage === "script" && approval.decision === "rejected",
+    ) ??
+    null;
   const latestResearchSnapshot = researchSnapshots[0] ?? null;
   const canGenerateResearch =
     project.status === "draft" || project.status === "idea_pending_approval";
@@ -595,8 +613,16 @@ export function ProjectContentStudio({
           </div>
 
           <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-4">
+            <ApprovalFeedbackPanel
+              approval={latestRejectedIdeaApproval}
+              applyFeedbackLabel="Apply to idea notes"
+              emptyDescription="Reject an idea with notes and the next regeneration pass can reuse that guidance here."
+              emptyTitle="No rejected idea feedback yet."
+              onApplyFeedback={setIdeaGenerationNotes}
+              title="Latest rejected idea feedback"
+            />
             <label
-              className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
+              className="mt-4 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
               htmlFor="idea-generation-notes"
             >
               Idea regeneration notes
@@ -704,9 +730,11 @@ export function ProjectContentStudio({
                               disabled={pendingAction !== null}
                               onClick={() =>
                                 runAction(`reject-${idea.id}`, "Idea rejected with review feedback saved for the next pass.", async () => {
+                                  const rejectionNotes = ideaReviewNotes[idea.id] ?? "";
                                   await rejectIdea(idea.id, {
-                                    feedback_notes: optionalNotes(ideaReviewNotes[idea.id] ?? ""),
+                                    feedback_notes: optionalNotes(rejectionNotes),
                                   });
+                                  setIdeaGenerationNotes(rejectionNotes);
                                   setIdeaReviewNotes((currentNotes) => ({
                                     ...currentNotes,
                                     [idea.id]: "",
@@ -759,8 +787,16 @@ export function ProjectContentStudio({
           </div>
 
           <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-4">
+            <ApprovalFeedbackPanel
+              approval={latestRejectedScriptApproval}
+              applyFeedbackLabel="Apply to script notes"
+              emptyDescription="Reject a script with notes and the next script draft can reuse that direction automatically from here."
+              emptyTitle="No rejected script feedback yet."
+              onApplyFeedback={setScriptGenerationNotes}
+              title="Latest rejected script feedback"
+            />
             <label
-              className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
+              className="mt-4 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
               htmlFor="script-generation-notes"
             >
               Script regeneration notes

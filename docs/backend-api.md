@@ -17,7 +17,7 @@
 - API request logs include method, path, status code, duration, and request ID
 - clients may send `X-Request-ID`; otherwise the API generates one and returns it
 - log output redacts URL credentials and common token, cookie, secret, password, and API-key fields
-- `GET /api/health/ready` returns redacted connection strings so readiness checks do not expose local credentials
+- `GET /api/health/ready` now performs live database and Redis checks and returns redacted dependency statuses with `ok` or `degraded`
 
 ## Current Workflow Note
 - the current idea and script workflow runs synchronously inside the API as a local deterministic generator
@@ -35,7 +35,7 @@
 - operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, duplicate asset warnings, and non-destructive artifact retention candidates in API responses
 - final-video approval, publish-job preparation, publish approval, and queue-backed platform-aware manual publish handoffs are implemented before manual published completion
 - manual analytics snapshots and first-pass insight generation are implemented for published jobs
-- Redis-backed execution, automated retry backoff beyond the current inline worker retry, and live progress updates are still planned
+- queued browser, media, publisher, and analytics jobs now publish Redis wake-up signals plus general job events, while fully blocking Redis-backed execution for inline idea/script planning, automated retry backoff beyond the current inline worker retry, and live progress updates are still planned
 
 ## Core Resources
 ### Brand Profiles
@@ -116,6 +116,7 @@
 
 ### Publish Jobs
 - `POST /api/publish-jobs/:id/approve`
+- `POST /api/publish-jobs/:id/reject`
 - `PATCH /api/publish-jobs/:id/metadata`
 - `POST /api/publish-jobs/:id/queue`
 - `POST /api/publish-jobs/:id/schedule`
@@ -914,6 +915,13 @@ Behavior note:
 - records a `publish` approval against the publish job
 - moves the publish job from `pending_approval` to `approved`
 - does not publish or schedule content by itself
+
+### `POST /api/publish-jobs/:id/reject`
+Behavior note:
+- records a `publish` rejection against the publish job
+- allows rejection while the publish job is still `pending_approval` or `approved`
+- moves the publish job back to `pending_approval` so metadata can be edited and re-approved
+- blocks rejection while an active publish handoff job already exists for that publish job
 
 ### `PATCH /api/publish-jobs/:id/metadata`
 ```json

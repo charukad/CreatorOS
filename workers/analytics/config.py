@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class AnalyticsWorkerSettings(BaseSettings):
     app_env: str = Field(default="development", alias="APP_ENV")
+    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     analytics_max_jobs_per_run: int = Field(default=10, ge=1, alias="ANALYTICS_MAX_JOBS_PER_RUN")
 
     model_config = SettingsConfigDict(

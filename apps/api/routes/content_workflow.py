@@ -110,6 +110,7 @@ from apps.api.services.publishing import (
     prepare_publish_job,
     queue_publish_content_job,
     reject_final_video,
+    reject_publish_job,
     schedule_publish_job,
     update_publish_job_metadata,
 )
@@ -1090,6 +1091,35 @@ def approve_publish_job_route(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return PublishJobResponse.model_validate(approved_job)
+
+
+@router.post("/publish-jobs/{publish_job_id}/reject", response_model=PublishJobResponse)
+def reject_publish_job_route(
+    publish_job_id: UUID,
+    payload: ApprovalDecisionRequest,
+    db: DbSession,
+) -> PublishJobResponse:
+    user = get_or_create_default_user(db)
+    publish_job = get_owned_publish_job(db, user, publish_job_id)
+    if publish_job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publish job not found")
+
+    project = get_project(db, user, publish_job.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        rejected_job = reject_publish_job(
+            db,
+            user=user,
+            project=project,
+            publish_job=publish_job,
+            feedback_notes=payload.feedback_notes,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return PublishJobResponse.model_validate(rejected_job)
 
 
 @router.patch("/publish-jobs/{publish_job_id}/metadata", response_model=PublishJobResponse)

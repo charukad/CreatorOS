@@ -260,14 +260,37 @@ def test_live_health() -> None:
     assert response.json()["service"] == "api"
 
 
-def test_ready_health_redacts_connection_credentials() -> None:
-    client = TestClient(app)
+def test_ready_health_redacts_connection_credentials(monkeypatch) -> None:
+    client = _make_test_client()
+    monkeypatch.setattr(
+        "apps.api.routes.health.get_redis_connection_status",
+        lambda redis_url: f"reachable ({redact_sensitive_value(redis_url)})",
+    )
     response = client.get("/api/health/ready")
 
     assert response.status_code == 200
+    assert response.json()["status"] == "ok"
     dependencies = response.json()["dependencies"]
+    assert dependencies["database"].startswith("reachable")
     assert "creatoros:creatoros" not in dependencies["database"]
     assert "[redacted]" in dependencies["database"]
+    app.dependency_overrides.clear()
+
+
+def test_ready_health_reports_degraded_when_redis_is_unavailable(monkeypatch) -> None:
+    client = _make_test_client()
+    monkeypatch.setattr(
+        "apps.api.routes.health.get_redis_connection_status",
+        lambda _redis_url: "unavailable: ConnectionError (redis://localhost:6379/0)",
+    )
+
+    response = client.get("/api/health/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "degraded"
+    assert response.json()["dependencies"]["redis"].startswith("unavailable:")
+
+    app.dependency_overrides.clear()
 
 
 def test_redaction_helper_handles_urls_and_secret_assignments() -> None:
@@ -1465,6 +1488,55 @@ def test_queue_audio_generation_creates_job_and_planned_asset() -> None:
     app.dependency_overrides.clear()
 
 
+def test_queue_audio_generation_emits_worker_wakeup_event(monkeypatch) -> None:
+    captured_events: list[dict[str, object]] = []
+
+    def capture_emit(job, *, event_type: str, publish_to_worker_queue: bool = False, metadata=None):
+        captured_events.append(
+            {
+                "job_id": str(job.id),
+                "job_type": job.job_type.value,
+                "event_type": event_type,
+                "publish_to_worker_queue": publish_to_worker_queue,
+                "metadata": metadata or {},
+            }
+        )
+
+    monkeypatch.setattr(
+        "apps.api.services.generation_pipeline.emit_background_job_event",
+        capture_emit,
+    )
+
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Emit audio wakeup events",
+        objective="Wake the browser worker when narration is queued",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(
+        f"/api/projects/{project_id}/generate/audio",
+        json={"voice_label": "Warm guide"},
+    )
+
+    assert queue_response.status_code == 201
+    assert captured_events == [
+        {
+            "job_id": queue_response.json()["id"],
+            "job_type": "generate_audio_browser",
+            "event_type": "job_queued",
+            "publish_to_worker_queue": True,
+            "metadata": {"queue_reason": "audio_generation"},
+        }
+    ]
+
+    app.dependency_overrides.clear()
+
+
 def test_queue_visual_generation_creates_scene_assets_for_current_script() -> None:
     client = _make_test_client()
     brand_profile_id = _create_brand_profile_for_tests(client)
@@ -2283,6 +2355,132 @@ def test_publish_job_approval_schedule_and_manual_publish_flow() -> None:
     final_project_response = client.get(f"/api/projects/{project_id}")
     assert final_project_response.status_code == 200
     assert final_project_response.json()["status"] == "published"
+
+    app.dependency_overrides.clear()
+
+
+def test_publish_job_rejection_requires_reapproval_before_scheduling() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Reject publish review",
+        objective="Send publish metadata back for revision before scheduling",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+    client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Needs another review",
+            "description": "Metadata that should be reviewed again.",
+            "hashtags": ["#CreatorOS", "#Review"],
+        },
+    )
+    assert prepare_response.status_code == 201
+    publish_job_id = prepare_response.json()["id"]
+
+    approve_response = client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    assert approve_response.status_code == 200
+    assert approve_response.json()["status"] == "approved"
+
+    reject_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/reject",
+        json={"feedback_notes": "Tighten the title and update the hashtags."},
+    )
+    assert reject_response.status_code == 200
+    assert reject_response.json()["status"] == "pending_approval"
+
+    approvals_response = client.get(f"/api/projects/{project_id}/approvals")
+    assert approvals_response.status_code == 200
+    assert any(
+        approval["stage"] == "publish"
+        and approval["target_id"] == publish_job_id
+        and approval["decision"] == "rejected"
+        and approval["feedback_notes"] == "Tighten the title and update the hashtags."
+        for approval in approvals_response.json()
+    )
+
+    blocked_schedule_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/schedule",
+        json={"scheduled_for": "2030-01-04T00:00:00+00:00"},
+    )
+    assert blocked_schedule_response.status_code == 409
+    assert "approved publish jobs" in _error_message(blocked_schedule_response)
+
+    reapprove_response = client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    assert reapprove_response.status_code == 200
+    assert reapprove_response.json()["status"] == "approved"
+
+    schedule_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/schedule",
+        json={"scheduled_for": "2030-01-04T00:00:00+00:00"},
+    )
+    assert schedule_response.status_code == 200
+    assert schedule_response.json()["status"] == "scheduled"
+
+    activity_response = client.get(f"/api/projects/{project_id}/activity")
+    assert activity_response.status_code == 200
+    assert any(
+        activity["activity_type"] == "publish_job_rejected"
+        and activity["metadata_json"]["previous_status"] == "approved"
+        for activity in activity_response.json()
+    )
+
+    app.dependency_overrides.clear()
+
+
+def test_publish_job_rejection_blocks_active_handoff_jobs() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Reject queued publish handoff",
+        objective="Block publish rejection while a handoff job is active",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+    client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Queued publish review",
+            "description": "Approved metadata that already has a handoff queued.",
+            "hashtags": ["#CreatorOS"],
+        },
+    )
+    assert prepare_response.status_code == 201
+    publish_job_id = prepare_response.json()["id"]
+
+    approve_response = client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    assert approve_response.status_code == 200
+
+    queue_response = client.post(f"/api/publish-jobs/{publish_job_id}/queue")
+    assert queue_response.status_code == 200
+
+    reject_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/reject",
+        json={"feedback_notes": "Do not allow review changes after handoff starts."},
+    )
+    assert reject_response.status_code == 409
+    assert "active handoff job" in _error_message(reject_response)
 
     app.dependency_overrides.clear()
 

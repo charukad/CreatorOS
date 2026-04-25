@@ -19,9 +19,11 @@ import {
   queueFinalExport,
   queuePublishJob,
   rejectFinalVideo,
+  rejectPublishJob,
   schedulePublishJob,
   updatePublishJobMetadata,
 } from "../lib/api";
+import { ApprovalFeedbackPanel } from "./approval-feedback-panel";
 import type {
   ApprovalRecord,
   Asset,
@@ -677,7 +679,15 @@ export function ProjectPublishCenter({
           publishCommandRows.map((row) => {
             const { activeHandoffJob, job, latestHandoffJob } = row;
             const metadataDraft = getMetadataDraft(job);
+            const latestPublishApproval =
+              approvals.find(
+                (approval) =>
+                  approval.stage === "publish" && approval.target_id === job.id,
+              ) ?? null;
             const canEditMetadata = ["pending_approval", "approved"].includes(job.status);
+            const canRejectPublish =
+              ["pending_approval", "approved"].includes(job.status) &&
+              activeHandoffJob === null;
             const canQueueHandoff =
               ["approved", "scheduled"].includes(job.status) && activeHandoffJob === null;
             const thumbnailOptions = assets.filter(
@@ -717,6 +727,19 @@ export function ProjectPublishCenter({
                     {hashtag}
                   </span>
                 ))}
+              </div>
+
+              <div className="mt-5">
+                <ApprovalFeedbackPanel
+                  approval={latestPublishApproval}
+                  applyFeedbackLabel="Copy to change notes"
+                  emptyDescription="Approve or reject the publish job to keep the latest publish review visible beside the metadata draft."
+                  emptyTitle="No publish review recorded yet."
+                  onApplyFeedback={(feedbackNotes) =>
+                    updateMetadataDraft(job, { changeNotes: feedbackNotes })
+                  }
+                  title="Latest publish review"
+                />
               </div>
 
               <div className="mt-5 rounded-2xl border border-cyan-300/10 bg-cyan-400/5 p-4">
@@ -863,7 +886,7 @@ export function ProjectPublishCenter({
                 </div>
               </div>
 
-              <div className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
+              <div className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_auto_auto_auto] md:items-end">
                 <label className="grid gap-2 text-sm text-slate-300">
                   Schedule time
                   <input
@@ -896,8 +919,25 @@ export function ProjectPublishCenter({
                     )
                   }
                   type="button"
-                >
+                  >
                   Approve
+                </button>
+                <button
+                  className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!canRejectPublish || pendingAction !== null}
+                  onClick={() =>
+                    runAction(
+                      `reject-publish-${job.id}`,
+                      "The publish job was rejected and moved back into editable review.",
+                      () =>
+                        rejectPublishJob(job.id, {
+                          feedback_notes: metadataDraft.changeNotes.trim() || null,
+                        }),
+                    )
+                  }
+                  type="button"
+                >
+                  Reject
                 </button>
                 <button
                   className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"

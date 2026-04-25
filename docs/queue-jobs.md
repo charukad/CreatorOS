@@ -10,6 +10,7 @@
 - the media worker currently probes WAV narration duration, validates contiguous timeline data, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, an FFmpeg command-plan sidecar with scene overlay text, trim/loop handling, and fade transitions, optionally renders/registers a `video/mp4` rough cut when `MEDIA_ENABLE_FFMPEG_RENDER=true`, and can render or reuse a source MP4 for the dedicated `final_video` export
 - job detail, job timeline logs, safe cancel, and safe retry operations are available through the API, dedicated job detail screen, and project page
 - queued browser/media job payloads include a `correlation_id` that is also copied into queue log metadata
+- queued browser, media, publisher, and analytics jobs now publish Redis wake-up signals plus general `creatoros:jobs:*` event payloads after the queue write commits
 - browser provider debug artifacts and failure screenshot/HTML snapshots are captured into per-provider debug folders and linked from job logs
 - browser workers now load versioned selector bundles, capture checkpoint screenshot/HTML artifacts during session setup, and log the selector version used for each provider run
 - Playwright-backed ElevenLabs and Flow providers now use selector fallback resolution, provider workspace URLs, and persistent Chromium profiles when `BROWSER_PROVIDER_MODE=playwright`
@@ -19,7 +20,7 @@
 - browser workers now redact secret-like browser log fields and pause auth/captcha/verification failures in `waiting_external` for operator recovery
 - media workers retry timeout-style FFmpeg render failures once before failing the job
 - analytics snapshots can now be queued for published jobs through the API and project analytics panel, then consumed by the analytics worker with first-pass insights persisted for review
-- actual Redis-backed execution for idea/script generation, automated retry policy, and live worker progress updates are still pending
+- actual Redis-backed blocking execution for idea/script generation, automated retry policy, and live worker progress updates are still pending
 - automated platform polling adapters for `sync_analytics` are still pending
 
 ## Principles
