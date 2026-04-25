@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 import { useToast } from "./toast-provider";
+import { useAutoRefresh } from "./use-auto-refresh";
 import { cancelJob, markJobManualIntervention, resumeJob, retryJob } from "../lib/api";
 import type { BackgroundJob, BackgroundJobDetail } from "../types/api";
 
@@ -84,6 +85,8 @@ export function JobDetail({ detail }: JobDetailProps) {
   const [manualReason, setManualReason] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const { job } = detail;
+  const isActiveJob = ["queued", "running", "waiting_external"].includes(job.state);
+  useAutoRefresh({ enabled: isActiveJob, intervalMs: 6000 });
 
   function successMessage(actionKey: string): string {
     switch (actionKey) {
@@ -171,6 +174,13 @@ export function JobDetail({ detail }: JobDetailProps) {
       {error ? (
         <section className="rounded-2xl border border-rose-300/30 bg-rose-500/10 p-4 text-sm text-rose-100">
           {error}
+        </section>
+      ) : null}
+
+      {isActiveJob ? (
+        <section className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">
+          Auto-refresh is on while this job is active, so progress changes and worker state
+          updates stay visible without reloading the page.
         </section>
       ) : null}
 

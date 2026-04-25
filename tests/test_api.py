@@ -1792,6 +1792,64 @@ def test_operations_recovery_snapshot_surfaces_jobs_and_ingest_warnings() -> Non
     app.dependency_overrides.clear()
 
 
+def test_operations_worker_presence_route_summarizes_workers(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "apps.api.routes.operations.list_worker_heartbeats",
+        lambda _redis_url: [
+            {
+                "worker_id": "browser-local-1",
+                "worker_name": "browser-worker",
+                "worker_type": "browser",
+                "status": "listening",
+                "redis_listener_enabled": True,
+                "last_seen_at": "2026-04-25T00:00:00+00:00",
+                "started_at": "2026-04-25T00:00:00+00:00",
+                "processed_total": 4,
+                "wakeups_seen": 2,
+                "last_job_id": "job-1",
+                "last_job_type": "generate_audio_browser",
+                "last_event_type": "job_queued",
+                "active_job_count": 0,
+                "idle_shutdown_seconds": 0.0,
+                "poll_interval_seconds": 5.0,
+                "listen_timeout_seconds": 15.0,
+            },
+            {
+                "worker_id": "media-local-1",
+                "worker_name": "media-worker",
+                "worker_type": "media",
+                "status": "processing",
+                "redis_listener_enabled": True,
+                "last_seen_at": "2026-04-25T00:00:00+00:00",
+                "started_at": "2026-04-25T00:00:00+00:00",
+                "processed_total": 1,
+                "wakeups_seen": 1,
+                "last_job_id": "job-2",
+                "last_job_type": "compose_rough_cut",
+                "last_event_type": "jobs_processed",
+                "active_job_count": 1,
+                "idle_shutdown_seconds": 0.0,
+                "poll_interval_seconds": 5.0,
+                "listen_timeout_seconds": 15.0,
+            },
+        ],
+    )
+
+    client = TestClient(app)
+    response = client.get("/api/operations/workers")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["total_workers"] == 2
+    assert payload["summary"]["active_workers"] == 2
+    assert payload["summary"]["listening_workers"] == 1
+    assert payload["summary"]["processing_workers"] == 1
+    assert payload["summary"]["polling_workers"] == 0
+    assert payload["summary"]["wakeup_workers"] == 0
+    assert payload["workers"][0]["worker_type"] == "browser"
+    assert payload["workers"][1]["last_job_type"] == "compose_rough_cut"
+
+
 def test_artifact_retention_plan_surfaces_safe_and_manual_cleanup_candidates(
     tmp_path: Path,
     monkeypatch,

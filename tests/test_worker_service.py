@@ -118,3 +118,47 @@ def test_parse_job_event_message_ignores_invalid_payloads() -> None:
     assert _parse_job_event_message(message) == {
         "event_type": "job_queued"
     }
+
+
+def test_worker_service_writes_heartbeat_lifecycle(monkeypatch) -> None:
+    clock = FakeClock()
+    heartbeat_statuses: list[str] = []
+    cleared_worker_ids: list[str] = []
+
+    monkeypatch.setattr(
+        "workers.service_loop.write_worker_heartbeat",
+        lambda **payload: heartbeat_statuses.append(str(payload["status"])) or True,
+    )
+    monkeypatch.setattr(
+        "workers.service_loop.clear_worker_heartbeat",
+        lambda **payload: cleared_worker_ids.append(str(payload["worker_id"])) or True,
+    )
+
+    results = iter([1, 0])
+    total_processed = run_worker_service(
+        config=WorkerServiceConfig(
+            worker_name="test-browser-worker",
+            worker_type="browser",
+            redis_url="redis://localhost:6379/0",
+            enable_redis_listener=False,
+            poll_interval_seconds=1.0,
+            listen_timeout_seconds=1.0,
+            idle_shutdown_seconds=1.0,
+            max_jobs_per_iteration=10,
+        ),
+        logger=logging.getLogger("tests.worker_service.heartbeat"),
+        process_pending_jobs=lambda _max_jobs: next(results, 0),
+        sleep_fn=clock.sleep,
+        monotonic_fn=clock.monotonic,
+    )
+
+    assert total_processed == 1
+    assert heartbeat_statuses == [
+        "starting",
+        "processing",
+        "polling",
+        "idle_shutdown",
+        "stopping",
+    ]
+    assert len(cleared_worker_ids) == 1
+    assert cleared_worker_ids[0].startswith("browser-")

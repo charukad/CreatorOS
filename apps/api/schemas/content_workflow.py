@@ -258,6 +258,39 @@ class OperationsRecoveryResponse(BaseModel):
     summary: dict[str, int]
 
 
+class WorkerStatusResponse(BaseModel):
+    worker_id: str
+    worker_name: str
+    worker_type: str
+    status: str
+    redis_listener_enabled: bool
+    last_seen_at: str
+    started_at: str
+    processed_total: int
+    wakeups_seen: int
+    last_job_id: str | None
+    last_job_type: str | None
+    last_event_type: str | None
+    active_job_count: int
+    idle_shutdown_seconds: float
+    poll_interval_seconds: float
+    listen_timeout_seconds: float
+
+
+class WorkerPresenceSummaryResponse(BaseModel):
+    total_workers: int
+    active_workers: int
+    listening_workers: int
+    processing_workers: int
+    polling_workers: int
+    wakeup_workers: int
+
+
+class WorkerPresenceResponse(BaseModel):
+    workers: list[WorkerStatusResponse]
+    summary: WorkerPresenceSummaryResponse
+
+
 class ArtifactRetentionCandidateResponse(BaseModel):
     asset_id: UUID
     project_id: UUID

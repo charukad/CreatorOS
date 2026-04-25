@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import socket
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from time import monotonic, sleep
 from typing import Protocol, TypeAlias
+from uuid import uuid4
 
 from apps.api.core.redis import get_redis_client
 from apps.api.services.queue_events import WORKER_WAKEUP_CHANNELS
+from apps.api.services.worker_presence import clear_worker_heartbeat, write_worker_heartbeat
 from redis.exceptions import RedisError
 
 
@@ -149,6 +154,26 @@ def run_worker_service(
 
     processed_total = 0
     last_activity_at = monotonic_fn()
+    worker_id = _build_worker_id(config)
+    started_at = datetime.now(UTC).isoformat()
+    wakeups_seen = 0
+    last_job_id: str | None = None
+    last_job_type: str | None = None
+    last_event_type: str | None = "worker_started"
+    active_job_count = 0
+
+    _publish_worker_presence(
+        config=config,
+        worker_id=worker_id,
+        started_at=started_at,
+        status="starting",
+        processed_total=processed_total,
+        wakeups_seen=wakeups_seen,
+        last_job_id=last_job_id,
+        last_job_type=last_job_type,
+        last_event_type=last_event_type,
+        active_job_count=active_job_count,
+    )
 
     try:
         while True:
@@ -156,6 +181,20 @@ def run_worker_service(
             if processed_jobs > 0:
                 processed_total += processed_jobs
                 last_activity_at = monotonic_fn()
+                last_event_type = "jobs_processed"
+                active_job_count = processed_jobs
+                _publish_worker_presence(
+                    config=config,
+                    worker_id=worker_id,
+                    started_at=started_at,
+                    status="processing",
+                    processed_total=processed_total,
+                    wakeups_seen=wakeups_seen,
+                    last_job_id=last_job_id,
+                    last_job_type=last_job_type,
+                    last_event_type=last_event_type,
+                    active_job_count=active_job_count,
+                )
                 if (
                     config.max_jobs_per_iteration is not None
                     and processed_jobs >= config.max_jobs_per_iteration
@@ -167,6 +206,18 @@ def run_worker_service(
                 last_activity_at=last_activity_at,
                 monotonic_fn=monotonic_fn,
             ):
+                _publish_worker_presence(
+                    config=config,
+                    worker_id=worker_id,
+                    started_at=started_at,
+                    status="idle_shutdown",
+                    processed_total=processed_total,
+                    wakeups_seen=wakeups_seen,
+                    last_job_id=last_job_id,
+                    last_job_type=last_job_type,
+                    last_event_type="idle_shutdown",
+                    active_job_count=0,
+                )
                 logger.info(
                     "Worker idle shutdown reached",
                     extra={"worker_type": config.worker_type, "processed_total": processed_total},
@@ -174,15 +225,68 @@ def run_worker_service(
                 return processed_total
 
             if listener is None:
+                _publish_worker_presence(
+                    config=config,
+                    worker_id=worker_id,
+                    started_at=started_at,
+                    status="polling",
+                    processed_total=processed_total,
+                    wakeups_seen=wakeups_seen,
+                    last_job_id=last_job_id,
+                    last_job_type=last_job_type,
+                    last_event_type="polling_wait",
+                    active_job_count=0,
+                )
                 sleep_fn(config.poll_interval_seconds)
                 continue
 
+            _publish_worker_presence(
+                config=config,
+                worker_id=worker_id,
+                started_at=started_at,
+                status="listening",
+                processed_total=processed_total,
+                wakeups_seen=wakeups_seen,
+                last_job_id=last_job_id,
+                last_job_type=last_job_type,
+                last_event_type="listener_wait",
+                active_job_count=0,
+            )
             wake_event = listener.wait_for_wakeup(config.listen_timeout_seconds)
             if wake_event is not None:
                 last_activity_at = monotonic_fn()
+                wakeups_seen += 1
+                last_job_id = _coerce_optional_string(wake_event.get("background_job_id"))
+                last_job_type = _coerce_optional_string(wake_event.get("job_type"))
+                last_event_type = _coerce_optional_string(wake_event.get("event_type")) or "wakeup"
+                _publish_worker_presence(
+                    config=config,
+                    worker_id=worker_id,
+                    started_at=started_at,
+                    status="wakeup_received",
+                    processed_total=processed_total,
+                    wakeups_seen=wakeups_seen,
+                    last_job_id=last_job_id,
+                    last_job_type=last_job_type,
+                    last_event_type=last_event_type,
+                    active_job_count=0,
+                )
     finally:
+        _publish_worker_presence(
+            config=config,
+            worker_id=worker_id,
+            started_at=started_at,
+            status="stopping",
+            processed_total=processed_total,
+            wakeups_seen=wakeups_seen,
+            last_job_id=last_job_id,
+            last_job_type=last_job_type,
+            last_event_type="worker_stopped",
+            active_job_count=0,
+        )
         if listener is not None:
             listener.close()
+        clear_worker_heartbeat(redis_url=config.redis_url, worker_id=worker_id)
 
 
 def _idle_shutdown_reached(
@@ -216,3 +320,48 @@ def _parse_job_event_message(message: object) -> dict[str, object] | None:
         return None
 
     return payload
+
+
+def _build_worker_id(config: WorkerServiceConfig) -> str:
+    hostname = socket.gethostname().split(".")[0] or "localhost"
+    return f"{config.worker_type}-{hostname}-{os.getpid()}-{uuid4().hex[:8]}"
+
+
+def _publish_worker_presence(
+    *,
+    config: WorkerServiceConfig,
+    worker_id: str,
+    started_at: str,
+    status: str,
+    processed_total: int,
+    wakeups_seen: int,
+    last_job_id: str | None,
+    last_job_type: str | None,
+    last_event_type: str | None,
+    active_job_count: int,
+) -> None:
+    write_worker_heartbeat(
+        redis_url=config.redis_url,
+        worker_id=worker_id,
+        worker_name=config.worker_name,
+        worker_type=config.worker_type,
+        status=status,
+        redis_listener_enabled=config.enable_redis_listener,
+        started_at=started_at,
+        processed_total=processed_total,
+        wakeups_seen=wakeups_seen,
+        last_job_id=last_job_id,
+        last_job_type=last_job_type,
+        last_event_type=last_event_type,
+        active_job_count=active_job_count,
+        idle_shutdown_seconds=config.idle_shutdown_seconds,
+        poll_interval_seconds=config.poll_interval_seconds,
+        listen_timeout_seconds=config.listen_timeout_seconds,
+    )
+
+
+def _coerce_optional_string(value: object) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None

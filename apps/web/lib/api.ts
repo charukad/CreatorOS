@@ -41,6 +41,7 @@ import type {
   ScriptGeneratePayload,
   ViewerSession,
   VisualGenerationPayload,
+  WorkerPresence,
 } from "../types/api";
 
 type LegacyApiErrorShape = {
@@ -285,6 +286,10 @@ export function getOperationsRecovery(): Promise<OperationsRecovery> {
 
 export function getArtifactRetentionPlan(): Promise<ArtifactRetentionPlan> {
   return apiRequest<ArtifactRetentionPlan>("/operations/artifacts/retention-plan");
+}
+
+export function getWorkerPresence(): Promise<WorkerPresence> {
+  return apiRequest<WorkerPresence>("/operations/workers");
 }
 
 export function listProjectAssets(projectId: string): Promise<Asset[]> {

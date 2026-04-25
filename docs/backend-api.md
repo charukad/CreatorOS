@@ -35,7 +35,7 @@
 - operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, duplicate asset warnings, and non-destructive artifact retention candidates in API responses
 - final-video approval, publish-job preparation, publish approval, and queue-backed platform-aware manual publish handoffs are implemented before manual published completion
 - manual analytics snapshots and first-pass insight generation are implemented for published jobs
-- queued browser, media, publisher, and analytics jobs now publish Redis wake-up signals plus general job events, while fully blocking Redis-backed execution for inline idea/script planning, automated retry backoff beyond the current inline worker retry, and live progress updates are still planned
+- queued browser, media, publisher, and analytics jobs now publish Redis wake-up signals plus general job events, worker entrypoints keep Redis-backed heartbeats for operations visibility, and the project/job/operations screens auto-refresh while active work is present; fully blocking Redis-backed execution for inline idea/script planning and automated retry backoff beyond the current inline worker retry are still planned
 
 ## Core Resources
 ### Brand Profiles
@@ -110,6 +110,7 @@
 
 ### Operations
 - `GET /api/operations/recovery`
+- `GET /api/operations/workers`
 
 ### Analytics
 - `GET /api/analytics/account`
@@ -700,6 +701,38 @@ Behavior note:
 - stale running jobs are `running` jobs whose `updated_at` is older than `stale_after_minutes`
 - quarantined downloads come from `downloads_quarantined` job logs
 - duplicate asset warnings come from `duplicate_asset_detected` job logs
+
+### `GET /api/operations/workers`
+Response excerpt:
+```json
+{
+  "workers": [
+    {
+      "worker_id": "browser-local-1",
+      "worker_name": "browser-worker",
+      "worker_type": "browser",
+      "status": "listening",
+      "redis_listener_enabled": true,
+      "processed_total": 4,
+      "wakeups_seen": 2,
+      "last_job_type": "generate_audio_browser"
+    }
+  ],
+  "summary": {
+    "total_workers": 1,
+    "active_workers": 1,
+    "listening_workers": 1,
+    "processing_workers": 0,
+    "polling_workers": 0,
+    "wakeup_workers": 0
+  }
+}
+```
+
+Behavior note:
+- worker heartbeats are ephemeral Redis records written by the long-lived browser, media, publisher, and analytics service loops
+- `status` reflects the current loop phase such as `listening`, `polling`, `processing`, or `wakeup_received`
+- missing workers simply age out of Redis when their heartbeat TTL expires
 
 ### `GET /api/operations/artifacts/retention-plan`
 Query parameters:

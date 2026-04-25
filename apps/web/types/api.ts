@@ -345,6 +345,37 @@ export type OperationsRecovery = {
   };
 };
 
+export type WorkerStatus = {
+  worker_id: string;
+  worker_name: string;
+  worker_type: string;
+  status: string;
+  redis_listener_enabled: boolean;
+  last_seen_at: string;
+  started_at: string;
+  processed_total: number;
+  wakeups_seen: number;
+  last_job_id: string | null;
+  last_job_type: string | null;
+  last_event_type: string | null;
+  active_job_count: number;
+  idle_shutdown_seconds: number;
+  poll_interval_seconds: number;
+  listen_timeout_seconds: number;
+};
+
+export type WorkerPresence = {
+  workers: WorkerStatus[];
+  summary: {
+    total_workers: number;
+    active_workers: number;
+    listening_workers: number;
+    processing_workers: number;
+    polling_workers: number;
+    wakeup_workers: number;
+  };
+};
+
 export type ArtifactRetentionCandidate = {
   asset_id: string;
   project_id: string;

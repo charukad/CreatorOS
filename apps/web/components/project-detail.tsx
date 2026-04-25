@@ -10,6 +10,7 @@ import { ProjectPublishCenter } from "./project-publish-center";
 import { ProjectStatusActions } from "./project-status-actions";
 import { StatusBadge } from "./status-badge";
 import { useToast } from "./toast-provider";
+import { useAutoRefresh } from "./use-auto-refresh";
 import { updateProject } from "../lib/api";
 import type {
   Asset,
@@ -64,6 +65,10 @@ export function ProjectDetail({
 }: ProjectDetailProps) {
   const router = useRouter();
   const { pushToast } = useToast();
+  const activeJobs = jobs.filter((job) =>
+    ["queued", "running", "waiting_external"].includes(job.state),
+  );
+  useAutoRefresh({ enabled: activeJobs.length > 0, intervalMs: 8000 });
 
   async function handleSubmit(payload: ProjectPayload) {
     if (!project) {
@@ -112,6 +117,14 @@ export function ProjectDetail({
 
       {project ? (
         <>
+          {activeJobs.length > 0 ? (
+            <section className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">
+              Auto-refresh is on while {activeJobs.length} job
+              {activeJobs.length === 1 ? "" : "s"} are active, so progress and status changes stay
+              visible from this page.
+            </section>
+          ) : null}
+
           <section className="grid gap-4 rounded-[1.75rem] border border-white/10 bg-[var(--card)] p-6 md:grid-cols-4">
             <div className="rounded-2xl border border-white/8 bg-white/4 p-4 md:col-span-2">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">

@@ -1,7 +1,15 @@
 import Link from "next/link";
 import { OperationsRecoveryCenter } from "../../components/operations-recovery-center";
-import { getArtifactRetentionPlan, getOperationsRecovery } from "../../lib/api";
-import type { ArtifactRetentionPlan, OperationsRecovery } from "../../types/api";
+import {
+  getArtifactRetentionPlan,
+  getOperationsRecovery,
+  getWorkerPresence,
+} from "../../lib/api";
+import type {
+  ArtifactRetentionPlan,
+  OperationsRecovery,
+  WorkerPresence,
+} from "../../types/api";
 
 export const dynamic = "force-dynamic";
 
@@ -9,18 +17,20 @@ export default async function OperationsPage() {
   let errorMessage: string | null = null;
   let recovery: OperationsRecovery | null = null;
   let retentionPlan: ArtifactRetentionPlan | null = null;
+  let workerPresence: WorkerPresence | null = null;
 
   try {
-    [recovery, retentionPlan] = await Promise.all([
+    [recovery, retentionPlan, workerPresence] = await Promise.all([
       getOperationsRecovery(),
       getArtifactRetentionPlan(),
+      getWorkerPresence(),
     ]);
   } catch (error) {
     errorMessage =
       error instanceof Error ? error.message : "Unable to load operations data.";
   }
 
-  if (recovery === null || retentionPlan === null) {
+  if (recovery === null || retentionPlan === null || workerPresence === null) {
     return (
       <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-6 px-6 py-10">
         <Link
@@ -47,7 +57,11 @@ export default async function OperationsPage() {
       >
         Back to dashboard
       </Link>
-      <OperationsRecoveryCenter recovery={recovery} retentionPlan={retentionPlan} />
+      <OperationsRecoveryCenter
+        recovery={recovery}
+        retentionPlan={retentionPlan}
+        workerPresence={workerPresence}
+      />
     </main>
   );
 }
