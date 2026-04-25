@@ -9,6 +9,7 @@ import type {
   ContentIdeaStatus,
   ProjectStatus,
   ProviderName,
+  PublishAdapterName,
   PublishJobStatus,
   ScriptStatus,
 } from "./workflow";
@@ -384,8 +385,13 @@ export type FinalExportQueuePayload = QueuePayloadBase & {
 
 export type PublishContentQueuePayload = QueuePayloadBase & {
   job_type: "publish_content";
+  adapter_name: PublishAdapterName;
   publish_job_id: UUID;
   approved_publish_job_state: "approved" | "scheduled";
+  platform: string;
+  final_asset_id: UUID;
+  handoff_path: StoragePath;
+  scheduled_for?: Nullable<ISODateTime>;
 };
 
 export type SyncAnalyticsQueuePayload = QueuePayloadBase & {
@@ -567,7 +573,11 @@ export function validateQueuePayload(payload: QueueJobPayload): string[] {
       requireString(payload.export_profile, "export_profile", errors);
       break;
     case "publish_content":
+      requireString(payload.adapter_name, "adapter_name", errors);
       requireString(payload.publish_job_id, "publish_job_id", errors);
+      requireString(payload.platform, "platform", errors);
+      requireString(payload.final_asset_id, "final_asset_id", errors);
+      requireString(payload.handoff_path, "handoff_path", errors);
       break;
     case "sync_analytics":
       requireString(payload.publish_job_id, "publish_job_id", errors);

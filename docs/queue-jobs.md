@@ -209,7 +209,7 @@ Output:
 
 Current manual v1 behavior:
 - `POST /api/publish-jobs/{publish_job_id}/queue` creates a `publish_content` background job only after publish approval or scheduling
-- `python -m workers.publisher.main` claims `publish_content` jobs and uses the `manual_publish_handoff` adapter to write the upload package
+- `python -m workers.publisher.main` claims `publish_content` jobs and selects a platform-aware manual handoff adapter for YouTube, TikTok, or Facebook, with a generic manual fallback for unknown platforms
 - publish handoff jobs remain `waiting_external` until the user uploads manually and records completion
 - `POST /api/publish-jobs/{publish_job_id}/analytics/queue` creates a `sync_analytics` background job only after the publish job is marked `published`
 - `python -m workers.analytics.main` claims `sync_analytics` jobs, persists the supplied metric snapshot, creates insights, and completes the job

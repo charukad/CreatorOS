@@ -345,7 +345,7 @@ The repo now supports queued `compose_rough_cut` and `final_export` jobs, a medi
 ## Phase 16 - Final Approval and Publishing Center
 
 Current implementation note:
-The repo now has final-video approve/reject routes, publish job persistence, approval-gated publish preparation, approval-safe metadata editing, publish-job approval, schedule, queue-backed manual publish handoffs, publishing calendar/queue visibility, and manual-published completion flows. Real platform upload adapters are still pending.
+The repo now has final-video approve/reject routes, publish job persistence, approval-gated publish preparation, approval-safe metadata editing, publish-job approval, schedule, queue-backed platform-aware manual publish handoffs for YouTube, TikTok, Facebook, and generic fallback flows, publishing calendar/queue visibility, and manual-published completion flows. Real automatic platform upload adapters are still pending.
 
 ### Build tasks
 - [x] Build publish job persistence and APIs
@@ -356,7 +356,7 @@ The repo now has final-video approve/reject routes, publish job persistence, app
 - [x] Add publisher worker that generates manual upload handoff packages
 - [x] Add manual published-completion flow with state validation
 - [x] Add publish approval stage before any upload action
-- [ ] Implement platform adapter abstraction for YouTube, Facebook, TikTok, and manual publish fallback
+- [x] Implement platform adapter abstraction for YouTube, Facebook, TikTok, and manual publish fallback
 - [x] Add manual publish fallback record path
 - [x] Add publish safety checks so only explicitly approved publish jobs can run
 - [x] Add idempotency keys for publish preparation requests

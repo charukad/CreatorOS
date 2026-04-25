@@ -1,6 +1,11 @@
 "use client";
 
-import { approvalDecisionLabels, publishJobStatusLabels } from "@creatoros/shared";
+import {
+  approvalDecisionLabels,
+  getPublishAdapterLabel,
+  publishJobStatusLabels,
+  resolvePublishAdapterName,
+} from "@creatoros/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
@@ -47,6 +52,8 @@ type PublishJobMetadataDraft = {
 
 type PublishCommandRow = {
   activeHandoffJob: BackgroundJob | null;
+  adapterLabel: string;
+  adapterName: string;
   calendarLabel: string;
   handoffPath: string | null;
   job: PublishJob;
@@ -239,17 +246,36 @@ function buildPublishCommandRows(
       .sort(sortByNewestJob);
     const activeHandoffJob = handoffJobs.find(isActiveHandoffJob) ?? null;
     const latestHandoffJob = handoffJobs[0] ?? null;
+    const payloadAdapterName =
+      latestHandoffJob && typeof latestHandoffJob.payload_json.adapter_name === "string"
+        ? latestHandoffJob.payload_json.adapter_name
+        : resolvePublishAdapterName(job.platform);
     const lane = describePublishLane(job, activeHandoffJob);
 
     return {
       ...lane,
       activeHandoffJob,
+      adapterLabel: getPublishAdapterLabel(payloadAdapterName),
+      adapterName: payloadAdapterName,
       calendarLabel: job.scheduled_for ? formatTimestamp(job.scheduled_for) : "No publish time",
       handoffPath: latestHandoffJob ? getPayloadString(latestHandoffJob, "handoff_path") : null,
       job,
       latestHandoffJob,
     };
   });
+}
+
+function getPlatformSettingsPlaceholder(platform: string): string {
+  switch (resolvePublishAdapterName(platform)) {
+    case "youtube_studio_manual_handoff":
+      return '{"privacy": "private", "audience": "not_made_for_kids", "playlist_id": "optional"}';
+    case "tiktok_manual_handoff":
+      return '{"privacy": "followers", "allow_comments": true, "disclose_ai_generated": true}';
+    case "facebook_manual_handoff":
+      return '{"privacy": "friends", "page_id": "optional", "crosspost_to_instagram": false}';
+    default:
+      return '{"visibility": "draft"}';
+  }
 }
 
 export function ProjectPublishCenter({
@@ -610,6 +636,9 @@ export function ProjectPublishCenter({
                       <span className="rounded-full border border-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-100">
                         {row.job.platform}
                       </span>
+                      <span className="rounded-full border border-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                        {row.adapterLabel}
+                      </span>
                     </div>
                     <h4 className="mt-3 text-base font-semibold text-white">{row.job.title}</h4>
                     <p className="mt-1 text-sm leading-6 text-slate-300">
@@ -668,6 +697,9 @@ export function ProjectPublishCenter({
                   <span className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-amber-100">
                     {publishJobStatusLabels[job.status]}
                   </span>
+                  <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Handoff adapter: {row.adapterLabel}
+                  </p>
                   <h3 className="mt-3 text-lg font-semibold text-white">{job.title}</h3>
                   <p className="mt-2 text-sm leading-6 text-slate-300">{job.description}</p>
                 </div>
@@ -784,7 +816,7 @@ export function ProjectPublishCenter({
                         platformSettingsJson: event.target.value,
                       })
                     }
-                    placeholder={'{"privacy": "private", "playlist_id": "optional"}'}
+                    placeholder={getPlatformSettingsPlaceholder(job.platform)}
                     value={metadataDraft.platformSettingsJson}
                   />
                 </label>
@@ -916,8 +948,7 @@ export function ProjectPublishCenter({
                   <div>
                     <p className="text-sm font-semibold text-white">Publish handoff queue</p>
                     <p className="mt-1 text-xs leading-5 text-slate-400">
-                      Queue a background handoff that generates the exact manual upload package and
-                      waits for your platform confirmation.
+                      Queue a background handoff that generates the exact {row.adapterLabel.toLowerCase()} package and waits for your platform confirmation.
                     </p>
                   </div>
                   <button

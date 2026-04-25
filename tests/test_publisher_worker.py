@@ -10,6 +10,7 @@ from apps.api.models.asset import Asset
 from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
 from apps.api.schemas.enums import AssetStatus, AssetType, ProjectStatus, ProviderName
+from apps.api.services.publish_adapters import resolve_publish_adapter_name
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -149,6 +150,8 @@ def _move_project_to_final_review_for_tests(
 def _prepare_publish_job(
     client: TestClient,
     session_factory: sessionmaker[Session],
+    *,
+    platform: str = "youtube_shorts",
 ) -> str:
     brand_profile_id = _create_brand_profile_for_tests(client)
     project_id = _create_project_for_tests(client, brand_profile_id)
@@ -162,7 +165,7 @@ def _prepare_publish_job(
     prepare_response = client.post(
         f"/api/projects/{project_id}/publish-jobs/prepare",
         json={
-            "platform": "youtube_shorts",
+            "platform": platform,
             "title": "Manual handoff title",
             "description": "Metadata prepared for a manual upload.",
             "hashtags": ["#CreatorOS", "Publish"],
@@ -190,11 +193,36 @@ def test_publish_handoff_queue_requires_approval_and_blocks_duplicates() -> None
     assert job["job_type"] == "publish_content"
     assert job["state"] == "queued"
     assert job["payload_json"]["publish_job_id"] == publish_job_id
-    assert job["payload_json"]["adapter_name"] == "manual_publish_handoff"
+    assert job["payload_json"]["adapter_name"] == "youtube_studio_manual_handoff"
+    assert job["payload_json"]["platform"] == "youtube_shorts"
 
     duplicate_queue_response = client.post(f"/api/publish-jobs/{publish_job_id}/queue")
     assert duplicate_queue_response.status_code == 409
     assert "active publish handoff" in _error_message(duplicate_queue_response)
+
+    app.dependency_overrides.clear()
+
+
+def test_publish_adapter_resolution_prefers_platform_specific_handoffs() -> None:
+    assert resolve_publish_adapter_name("youtube_shorts") == "youtube_studio_manual_handoff"
+    assert resolve_publish_adapter_name("tiktok") == "tiktok_manual_handoff"
+    assert resolve_publish_adapter_name("facebook_reels") == "facebook_manual_handoff"
+    assert resolve_publish_adapter_name("custom_portal") == "manual_publish_handoff"
+
+
+def test_publish_handoff_queue_falls_back_to_generic_adapter_for_unknown_platform() -> None:
+    session_factory = _create_test_session()
+    client = _make_test_client(session_factory)
+    publish_job_id = _prepare_publish_job(
+        client,
+        session_factory,
+        platform="custom_portal",
+    )
+    client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+
+    queue_response = client.post(f"/api/publish-jobs/{publish_job_id}/queue")
+    assert queue_response.status_code == 200
+    assert queue_response.json()["payload_json"]["adapter_name"] == "manual_publish_handoff"
 
     app.dependency_overrides.clear()
 
@@ -225,12 +253,17 @@ def test_publisher_worker_generates_handoff_and_waits_for_manual_completion(
     assert detail["job"]["state"] == "waiting_external"
     assert detail["job"]["progress_percent"] == 90
     assert "Manual publish handoff is ready" in detail["job"]["error_message"]
+    assert detail["job"]["payload_json"]["adapter_name"] == "youtube_studio_manual_handoff"
     assert any(log["event_type"] == "manual_publish_handoff_ready" for log in detail["job_logs"])
 
     handoff_path = tmp_path / detail["job"]["payload_json"]["handoff_path"]
     handoff_payload = handoff_path.read_text(encoding="utf-8")
     assert "Manual handoff title" in handoff_payload
-    assert "This handoff does not publish automatically" in handoff_payload
+    assert "YouTube Studio Manual Handoff" in handoff_payload
+    assert (
+        "This handoff is platform-aware, but it still requires a manual upload"
+        in handoff_payload
+    )
 
     published_response = client.post(
         f"/api/publish-jobs/{publish_job_id}/mark-published",

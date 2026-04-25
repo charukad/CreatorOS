@@ -33,7 +33,7 @@
 - browser workers retry timeout/selector-style provider failures once, and media workers retry timeout-style FFmpeg render failures once, before the job reaches `failed`
 - browser jobs now write per-attempt request metadata and output registration sidecars under project metadata storage and link those paths from job logs
 - operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, duplicate asset warnings, and non-destructive artifact retention candidates in API responses
-- final-video approval, publish-job preparation, publish approval, and queue-backed manual publish handoffs are implemented before manual published completion
+- final-video approval, publish-job preparation, publish approval, and queue-backed platform-aware manual publish handoffs are implemented before manual published completion
 - manual analytics snapshots and first-pass insight generation are implemented for published jobs
 - Redis-backed execution, automated retry backoff beyond the current inline worker retry, and live progress updates are still planned
 
@@ -944,10 +944,10 @@ Behavior note:
 Behavior note:
 - requires the publish job to be `approved` or `scheduled`
 - requires the linked final-review asset to still be ready
-- creates a `publish_content` background job using the v1 `manual_publish_handoff` adapter
+- creates a `publish_content` background job using a platform-aware manual adapter selected from the publish platform, with a generic manual fallback for unknown platforms
 - blocks duplicate queued, running, or waiting-external publish handoff jobs for the same publish job
 - writes the planned handoff path to the job payload under `handoff_path`
-- the publisher worker generates the handoff JSON and moves the job to `waiting_external`
+- the publisher worker generates an adapter-specific handoff JSON package and moves the job to `waiting_external`
 - the job is completed only after the user records manual publish completion with `mark-published`
 
 ### `POST /api/publish-jobs/:id/schedule`

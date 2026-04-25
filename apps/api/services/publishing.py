@@ -30,6 +30,7 @@ from apps.api.schemas.enums import (
 from apps.api.services.approvals import create_approval_record, get_latest_stage_approval
 from apps.api.services.background_jobs import create_job_log
 from apps.api.services.project_events import create_project_event
+from apps.api.services.publish_adapters import resolve_publish_adapter_name
 from apps.api.services.storage_paths import build_project_storage_path
 
 ACTIVE_PUBLISH_JOB_STATUSES = {
@@ -410,6 +411,7 @@ def queue_publish_content_job(
 
     short_publish_job_id = str(publish_job.id).split("-")[0]
     correlation_id = str(uuid4())
+    adapter_name = resolve_publish_adapter_name(publish_job.platform)
     handoff_path = build_project_storage_path(
         project.id,
         "publish",
@@ -424,7 +426,7 @@ def queue_publish_content_job(
         state=BackgroundJobState.QUEUED,
         payload_json={
             "job_type": BackgroundJobType.PUBLISH_CONTENT.value,
-            "adapter_name": "manual_publish_handoff",
+            "adapter_name": adapter_name,
             "publish_job_id": str(publish_job.id),
             "approved_publish_job_state": publish_job.status.value,
             "platform": publish_job.platform,
@@ -446,7 +448,7 @@ def queue_publish_content_job(
         event_type="job_queued",
         message="Manual publish handoff job was queued.",
         metadata={
-            "adapter_name": "manual_publish_handoff",
+            "adapter_name": adapter_name,
             "publish_job_id": str(publish_job.id),
             "platform": publish_job.platform,
             "handoff_path": handoff_path,

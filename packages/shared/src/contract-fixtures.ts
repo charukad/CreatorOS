@@ -7,6 +7,7 @@ import type {
   GenerateIdeasQueuePayload,
   GenerateScriptQueuePayload,
   GenerateVisualsQueuePayload,
+  PublishContentQueuePayload,
   ScriptPromptPackContract,
   TimelineManifestContract,
 } from "./contracts";
@@ -158,6 +159,19 @@ export const sampleFinalExportPayload = {
   ffmpeg_command_path: "storage/projects/project-123/final-exports/script-v1-command.json",
   export_profile: "final_cut_v1",
 } satisfies FinalExportQueuePayload;
+
+export const samplePublishContentPayload = {
+  job_type: "publish_content",
+  project_id: "project-123",
+  correlation_id: "correlation-publish",
+  adapter_name: "youtube_studio_manual_handoff",
+  publish_job_id: "publish-123",
+  approved_publish_job_state: "approved",
+  platform: "youtube_shorts",
+  final_asset_id: "asset-final-video",
+  handoff_path: "storage/projects/project-123/publish/youtube_shorts-handoff-publish.json",
+  scheduled_for: null,
+} satisfies PublishContentQueuePayload;
 
 export const samplePromptPack = {
   script_id: "script-123",
