@@ -36,6 +36,10 @@ def test_browser_settings_validate_provider_mode_and_paths() -> None:
     settings = BrowserWorkerSettings(BROWSER_PROVIDER_MODE="playwright")
     assert settings.browser_provider_mode == "playwright"
     assert settings.redis_url == "redis://localhost:6379/0"
+    assert settings.worker_enable_redis_listener is True
+    assert settings.worker_listen_timeout_seconds == 15.0
+    assert settings.worker_poll_interval_seconds == 5.0
+    assert settings.worker_idle_shutdown_seconds == 0.0
 
     with pytest.raises(ValidationError, match="ELEVENLABS_WORKSPACE_URL"):
         BrowserWorkerSettings(
@@ -98,6 +102,8 @@ def test_media_settings_validate_required_paths_and_ffmpeg_binary() -> None:
 
     assert settings.ffmpeg_binary == "ffmpeg"
     assert settings.redis_url == "redis://localhost:6379/0"
+    assert settings.worker_enable_redis_listener is True
+    assert settings.worker_poll_interval_seconds == 5.0
 
 
 def test_publisher_and_analytics_settings_include_redis_url() -> None:
@@ -106,3 +112,5 @@ def test_publisher_and_analytics_settings_include_redis_url() -> None:
 
     assert publisher_settings.redis_url == "redis://localhost:6379/0"
     assert analytics_settings.redis_url == "redis://localhost:6379/0"
+    assert publisher_settings.worker_enable_redis_listener is True
+    assert analytics_settings.worker_enable_redis_listener is True

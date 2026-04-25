@@ -41,6 +41,11 @@ Recommended local secret-loading pattern:
 - `DEFAULT_USER_NAME`
 
 ### Browser Worker
+- `REDIS_URL`
+- `WORKER_ENABLE_REDIS_LISTENER`
+- `WORKER_LISTEN_TIMEOUT_SECONDS`
+- `WORKER_POLL_INTERVAL_SECONDS`
+- `WORKER_IDLE_SHUTDOWN_SECONDS`
 - `BROWSER_PROVIDER_MODE`
 - `BROWSER_MAX_JOBS_PER_RUN`
 - `PLAYWRIGHT_HEADLESS`
@@ -55,14 +60,29 @@ Recommended local secret-loading pattern:
 - `FLOW_WORKSPACE_URL`
 
 ### Media Worker
+- `REDIS_URL`
+- `WORKER_ENABLE_REDIS_LISTENER`
+- `WORKER_LISTEN_TIMEOUT_SECONDS`
+- `WORKER_POLL_INTERVAL_SECONDS`
+- `WORKER_IDLE_SHUTDOWN_SECONDS`
 - `FFMPEG_BINARY`
 - `MEDIA_ENABLE_FFMPEG_RENDER`
 
 ### Publisher Worker
+- `REDIS_URL`
+- `WORKER_ENABLE_REDIS_LISTENER`
+- `WORKER_LISTEN_TIMEOUT_SECONDS`
+- `WORKER_POLL_INTERVAL_SECONDS`
+- `WORKER_IDLE_SHUTDOWN_SECONDS`
 - `PUBLISHER_MAX_JOBS_PER_RUN`
 - `STORAGE_ROOT`
 
 ### Analytics Worker
+- `REDIS_URL`
+- `WORKER_ENABLE_REDIS_LISTENER`
+- `WORKER_LISTEN_TIMEOUT_SECONDS`
+- `WORKER_POLL_INTERVAL_SECONDS`
+- `WORKER_IDLE_SHUTDOWN_SECONDS`
 - `ANALYTICS_MAX_JOBS_PER_RUN`
 
 ### Frontend
@@ -92,6 +112,7 @@ Recommended local secret-loading pattern:
 - the media worker writes subtitle sidecars under `storage/projects/{project_id}/subtitles`
 - the media worker writes an FFmpeg command-plan JSON file beside rough-cut previews
 - the publisher worker writes manual upload handoffs under `storage/projects/{project_id}/publish`
+- worker entrypoints now start long-lived Redis-backed listener loops by default and fall back to timed polling when Redis is unavailable
 - future cleanup moves should write retention manifests under `storage/projects/{project_id}/retention` before any generated artifact leaves canonical storage
 - MP4 rendering requires FFmpeg to be installed and `MEDIA_ENABLE_FFMPEG_RENDER=true`
 - provider debug HTML snapshots are redacted before they are written to disk

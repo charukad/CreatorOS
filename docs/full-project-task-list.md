@@ -204,10 +204,10 @@ The repo now has an inline-local `generate_script` background job record with li
 ## Phase 10 - Queue System, Background Jobs, and Progress Tracking
 
 Current implementation note:
-The repo now persists inline-local idea/script generation jobs, queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, per-type retry budgets, publish scheduling idempotency, file-ingestion idempotency/conflict quarantine, and safe cancel/retry/resume operations from the project page and dedicated job detail screen. `/api/health/ready` now performs real database and Redis checks, and queued browser/media/publisher/analytics jobs now publish Redis wake-up signals plus general job events after commit. The browser worker can execute queued browser jobs in local `dry_run` mode and materialize development artifacts, but the full Redis-backed blocking runner architecture, automated retry backoff, and live progress updates are still pending.
+The repo now persists inline-local idea/script generation jobs, queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, per-type retry budgets, publish scheduling idempotency, file-ingestion idempotency/conflict quarantine, and safe cancel/retry/resume operations from the project page and dedicated job detail screen. `/api/health/ready` now performs real database and Redis checks, queued browser/media/publisher/analytics jobs publish Redis wake-up signals plus general job events after commit, and all four worker entrypoints now run as long-lived Redis-backed listener services with timed polling fallback. Inline idea/script planning remains synchronous, and automated retry backoff plus live progress updates are still pending.
 
 ### Build tasks
-- [ ] Choose and implement the job runner architecture backed by Redis
+- [x] Choose and implement the job runner architecture backed by Redis
 - [x] Add `background_jobs` persistence and job lifecycle tracking
 - [x] Implement job states `queued`, `running`, `waiting_external`, `completed`, `failed`, and `cancelled`
 - [x] Implement retry policy per job type as defined in `docs/queue-jobs.md`

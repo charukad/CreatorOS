@@ -4,6 +4,7 @@ from apps.api.core.logging import configure_logging
 
 from workers.publisher.config import get_settings
 from workers.publisher.runtime import run_pending_jobs
+from workers.service_loop import WorkerServiceConfig, run_worker_service
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,26 @@ def main() -> None:
     configure_logging(service_name="publisher-worker")
     logger.info("CreatorOS publisher worker starting")
     logger.info("Storage root: %s", settings.storage_root)
-    processed_jobs = run_pending_jobs(settings=settings)
+    logger.info("Redis listener enabled: %s", settings.worker_enable_redis_listener)
+    logger.info("Worker listen timeout: %ss", settings.worker_listen_timeout_seconds)
+    logger.info("Worker poll interval: %ss", settings.worker_poll_interval_seconds)
+    processed_jobs = run_worker_service(
+        config=WorkerServiceConfig(
+            worker_name="publisher-worker",
+            worker_type="publisher",
+            redis_url=settings.redis_url,
+            enable_redis_listener=settings.worker_enable_redis_listener,
+            poll_interval_seconds=settings.worker_poll_interval_seconds,
+            listen_timeout_seconds=settings.worker_listen_timeout_seconds,
+            idle_shutdown_seconds=settings.worker_idle_shutdown_seconds,
+            max_jobs_per_iteration=settings.publisher_max_jobs_per_run,
+        ),
+        logger=logger,
+        process_pending_jobs=lambda max_jobs: run_pending_jobs(
+            settings=settings,
+            max_jobs=max_jobs,
+        ),
+    )
     logger.info("CreatorOS publisher worker finished after %s job(s)", processed_jobs)
 
 

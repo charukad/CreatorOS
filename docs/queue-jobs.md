@@ -11,6 +11,7 @@
 - job detail, job timeline logs, safe cancel, and safe retry operations are available through the API, dedicated job detail screen, and project page
 - queued browser/media job payloads include a `correlation_id` that is also copied into queue log metadata
 - queued browser, media, publisher, and analytics jobs now publish Redis wake-up signals plus general `creatoros:jobs:*` event payloads after the queue write commits
+- worker entrypoints now run as long-lived Redis-backed listener services that drain backlog immediately, then wait on worker-specific wake-up channels with timed polling fallback
 - browser provider debug artifacts and failure screenshot/HTML snapshots are captured into per-provider debug folders and linked from job logs
 - browser workers now load versioned selector bundles, capture checkpoint screenshot/HTML artifacts during session setup, and log the selector version used for each provider run
 - Playwright-backed ElevenLabs and Flow providers now use selector fallback resolution, provider workspace URLs, and persistent Chromium profiles when `BROWSER_PROVIDER_MODE=playwright`
@@ -20,7 +21,7 @@
 - browser workers now redact secret-like browser log fields and pause auth/captcha/verification failures in `waiting_external` for operator recovery
 - media workers retry timeout-style FFmpeg render failures once before failing the job
 - analytics snapshots can now be queued for published jobs through the API and project analytics panel, then consumed by the analytics worker with first-pass insights persisted for review
-- actual Redis-backed blocking execution for idea/script generation, automated retry policy, and live worker progress updates are still pending
+- actual Redis-backed blocking execution for inline idea/script generation, automated retry policy, and live worker progress updates are still pending
 - automated platform polling adapters for `sync_analytics` are still pending
 
 ## Principles
