@@ -52,6 +52,14 @@ RETRY_POLICY_MAX_ATTEMPTS = {
     BackgroundJobType.PUBLISH_CONTENT: 2,
     BackgroundJobType.SYNC_ANALYTICS: 2,
 }
+AUTOMATIC_RETRY_BACKOFF_SECONDS = {
+    BackgroundJobType.GENERATE_AUDIO_BROWSER: (60, 300, 1800),
+    BackgroundJobType.GENERATE_VISUALS_BROWSER: (60, 300, 1800),
+    BackgroundJobType.COMPOSE_ROUGH_CUT: (30, 180),
+    BackgroundJobType.FINAL_EXPORT: (30, 180),
+    BackgroundJobType.PUBLISH_CONTENT: (120,),
+    BackgroundJobType.SYNC_ANALYTICS: (120,),
+}
 RESUMABLE_JOB_TYPES = {*CLAIMABLE_BROWSER_JOB_TYPES, *CLAIMABLE_MEDIA_JOB_TYPES}
 RESETTABLE_ASSET_STATUSES = {
     AssetStatus.PLANNED,
@@ -62,6 +70,7 @@ RESETTABLE_ASSET_STATUSES = {
 
 
 def claim_next_browser_job(db: Session) -> BackgroundJob | None:
+    now = datetime.now(UTC)
     statement = (
         select(BackgroundJob)
         .options(
@@ -71,6 +80,7 @@ def claim_next_browser_job(db: Session) -> BackgroundJob | None:
         .where(
             BackgroundJob.job_type.in_(CLAIMABLE_BROWSER_JOB_TYPES),
             BackgroundJob.state == BackgroundJobState.QUEUED,
+            _job_is_due_clause(now),
         )
         .order_by(asc(BackgroundJob.created_at))
     )
@@ -84,6 +94,7 @@ def claim_next_browser_job(db: Session) -> BackgroundJob | None:
     job.progress_percent = max(job.progress_percent, 5)
     job.started_at = now
     job.error_message = None
+    job.available_at = None
     db.add(job)
     create_job_log(
         db,
@@ -99,11 +110,13 @@ def claim_next_browser_job(db: Session) -> BackgroundJob | None:
 
 
 def claim_next_media_job(db: Session) -> BackgroundJob | None:
+    now = datetime.now(UTC)
     statement = (
         select(BackgroundJob)
         .where(
             BackgroundJob.job_type.in_(CLAIMABLE_MEDIA_JOB_TYPES),
             BackgroundJob.state == BackgroundJobState.QUEUED,
+            _job_is_due_clause(now),
         )
         .order_by(asc(BackgroundJob.created_at))
     )
@@ -117,6 +130,7 @@ def claim_next_media_job(db: Session) -> BackgroundJob | None:
     job.progress_percent = max(job.progress_percent, 5)
     job.started_at = now
     job.error_message = None
+    job.available_at = None
     db.add(job)
     create_job_log(
         db,
@@ -132,11 +146,13 @@ def claim_next_media_job(db: Session) -> BackgroundJob | None:
 
 
 def claim_next_publish_job(db: Session) -> BackgroundJob | None:
+    now = datetime.now(UTC)
     statement = (
         select(BackgroundJob)
         .where(
             BackgroundJob.job_type.in_(CLAIMABLE_PUBLISH_JOB_TYPES),
             BackgroundJob.state == BackgroundJobState.QUEUED,
+            _job_is_due_clause(now),
         )
         .order_by(asc(BackgroundJob.created_at))
     )
@@ -150,6 +166,7 @@ def claim_next_publish_job(db: Session) -> BackgroundJob | None:
     job.progress_percent = max(job.progress_percent, 10)
     job.started_at = now
     job.error_message = None
+    job.available_at = None
     db.add(job)
     create_job_log(
         db,
@@ -165,11 +182,13 @@ def claim_next_publish_job(db: Session) -> BackgroundJob | None:
 
 
 def claim_next_analytics_job(db: Session) -> BackgroundJob | None:
+    now = datetime.now(UTC)
     statement = (
         select(BackgroundJob)
         .where(
             BackgroundJob.job_type.in_(CLAIMABLE_ANALYTICS_JOB_TYPES),
             BackgroundJob.state == BackgroundJobState.QUEUED,
+            _job_is_due_clause(now),
         )
         .order_by(asc(BackgroundJob.created_at))
     )
@@ -183,6 +202,7 @@ def claim_next_analytics_job(db: Session) -> BackgroundJob | None:
     job.progress_percent = max(job.progress_percent, 10)
     job.started_at = now
     job.error_message = None
+    job.available_at = None
     db.add(job)
     create_job_log(
         db,
@@ -299,6 +319,7 @@ def cancel_background_job(
 
     now = datetime.now(UTC)
     job.state = BackgroundJobState.CANCELLED
+    job.available_at = None
     job.finished_at = now
     job.error_message = reason
     db.add(job)
@@ -341,6 +362,7 @@ def retry_background_job(db: Session, job: BackgroundJob) -> BackgroundJob:
     job.state = BackgroundJobState.QUEUED
     job.progress_percent = 0
     job.error_message = None
+    job.available_at = None
     job.started_at = None
     job.finished_at = None
     db.add(job)
@@ -358,17 +380,7 @@ def retry_background_job(db: Session, job: BackgroundJob) -> BackgroundJob:
         },
     )
 
-    for attempt in job.generation_attempts:
-        attempt.state = BackgroundJobState.QUEUED
-        attempt.error_message = None
-        attempt.started_at = None
-        attempt.finished_at = None
-        db.add(attempt)
-        for asset in attempt.assets:
-            _reset_asset_for_retry(db, asset)
-
-    for asset in _list_payload_assets(db, job):
-        _reset_asset_for_retry(db, asset)
+    _reset_job_work_units_for_retry(db, job)
 
     db.commit()
     refreshed_job = get_background_job(db, job.id) or job
@@ -376,6 +388,81 @@ def retry_background_job(db: Session, job: BackgroundJob) -> BackgroundJob:
         refreshed_job,
         event_type="job_retried",
         publish_to_worker_queue=True,
+    )
+    return refreshed_job
+
+
+def schedule_automatic_retry(
+    db: Session,
+    job: BackgroundJob,
+    *,
+    error_message: str,
+    retry_reason: str,
+    metadata: dict[str, object] | None = None,
+) -> BackgroundJob | None:
+    if not can_schedule_automatic_retry(job):
+        return None
+
+    retry_delay_seconds = get_automatic_retry_delay_seconds(job)
+    retry_ready_at = datetime.now(UTC) + timedelta(seconds=retry_delay_seconds)
+    max_attempts = RETRY_POLICY_MAX_ATTEMPTS[job.job_type]
+    remaining_attempts = max(max_attempts - job.attempts, 0)
+
+    job.state = BackgroundJobState.QUEUED
+    job.progress_percent = 0
+    job.error_message = error_message
+    job.available_at = retry_ready_at
+    job.started_at = None
+    job.finished_at = None
+    db.add(job)
+    create_job_log(
+        db,
+        job,
+        event_type="job_attempt_failed",
+        message=error_message,
+        level="error",
+        metadata={
+            "automatic_retry_scheduled": True,
+            "attempts_used": job.attempts,
+            "max_attempts": max_attempts,
+            "remaining_attempts": remaining_attempts,
+            "retry_reason": retry_reason,
+            "retry_ready_at": retry_ready_at.isoformat(),
+            **(metadata or {}),
+        },
+    )
+    create_job_log(
+        db,
+        job,
+        event_type="job_auto_retry_scheduled",
+        message=(
+            "Automatic retry was scheduled after a transient job failure. "
+            f"The worker will try again after {retry_delay_seconds} second(s)."
+        ),
+        level="warning",
+        metadata={
+            "attempts_used": job.attempts,
+            "max_attempts": max_attempts,
+            "remaining_attempts": remaining_attempts,
+            "retry_delay_seconds": retry_delay_seconds,
+            "retry_reason": retry_reason,
+            "retry_ready_at": retry_ready_at.isoformat(),
+            "error_message": error_message,
+            **(metadata or {}),
+        },
+    )
+    _reset_job_work_units_for_retry(db, job)
+
+    db.commit()
+    refreshed_job = get_background_job(db, job.id) or job
+    emit_background_job_event(
+        refreshed_job,
+        event_type="job_auto_retry_scheduled",
+        metadata={
+            "retry_delay_seconds": retry_delay_seconds,
+            "retry_ready_at": retry_ready_at.isoformat(),
+            "retry_reason": retry_reason,
+        },
     )
     return refreshed_job
 
@@ -399,6 +486,7 @@ def resume_stale_running_job(
     job.state = BackgroundJobState.QUEUED
     job.progress_percent = 0
     job.error_message = None
+    job.available_at = None
     job.started_at = None
     job.finished_at = None
     db.add(job)
@@ -451,6 +539,7 @@ def mark_job_manual_intervention_required(
     previous_state = job.state.value
     job.state = BackgroundJobState.WAITING_EXTERNAL
     job.error_message = reason
+    job.available_at = None
     db.add(job)
     create_job_log(
         db,
@@ -488,6 +577,7 @@ def mark_job_progress(db: Session, job: BackgroundJob, progress_percent: int) ->
 def mark_job_completed(db: Session, job: BackgroundJob) -> None:
     job.state = BackgroundJobState.COMPLETED
     job.progress_percent = 100
+    job.available_at = None
     job.finished_at = datetime.now(UTC)
     job.error_message = None
     db.add(job)
@@ -507,6 +597,7 @@ def mark_job_completed(db: Session, job: BackgroundJob) -> None:
 def mark_job_failed(db: Session, job: BackgroundJob, error_message: str) -> None:
     now = datetime.now(UTC)
     job.state = BackgroundJobState.FAILED
+    job.available_at = None
     job.finished_at = now
     job.error_message = error_message
     db.add(job)
@@ -708,6 +799,20 @@ def _reset_unfinished_asset_for_resume(db: Session, asset: Asset) -> None:
     db.add(asset)
 
 
+def _reset_job_work_units_for_retry(db: Session, job: BackgroundJob) -> None:
+    for attempt in job.generation_attempts:
+        attempt.state = BackgroundJobState.QUEUED
+        attempt.error_message = None
+        attempt.started_at = None
+        attempt.finished_at = None
+        db.add(attempt)
+        for asset in attempt.assets:
+            _reset_asset_for_retry(db, asset)
+
+    for asset in _list_payload_assets(db, job):
+        _reset_asset_for_retry(db, asset)
+
+
 def _ensure_job_type_supports_manual_retry(job: BackgroundJob) -> None:
     if job.job_type in RETRY_POLICY_MAX_ATTEMPTS:
         return
@@ -759,3 +864,30 @@ def _ensure_no_other_active_job(db: Session, job: BackgroundJob) -> None:
             "Cannot retry this job while another active job of the same type exists "
             "for the current script."
         )
+
+
+def can_schedule_automatic_retry(job: BackgroundJob) -> bool:
+    max_attempts = RETRY_POLICY_MAX_ATTEMPTS.get(job.job_type)
+    if max_attempts is None:
+        return False
+
+    if job.job_type not in AUTOMATIC_RETRY_BACKOFF_SECONDS:
+        return False
+
+    return job.attempts < max_attempts
+
+
+def get_automatic_retry_delay_seconds(job: BackgroundJob) -> int:
+    backoff_schedule = AUTOMATIC_RETRY_BACKOFF_SECONDS.get(job.job_type)
+    if backoff_schedule is None:
+        raise ValueError(f"Automatic retry is not supported for {job.job_type.value}.")
+
+    schedule_index = min(max(job.attempts - 1, 0), len(backoff_schedule) - 1)
+    return backoff_schedule[schedule_index]
+
+
+def _job_is_due_clause(reference_time: datetime):
+    return or_(
+        BackgroundJob.available_at.is_(None),
+        BackgroundJob.available_at <= reference_time,
+    )

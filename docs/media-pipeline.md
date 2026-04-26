@@ -17,6 +17,7 @@ Turn approved script + generated assets into an automatically assembled short-fo
 - final exports are persisted as `final_video` assets and promote the project to `final_pending_approval`
 - when FFmpeg rendering is disabled but a ready rough-cut MP4 already exists, the final-export job reuses that source video instead of failing
 - timeout-style FFmpeg render failures are retried once inline before the media job fails
+- repeated timeout-style FFmpeg failures can now schedule delayed automatic job retries through `background_jobs.available_at` before the media attempt budget is exhausted
 - real local FFmpeg install/manual MP4 QA and real sample export QA are still pending
 
 ## Inputs

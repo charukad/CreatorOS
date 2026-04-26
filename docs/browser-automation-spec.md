@@ -17,6 +17,7 @@ Use Playwright-based browser automation to operate subscription-based tools thro
 - browser workers now redact common secret/token/cookie fields from operator-facing browser job logs and manual-intervention reasons
 - auth/captcha/verification-style browser failures now move jobs into `waiting_external` instead of immediately failing
 - browser workers now retry timeout/selector-style provider failures once before marking a job failed
+- repeated timeout/selector-style browser failures can now schedule delayed automatic job retries through `background_jobs.available_at` before the final attempt budget is exhausted
 - browser worker ingestion now hashes materialized files, treats matching repeated downloads as idempotent, logs duplicate checksums, and quarantines mismatched or conflicting downloads under project storage for manual review
 - browser workers now write per-attempt request metadata and output registration payload JSON sidecars under project metadata storage
 - browser worker storage writes are now validated so canonical assets, metadata payloads, and quarantine files cannot resolve outside the configured project storage roots
@@ -90,7 +91,7 @@ Current implementation note:
 
 ## Failure Handling
 - on selector failure: screenshot + HTML snapshot + `browser_failure_artifacts_captured` log entry
-- on timeout: retry once in-page, then fail job
+- on timeout: retry once in-page, then schedule a delayed automatic job retry while attempts remain, otherwise fail the job
 - on download mismatch: quarantine file for manual review
 - on auth/captcha/verification issue: mark job `manual_intervention_required` / `waiting_external`
 - operator-facing browser logs and manual-intervention reasons must be redacted before persistence

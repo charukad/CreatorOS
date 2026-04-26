@@ -490,6 +490,7 @@ Response excerpt:
   "provider_name": "elevenlabs_web",
   "state": "queued",
   "progress_percent": 0,
+  "available_at": null,
   "payload_json": {
     "script_version": 1,
     "voice_label": "Warm guide",
@@ -532,6 +533,7 @@ Behavior note:
 
 ### `GET /api/projects/:id/jobs`
 - returns persisted queued generation jobs for the project, newest first
+- job responses now include `available_at`; when present on a `queued` job it marks the next automatic-retry claim time
 
 ### `GET /api/projects/:id/activity`
 Response excerpt:
@@ -589,8 +591,9 @@ Response excerpt:
     "project_id": "uuid",
     "script_id": "uuid",
     "job_type": "generate_audio_browser",
-    "state": "failed",
-    "progress_percent": 25,
+    "state": "queued",
+    "progress_percent": 0,
+    "available_at": "2026-04-26T05:05:00Z",
     "error_message": "Provider timed out."
   },
   "generation_attempts": [
@@ -613,10 +616,13 @@ Response excerpt:
   "job_logs": [
     {
       "id": "uuid",
-      "event_type": "job_failed",
-      "level": "error",
-      "message": "Provider timed out.",
-      "metadata_json": {}
+      "event_type": "job_auto_retry_scheduled",
+      "level": "warning",
+      "message": "Automatic retry was scheduled after a transient job failure. The worker will try again after 60 second(s).",
+      "metadata_json": {
+        "retry_delay_seconds": 60,
+        "retry_ready_at": "2026-04-26T05:05:00Z"
+      }
     }
   ]
 }
@@ -626,6 +632,7 @@ Behavior note:
 - the route returns the job plus its generation attempts and related assets
 - browser jobs resolve related assets through their generation attempts
 - media jobs also resolve planned output assets from the job payload ids
+- `available_at` is `null` for immediately claimable queued jobs and populated when a worker scheduled a delayed automatic retry after a transient failure
 
 ### `POST /api/jobs/:id/cancel`
 Behavior note:
@@ -639,10 +646,15 @@ Behavior note:
 - only `failed` and `cancelled` jobs can be retried
 - retry is available for worker-backed browser, media, publish, and analytics jobs; inline idea/script planning jobs should be re-run from the project action
 - retry reuses the existing job, attempts, and related asset records
-- retry resets job state to `queued`, clears job errors, clears stale timestamps, and resets related assets to `planned`
+- retry resets job state to `queued`, clears job errors, clears stale timestamps plus any delayed `available_at` value, and resets related assets to `planned`
 - retry enforces per-type execution attempt budgets: browser 4 total attempts, media 3, publish 2, analytics 2
 - retry is blocked if another active job of the same type already exists for the same script
 - completed jobs cannot be retried
+
+Automatic retry note:
+- transient browser, media, publish, and analytics worker failures may be re-queued automatically before the job reaches `failed`
+- delayed retries stay in `queued` with `available_at` set to the next eligible claim time and keep the latest failure message visible in `error_message`
+- job logs record both `job_attempt_failed` and `job_auto_retry_scheduled` so the temporary failure is still auditable
 
 ### `POST /api/jobs/:id/resume`
 Query parameters:

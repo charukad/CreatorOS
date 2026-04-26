@@ -193,6 +193,7 @@ export type BackgroundJobContract = {
   attempts: number;
   progress_percent: number;
   error_message: Nullable<string>;
+  available_at: Nullable<ISODateTime>;
   started_at: Nullable<ISODateTime>;
   finished_at: Nullable<ISODateTime>;
   created_at: ISODateTime;

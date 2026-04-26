@@ -1,5 +1,6 @@
 import json
 from collections.abc import Generator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -304,7 +305,7 @@ class FailingBrowserProvider:
         return f"failing-provider-{payload.project_id}"
 
     def wait_for_completion(self, job_id: str) -> None:
-        raise RuntimeError(f"Selector #render-button timed out for {job_id}")
+        raise RuntimeError(f"Provider response payload was invalid for {job_id}")
 
     def collect_downloads(self, job_id: str) -> list[str]:
         return []
@@ -361,6 +362,48 @@ class RetryOnceBrowserProvider:
             provider_job_id=job_id,
             error=error,
             snapshot_html="<html><body>retryable provider failure</body></html>",
+        )
+
+
+class RetryAcrossClaimsBrowserProvider:
+    def __init__(self, download_root: Path, *, shared_state: dict[str, int]) -> None:
+        self._download_root = download_root
+        self._debug_root = download_root / "debug"
+        self._download_root.mkdir(parents=True, exist_ok=True)
+        self._debug_root.mkdir(parents=True, exist_ok=True)
+        self._shared_state = shared_state
+        self._submitted_jobs: dict[str, ProviderJobPayload] = {}
+
+    def ensure_session(self) -> None:
+        return None
+
+    def open_workspace(self) -> None:
+        return None
+
+    def submit_job(self, payload: ProviderJobPayload) -> str:
+        job_id = f"retry-across-claims-{len(self._submitted_jobs) + 1}"
+        self._submitted_jobs[job_id] = payload
+        return job_id
+
+    def wait_for_completion(self, job_id: str) -> None:
+        self._shared_state["wait_calls"] += 1
+        if self._shared_state["wait_calls"] <= 2:
+            raise RuntimeError(f"Provider timed out while waiting for render for {job_id}")
+
+    def collect_downloads(self, job_id: str) -> list[str]:
+        output_path = self._download_root / f"{job_id}.wav"
+        output_path.write_bytes(b"retry after backoff succeeded")
+        return [str(output_path)]
+
+    def capture_debug_artifacts(self, job_id: str) -> list[str]:
+        return []
+
+    def capture_failure_artifacts(self, job_id: str | None, error: Exception) -> list[str]:
+        return write_failure_debug_artifacts(
+            self._debug_root,
+            provider_job_id=job_id,
+            error=error,
+            snapshot_html="<html><body>retry across claims failure</body></html>",
         )
 
 
@@ -581,6 +624,77 @@ def test_browser_worker_pauses_for_manual_intervention_without_leaking_secrets(
     assert "session-secret" not in snapshot_html
     assert "raw-token" not in snapshot_html
     assert "[redacted]" in snapshot_html
+
+    app.dependency_overrides.clear()
+
+
+def test_browser_worker_schedules_automatic_retry_backoff_for_transient_failures(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    session_factory = _create_test_session()
+    client = _make_test_client(session_factory)
+
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Browser retry backoff",
+        objective="Schedule delayed retries after repeated transient browser failures",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    shared_state = {"wait_calls": 0}
+    monkeypatch.setattr(
+        "workers.browser.runtime._get_provider",
+        lambda settings, job, selector_bundle=None, session_descriptor=None: (
+            RetryAcrossClaimsBrowserProvider(
+                tmp_path / "downloads",
+                shared_state=shared_state,
+            )
+        ),
+    )
+
+    processed_jobs = _run_browser_worker(tmp_path=tmp_path, session_factory=session_factory)
+    assert processed_jobs == 1
+
+    detail_response = client.get(f"/api/jobs/{job_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["job"]["state"] == "queued"
+    assert detail["job"]["available_at"] is not None
+    assert detail["job"]["attempts"] == 1
+    assert any(log["event_type"] == "job_attempt_failed" for log in detail["job_logs"])
+    assert any(log["event_type"] == "job_auto_retry_scheduled" for log in detail["job_logs"])
+
+    scheduled_at = datetime.fromisoformat(detail["job"]["available_at"].replace("Z", "+00:00"))
+    if scheduled_at.tzinfo is None:
+        scheduled_at = scheduled_at.replace(tzinfo=UTC)
+    assert scheduled_at > datetime.now(UTC)
+
+    assert _run_browser_worker(tmp_path=tmp_path, session_factory=session_factory) == 0
+
+    with session_factory() as session:
+        queued_job = get_background_job(session, UUID(job_id))
+        assert queued_job is not None
+        queued_job.available_at = datetime.now(UTC) - timedelta(seconds=1)
+        session.add(queued_job)
+        session.commit()
+
+    assert _run_browser_worker(tmp_path=tmp_path, session_factory=session_factory) == 1
+
+    completed_detail_response = client.get(f"/api/jobs/{job_id}")
+    completed_detail = completed_detail_response.json()
+    assert completed_detail["job"]["state"] == "completed"
+    assert completed_detail["job"]["attempts"] == 2
+    assert completed_detail["job"]["available_at"] is None
 
     app.dependency_overrides.clear()
 

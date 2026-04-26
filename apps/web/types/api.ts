@@ -301,6 +301,7 @@ export type BackgroundJob = {
   attempts: number;
   progress_percent: number;
   error_message: string | null;
+  available_at: string | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;

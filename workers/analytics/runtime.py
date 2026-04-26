@@ -8,11 +8,13 @@ from apps.api.schemas.content_workflow import AnalyticsSnapshotRequest
 from apps.api.schemas.enums import BackgroundJobType
 from apps.api.services.analytics import sync_publish_job_analytics
 from apps.api.services.background_jobs import (
+    can_schedule_automatic_retry,
     claim_next_analytics_job,
     create_job_log,
     mark_job_completed,
     mark_job_failed,
     mark_job_progress,
+    schedule_automatic_retry,
 )
 from apps.api.services.project_events import create_project_event
 from sqlalchemy.orm import Session, sessionmaker
@@ -46,7 +48,8 @@ def run_pending_jobs(
                 session.rollback()
                 failed_job = session.get(BackgroundJob, job.id)
                 if failed_job is not None:
-                    mark_job_failed(session, failed_job, str(error))
+                    if not _schedule_analytics_retry_if_needed(session, failed_job, error):
+                        mark_job_failed(session, failed_job, str(error))
                 processed_jobs += 1
                 continue
 
@@ -123,3 +126,41 @@ def _build_snapshot_request(job: BackgroundJob) -> AnalyticsSnapshotRequest:
         raise ValueError("Analytics sync job payload is missing metrics.")
 
     return AnalyticsSnapshotRequest.model_validate(metrics_payload)
+
+
+def _schedule_analytics_retry_if_needed(
+    session: Session,
+    job: BackgroundJob,
+    error: Exception,
+) -> bool:
+    if not _is_retryable_analytics_error(error):
+        return False
+
+    if not can_schedule_automatic_retry(job):
+        return False
+
+    scheduled_job = schedule_automatic_retry(
+        session,
+        job,
+        error_message=str(error),
+        retry_reason="analytics_transient_sync_failure",
+        metadata={"worker_type": "analytics"},
+    )
+    return scheduled_job is not None
+
+
+def _is_retryable_analytics_error(error: Exception) -> bool:
+    if isinstance(error, (OSError, TimeoutError)):
+        return True
+
+    message = str(error).lower()
+    return any(
+        pattern in message
+        for pattern in (
+            "timeout",
+            "timed out",
+            "temporarily unavailable",
+            "database is locked",
+            "connection reset",
+        )
+    )

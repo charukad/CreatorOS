@@ -221,6 +221,7 @@ class BackgroundJobResponse(BaseModel):
     attempts: int
     progress_percent: int
     error_message: str | None
+    available_at: datetime | None
     started_at: datetime | None
     finished_at: datetime | None
     created_at: datetime

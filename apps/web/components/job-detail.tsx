@@ -79,6 +79,14 @@ function retryPolicyLabel(job: BackgroundJob): string {
   return `${job.attempts}/${maxAttempts} execution attempt${maxAttempts === 1 ? "" : "s"} used`;
 }
 
+function automaticRetryLabel(job: BackgroundJob): string | null {
+  if (job.state !== "queued" || !job.available_at) {
+    return null;
+  }
+
+  return `Automatic retry scheduled for ${formatTimestamp(job.available_at)}.`;
+}
+
 export function JobDetail({ detail }: JobDetailProps) {
   const router = useRouter();
   const { pushToast } = useToast();
@@ -86,6 +94,7 @@ export function JobDetail({ detail }: JobDetailProps) {
   const [manualReason, setManualReason] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const { job } = detail;
+  const scheduledRetryLabel = automaticRetryLabel(job);
   const isActiveJob = ["queued", "running", "waiting_external"].includes(job.state);
   const { isLiveConnected } = useBackgroundJobEventRefresh({
     enabled: isActiveJob,
@@ -190,6 +199,16 @@ export function JobDetail({ detail }: JobDetailProps) {
         </section>
       ) : null}
 
+      {scheduledRetryLabel ? (
+        <section className="rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4 text-sm text-amber-50">
+          <p className="font-semibold uppercase tracking-[0.16em] text-amber-100">
+            Automatic retry scheduled
+          </p>
+          <p className="mt-2">{scheduledRetryLabel}</p>
+          {job.error_message ? <p className="mt-2">Last failure: {job.error_message}</p> : null}
+        </section>
+      ) : null}
+
       <section className="grid gap-5 rounded-[1.75rem] border border-white/10 bg-[var(--card)] p-6 lg:grid-cols-4">
         <div className="rounded-2xl border border-white/8 bg-white/4 p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">State</p>
@@ -218,6 +237,12 @@ export function JobDetail({ detail }: JobDetailProps) {
           <p className="mt-3 text-lg font-semibold text-white">{job.attempts}</p>
         </div>
       </section>
+
+      {job.error_message && !scheduledRetryLabel ? (
+        <section className="rounded-2xl border border-rose-300/20 bg-rose-400/10 px-5 py-4 text-sm text-rose-100">
+          {job.error_message}
+        </section>
+      ) : null}
 
       <section className="rounded-[1.75rem] border border-white/10 bg-[var(--card)] p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

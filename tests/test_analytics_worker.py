@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import apps.api.models  # noqa: F401
@@ -7,6 +8,7 @@ from apps.api.db.session import get_db
 from apps.api.main import app
 from apps.api.models.analytics_snapshot import AnalyticsSnapshot
 from apps.api.models.asset import Asset
+from apps.api.models.background_job import BackgroundJob
 from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
 from apps.api.models.publish_job import PublishJob
@@ -257,5 +259,78 @@ def test_analytics_worker_persists_snapshot_insights_and_completes_job() -> None
         )
         assert snapshot is not None
         assert snapshot.publish_job_id == publish_job.id
+
+    app.dependency_overrides.clear()
+
+
+def test_analytics_worker_schedules_automatic_retry_backoff_for_transient_sync_failures() -> None:
+    session_factory = _create_test_session()
+    client = _make_test_client(session_factory)
+    publish_job_id = _prepare_publish_job(client, session_factory)
+    _mark_publish_job_published(client, publish_job_id)
+
+    queue_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/analytics/queue",
+        json={"views": 1400, "likes": 95, "comments": 10, "shares": 6},
+    )
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    original_sync = run_pending_jobs.__globals__["sync_publish_job_analytics"]
+    sync_calls = {"count": 0}
+
+    def flaky_sync(*args, **kwargs):
+        sync_calls["count"] += 1
+        if sync_calls["count"] == 1:
+            raise TimeoutError("Analytics provider timed out while syncing metrics.")
+        return original_sync(*args, **kwargs)
+
+    run_pending_jobs.__globals__["sync_publish_job_analytics"] = flaky_sync
+    try:
+        processed_jobs = run_pending_jobs(
+            settings=AnalyticsWorkerSettings(),
+            session_factory=session_factory,
+        )
+        assert processed_jobs == 1
+
+        detail_response = client.get(f"/api/jobs/{job_id}")
+        detail = detail_response.json()
+        assert detail["job"]["state"] == "queued"
+        assert detail["job"]["available_at"] is not None
+        assert detail["job"]["attempts"] == 1
+        assert any(log["event_type"] == "job_auto_retry_scheduled" for log in detail["job_logs"])
+        scheduled_at = datetime.fromisoformat(detail["job"]["available_at"].replace("Z", "+00:00"))
+        if scheduled_at.tzinfo is None:
+            scheduled_at = scheduled_at.replace(tzinfo=UTC)
+        assert scheduled_at > datetime.now(UTC)
+
+        assert (
+            run_pending_jobs(
+                settings=AnalyticsWorkerSettings(),
+                session_factory=session_factory,
+            )
+            == 0
+        )
+
+        with session_factory() as session:
+            queued_job = session.get(BackgroundJob, UUID(job_id))
+            assert queued_job is not None
+            queued_job.available_at = datetime.now(UTC) - timedelta(seconds=1)
+            session.add(queued_job)
+            session.commit()
+
+        processed_retry_jobs = run_pending_jobs(
+            settings=AnalyticsWorkerSettings(),
+            session_factory=session_factory,
+        )
+        assert processed_retry_jobs == 1
+
+        completed_detail_response = client.get(f"/api/jobs/{job_id}")
+        completed_detail = completed_detail_response.json()
+        assert completed_detail["job"]["state"] == "completed"
+        assert completed_detail["job"]["attempts"] == 2
+        assert completed_detail["job"]["available_at"] is None
+    finally:
+        run_pending_jobs.__globals__["sync_publish_job_analytics"] = original_sync
 
     app.dependency_overrides.clear()

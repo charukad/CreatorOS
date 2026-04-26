@@ -16,10 +16,12 @@ from apps.api.schemas.enums import (
     PublishJobStatus,
 )
 from apps.api.services.background_jobs import (
+    can_schedule_automatic_retry,
     claim_next_publish_job,
     create_job_log,
     mark_job_failed,
     mark_job_progress,
+    schedule_automatic_retry,
 )
 from apps.api.services.project_events import create_project_event
 from sqlalchemy.orm import Session, sessionmaker
@@ -51,9 +53,11 @@ def run_pending_jobs(
                 _process_job(session, job)
             except Exception as error:  # pragma: no cover - defensive logging path
                 logger.exception("Publisher job %s failed", job.id)
+                session.rollback()
                 failed_job = session.get(BackgroundJob, job.id)
                 if failed_job is not None:
-                    mark_job_failed(session, failed_job, str(error))
+                    if not _schedule_publish_retry_if_needed(session, failed_job, error):
+                        mark_job_failed(session, failed_job, str(error))
                 processed_jobs += 1
                 continue
 
@@ -190,3 +194,41 @@ def _get_thumbnail_asset(session: Session, publish_job: PublishJob) -> Asset | N
 
 def _refresh_job(session: Session, job: BackgroundJob) -> None:
     session.refresh(job)
+
+
+def _schedule_publish_retry_if_needed(
+    session: Session,
+    job: BackgroundJob,
+    error: Exception,
+) -> bool:
+    if not _is_retryable_publish_error(error):
+        return False
+
+    if not can_schedule_automatic_retry(job):
+        return False
+
+    scheduled_job = schedule_automatic_retry(
+        session,
+        job,
+        error_message=str(error),
+        retry_reason="publish_transient_filesystem_or_timeout_failure",
+        metadata={"worker_type": "publisher"},
+    )
+    return scheduled_job is not None
+
+
+def _is_retryable_publish_error(error: Exception) -> bool:
+    if isinstance(error, (OSError, TimeoutError)):
+        return True
+
+    message = str(error).lower()
+    return any(
+        pattern in message
+        for pattern in (
+            "timeout",
+            "timed out",
+            "temporarily unavailable",
+            "connection reset",
+            "broken pipe",
+        )
+    )

@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from apps.api.db.base import Base
 from apps.api.db.session import get_db
 from apps.api.main import app
 from apps.api.models.asset import Asset
+from apps.api.models.background_job import BackgroundJob
 from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
 from apps.api.schemas.enums import AssetStatus, AssetType, ProjectStatus, ProviderName
@@ -261,8 +263,7 @@ def test_publisher_worker_generates_handoff_and_waits_for_manual_completion(
     assert "Manual handoff title" in handoff_payload
     assert "YouTube Studio Manual Handoff" in handoff_payload
     assert (
-        "This handoff is platform-aware, but it still requires a manual upload"
-        in handoff_payload
+        "This handoff is platform-aware, but it still requires a manual upload" in handoff_payload
     )
 
     published_response = client.post(
@@ -281,6 +282,82 @@ def test_publisher_worker_generates_handoff_and_waits_for_manual_completion(
     assert completed_detail["job"]["progress_percent"] == 100
     assert any(
         log["event_type"] == "publish_handoff_completed" for log in completed_detail["job_logs"]
+    )
+
+    app.dependency_overrides.clear()
+
+
+def test_publisher_worker_schedules_automatic_retry_backoff_for_transient_handoff_writes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    session_factory = _create_test_session()
+    client = _make_test_client(session_factory)
+    publish_job_id = _prepare_publish_job(client, session_factory)
+    client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+
+    queue_response = client.post(f"/api/publish-jobs/{publish_job_id}/queue")
+    assert queue_response.status_code == 200
+    job_id = queue_response.json()["id"]
+
+    original_write_text = Path.write_text
+    write_calls = {"count": 0}
+
+    def flaky_write_text(self: Path, data: str, *args, **kwargs):
+        if self.suffix == ".json" and "publish" in str(self) and write_calls["count"] == 0:
+            write_calls["count"] += 1
+            raise OSError("Temporary filesystem error while writing handoff.")
+        write_calls["count"] += 1
+        return original_write_text(self, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", flaky_write_text)
+
+    processed_jobs = run_pending_jobs(
+        settings=PublisherWorkerSettings(storage_root=tmp_path / "storage"),
+        session_factory=session_factory,
+    )
+    assert processed_jobs == 1
+
+    detail_response = client.get(f"/api/jobs/{job_id}")
+    detail = detail_response.json()
+    assert detail["job"]["state"] == "queued"
+    assert detail["job"]["available_at"] is not None
+    assert detail["job"]["attempts"] == 1
+    assert any(log["event_type"] == "job_auto_retry_scheduled" for log in detail["job_logs"])
+    scheduled_at = datetime.fromisoformat(detail["job"]["available_at"].replace("Z", "+00:00"))
+    if scheduled_at.tzinfo is None:
+        scheduled_at = scheduled_at.replace(tzinfo=UTC)
+    assert scheduled_at > datetime.now(UTC)
+
+    assert (
+        run_pending_jobs(
+            settings=PublisherWorkerSettings(storage_root=tmp_path / "storage"),
+            session_factory=session_factory,
+        )
+        == 0
+    )
+
+    with session_factory() as session:
+        queued_job = session.get(BackgroundJob, UUID(job_id))
+        assert queued_job is not None
+        queued_job.available_at = datetime.now(UTC) - timedelta(seconds=1)
+        session.add(queued_job)
+        session.commit()
+
+    processed_retry_job = run_pending_jobs(
+        settings=PublisherWorkerSettings(storage_root=tmp_path / "storage"),
+        session_factory=session_factory,
+    )
+    assert processed_retry_job == 1
+
+    retried_detail_response = client.get(f"/api/jobs/{job_id}")
+    retried_detail = retried_detail_response.json()
+    assert retried_detail["job"]["state"] == "waiting_external"
+    assert retried_detail["job"]["attempts"] == 2
+    assert retried_detail["job"]["available_at"] is None
+    assert any(
+        log["event_type"] == "manual_publish_handoff_ready" for log in retried_detail["job_logs"]
     )
 
     app.dependency_overrides.clear()

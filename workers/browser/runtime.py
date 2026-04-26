@@ -12,6 +12,7 @@ from apps.api.models.background_job import BackgroundJob
 from apps.api.models.generation_attempt import GenerationAttempt
 from apps.api.schemas.enums import AssetStatus, BackgroundJobState, BackgroundJobType
 from apps.api.services.background_jobs import (
+    can_schedule_automatic_retry,
     claim_next_browser_job,
     create_job_log,
     get_attempt_assets,
@@ -21,6 +22,7 @@ from apps.api.services.background_jobs import (
     mark_job_failed,
     mark_job_manual_intervention_required,
     mark_job_progress,
+    schedule_automatic_retry,
 )
 from apps.api.services.file_metadata import file_sha256
 from apps.api.services.storage_paths import build_project_storage_path
@@ -82,9 +84,17 @@ def run_pending_jobs(
                 continue
             except Exception as error:  # pragma: no cover - defensive logging path
                 logger.exception("Browser job %s failed", job.id)
+                session.rollback()
                 failed_job = session.get(BackgroundJob, job.id)
                 if failed_job is not None:
-                    mark_job_failed(session, failed_job, sanitize_browser_message(str(error)))
+                    safe_error_message = sanitize_browser_message(str(error))
+                    if not _schedule_browser_retry_if_needed(
+                        session,
+                        failed_job,
+                        error,
+                        safe_error_message=safe_error_message,
+                    ):
+                        mark_job_failed(session, failed_job, safe_error_message)
                 processed_jobs += 1
                 continue
 
@@ -423,6 +433,29 @@ def _is_retryable_browser_error(error: Exception) -> bool:
     return any(pattern in message for pattern in ("timeout", "timed out", "selector"))
 
 
+def _schedule_browser_retry_if_needed(
+    session: Session,
+    job: BackgroundJob,
+    error: Exception,
+    *,
+    safe_error_message: str,
+) -> bool:
+    if not _is_retryable_browser_error(error):
+        return False
+
+    if not can_schedule_automatic_retry(job):
+        return False
+
+    scheduled_job = schedule_automatic_retry(
+        session,
+        job,
+        error_message=safe_error_message,
+        retry_reason="browser_transient_timeout_or_selector_failure",
+        metadata={"worker_type": "browser"},
+    )
+    return scheduled_job is not None
+
+
 def _build_provider_payload(job: BackgroundJob, attempt: GenerationAttempt) -> ProviderJobPayload:
     if job.job_type == BackgroundJobType.GENERATE_AUDIO_BROWSER:
         return ProviderJobPayload(
@@ -583,6 +616,7 @@ def _handle_existing_destination_path(
             "source_download_metadata_path": source_download_metadata_path,
         },
     )
+    session.commit()
     raise ValueError(
         "Canonical asset path already exists with different contents. "
         "The incoming download was quarantined for manual review."
@@ -807,6 +841,7 @@ def _quarantine_mismatched_downloads(
             "quarantine_paths": quarantined_paths,
         },
     )
+    session.commit()
     return quarantined_paths
 
 

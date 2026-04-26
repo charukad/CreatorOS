@@ -1,12 +1,15 @@
 import json
 from collections.abc import Generator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import UUID
 
 import apps.api.models  # noqa: F401
 from apps.api.db.base import Base
 from apps.api.db.session import get_db
 from apps.api.main import app
 from apps.api.models.asset import Asset
+from apps.api.models.background_job import BackgroundJob
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -376,6 +379,106 @@ def test_media_worker_retries_transient_ffmpeg_timeout_once(
     app.dependency_overrides.clear()
 
 
+def test_media_worker_schedules_automatic_retry_backoff_after_repeated_ffmpeg_timeouts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    ffmpeg_calls = {"count": 0}
+
+    def failing_then_recovering_ffmpeg(command: list[str]) -> None:
+        ffmpeg_calls["count"] += 1
+        if ffmpeg_calls["count"] <= 2:
+            raise RuntimeError("FFmpeg timed out while rendering preview.")
+        Path(command[-1]).write_bytes(b"recovered mp4")
+
+    monkeypatch.setattr(
+        "workers.media.runtime.run_ffmpeg_command",
+        failing_then_recovering_ffmpeg,
+    )
+
+    session_factory = _create_test_session()
+    client = _make_test_client(session_factory)
+
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(client, brand_profile_id)
+    _create_approved_script_for_tests(client, project_id)
+    _queue_and_finish_asset_jobs(
+        client=client,
+        project_id=project_id,
+        tmp_path=tmp_path,
+        session_factory=session_factory,
+    )
+
+    approve_assets_response = client.post(f"/api/projects/{project_id}/assets/approve", json={})
+    assert approve_assets_response.status_code == 200
+
+    queue_response = client.post(f"/api/projects/{project_id}/compose/rough-cut")
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    processed_media_jobs = run_media_jobs(
+        settings=MediaWorkerSettings(
+            storage_root=tmp_path / "storage",
+            downloads_root=tmp_path / "downloads",
+            media_enable_ffmpeg_render=True,
+        ),
+        session_factory=session_factory,
+    )
+    assert processed_media_jobs == 1
+
+    detail_response = client.get(f"/api/jobs/{job_id}")
+    detail = detail_response.json()
+    assert detail["job"]["state"] == "queued"
+    assert detail["job"]["available_at"] is not None
+    assert detail["job"]["attempts"] == 1
+    assert any(log["event_type"] == "job_auto_retry_scheduled" for log in detail["job_logs"])
+
+    scheduled_at = datetime.fromisoformat(detail["job"]["available_at"].replace("Z", "+00:00"))
+    if scheduled_at.tzinfo is None:
+        scheduled_at = scheduled_at.replace(tzinfo=UTC)
+    assert scheduled_at > datetime.now(UTC)
+    assert (
+        run_media_jobs(
+            settings=MediaWorkerSettings(
+                storage_root=tmp_path / "storage",
+                downloads_root=tmp_path / "downloads",
+                media_enable_ffmpeg_render=True,
+            ),
+            session_factory=session_factory,
+        )
+        == 0
+    )
+
+    with session_factory() as session:
+        queued_job = session.get(BackgroundJob, UUID(job_id))
+        assert queued_job is not None
+        queued_job.available_at = datetime.now(UTC) - timedelta(seconds=1)
+        session.add(queued_job)
+        session.commit()
+
+    assert (
+        run_media_jobs(
+            settings=MediaWorkerSettings(
+                storage_root=tmp_path / "storage",
+                downloads_root=tmp_path / "downloads",
+                media_enable_ffmpeg_render=True,
+            ),
+            session_factory=session_factory,
+        )
+        == 1
+    )
+
+    completed_detail_response = client.get(f"/api/jobs/{job_id}")
+    completed_detail = completed_detail_response.json()
+    assert completed_detail["job"]["state"] == "completed"
+    assert completed_detail["job"]["attempts"] == 2
+    assert completed_detail["job"]["available_at"] is None
+
+    app.dependency_overrides.clear()
+
+
 def test_media_worker_exports_final_video_after_rough_cut_ready(
     tmp_path: Path,
     monkeypatch,
@@ -514,8 +617,9 @@ def test_media_worker_rejects_asset_paths_outside_storage_root(
     assert detail_response.status_code == 200
     detail = detail_response.json()
     assert detail["job"]["state"] == "failed"
-    assert "Scene visual asset path must stay within configured roots" in detail["job"][
-        "error_message"
-    ]
+    assert (
+        "Scene visual asset path must stay within configured roots"
+        in detail["job"]["error_message"]
+    )
 
     app.dependency_overrides.clear()

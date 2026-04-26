@@ -203,6 +203,7 @@ Note:
 - status
 - attempts
 - progress_percent
+- available_at nullable
 - created_at
 - updated_at
 - started_at
@@ -210,6 +211,7 @@ Note:
 - error_message
 
 Note:
+- `available_at` delays worker pickup for queued jobs when automatic retry backoff is scheduled after a transient failure
 - `publish_content` jobs use `payload_json.publish_job_id` and `payload_json.handoff_path` to trace manual publish handoff packages back to the approved publish job
 - manual publish handoff jobs move to `waiting_external` until the user records the final platform publish confirmation
 - `sync_analytics` jobs use `payload_json.publish_job_id`, `payload_json.metrics`, and `payload_json.analytics_snapshot_id` to trace queued metric snapshots back to the published job
@@ -245,7 +247,7 @@ Note:
 - updated_at
 
 Note:
-- job logs persist operator-visible lifecycle events such as queue, claim, progress, attempt start/completion, debug artifact capture, failure, cancellation, retry, and manual intervention required
+- job logs persist operator-visible lifecycle events such as queue, claim, progress, attempt start/completion, debug artifact capture, failure, automatic retry scheduling, cancellation, retry, and manual intervention required
 - download mismatch and duplicate checksum events are logged as `downloads_quarantined` and `duplicate_asset_detected`
 - every log remains traceable to the owning project, script, and background job, with optional generation-attempt linkage
 

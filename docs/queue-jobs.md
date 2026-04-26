@@ -18,12 +18,13 @@
 - browser workers now load versioned selector bundles, capture checkpoint screenshot/HTML artifacts during session setup, and log the selector version used for each provider run
 - Playwright-backed ElevenLabs and Flow providers now use selector fallback resolution, provider workspace URLs, and persistent Chromium profiles when `BROWSER_PROVIDER_MODE=playwright`
 - browser workers retry timeout/selector-style provider failures once before failing the job
+- queued browser, media, publisher, and analytics jobs now support automatic retry backoff with `background_jobs.available_at`, so transient failures can return to `queued` and become claimable again after a logged delay
 - browser output ingestion now stages raw downloads into explicit project metadata ingest paths, writes per-download manifest sidecars, persists file checksums, treats matching repeated downloads as idempotent, logs duplicate checksums, and quarantines mismatched or conflicting downloads for manual review
 - browser workers now emit per-attempt request metadata and output registration payloads under project `metadata/` paths
 - browser workers now redact secret-like browser log fields and pause auth/captcha/verification failures in `waiting_external` for operator recovery
 - media workers retry timeout-style FFmpeg render failures once before failing the job
 - analytics snapshots can now be queued for published jobs through the API and project analytics panel, then consumed by the analytics worker with first-pass insights persisted for review
-- actual Redis-backed blocking execution for inline idea/script generation and automated retry backoff policy are still pending
+- actual Redis-backed blocking execution for inline idea/script generation is still pending
 - automated platform polling adapters for `sync_analytics` are still pending
 
 ## Principles
@@ -235,6 +236,7 @@ Current manual v1 behavior:
 Current manual retry behavior:
 - `POST /api/jobs/{job_id}/retry` is allowed only for `failed` or `cancelled` jobs
 - retry resets the existing job to `queued`, clears the job error, and reuses the existing generation attempts and planned assets instead of creating duplicate placeholders
+- retry also clears any delayed `available_at` timestamp so a manual retry can run immediately
 - retry resets related non-rejected assets to `planned` and clears stale checksums
 - retry enforces the per-job execution attempt budget above using `background_jobs.attempts`
 - retry is blocked when another active job of the same type already exists for the same script
@@ -242,10 +244,20 @@ Current manual retry behavior:
 - browser workers also retry timeout/selector-style provider failures once inline before a job reaches `failed`
 - media workers also retry timeout-style FFmpeg render failures once inline before a job reaches `failed`
 
+Current automatic retry backoff behavior:
+- worker-backed browser, media, publish, and analytics jobs may move from a transient failure back to `queued` instead of `failed`
+- these delayed retries set `background_jobs.available_at` to the next eligible claim time and preserve the latest failure message for operator visibility
+- browser retries use `60s`, `300s`, and `1800s` backoff windows across the remaining attempt budget
+- media retries use `30s` and `180s` backoff windows across the remaining attempt budget
+- publish retries use a `120s` backoff window when handoff package writes fail with transient filesystem or timeout errors
+- analytics retries use a `120s` backoff window when sync work fails with transient timeout, connection, or lock-style errors
+- scheduled retries write `job_attempt_failed` and `job_auto_retry_scheduled` log entries before workers poll for the due time
+- jobs only auto-retry while they still have remaining execution attempts under the same per-type budget used by manual retry
+
 Current manual resume behavior:
 - `POST /api/jobs/{job_id}/resume` is allowed only for stale `running` browser and media jobs
 - `stale_after_minutes` defaults to `30` so recently updated workers are not interrupted accidentally
-- resume resets the existing job to `queued`, clears stale running timestamps/errors, and preserves completed attempts plus ready/rejected assets
+- resume resets the existing job to `queued`, clears stale running timestamps/errors/delayed retry scheduling, and preserves completed attempts plus ready/rejected assets
 - unfinished attempts return to `queued`; unfinished related assets return to `planned`
 - resume writes a `job_resumed` warning log for the job timeline and operations review
 
@@ -270,6 +282,8 @@ The `job_logs` table records operator-facing lifecycle events. Current event typ
 - `attempt_completed`
 - `job_completed`
 - `job_failed`
+- `job_attempt_failed`
+- `job_auto_retry_scheduled`
 - `job_cancelled`
 - `job_retried`
 - `job_resumed`

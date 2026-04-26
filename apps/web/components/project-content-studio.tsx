@@ -177,6 +177,14 @@ function formatWorkflowValue(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+function automaticRetryLabel(job: BackgroundJob): string | null {
+  if (job.state !== "queued" || !job.available_at) {
+    return null;
+  }
+
+  return `Automatic retry scheduled for ${formatTimestamp(job.available_at)}.`;
+}
+
 export function ProjectContentStudio({
   assets,
   approvals,
@@ -1284,6 +1292,7 @@ export function ProjectContentStudio({
                         const canCancelThisJob = canCancelJobState(job.state);
                         const canRetryThisJob = canRetryJob(job);
                         const canResumeThisJob = canResumeJob(job);
+                        const scheduledRetryLabel = automaticRetryLabel(job);
                         const scriptVersion =
                           typeof job.payload_json["script_version"] === "number"
                             ? `Script version: ${job.payload_json["script_version"] as number}`
@@ -1329,7 +1338,16 @@ export function ProjectContentStudio({
                               <p>Planned outputs: {plannedOutputs}</p>
                             </div>
 
-                            {job.error_message ? (
+                            {scheduledRetryLabel ? (
+                              <div className="mt-4 rounded-2xl border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-50">
+                                <p className="font-semibold text-amber-100">
+                                  {scheduledRetryLabel}
+                                </p>
+                                {job.error_message ? (
+                                  <p className="mt-2">Last failure: {job.error_message}</p>
+                                ) : null}
+                              </div>
+                            ) : job.error_message ? (
                               <p className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
                                 {job.error_message}
                               </p>

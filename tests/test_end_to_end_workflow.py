@@ -552,10 +552,14 @@ def test_end_to_end_selector_failure_marks_browser_job_failed(
     audio_job_detail_response = client.get(f"/api/jobs/{audio_job_id}")
     assert audio_job_detail_response.status_code == 200
     audio_job_detail = audio_job_detail_response.json()
-    assert audio_job_detail["job"]["state"] == "failed"
+    assert audio_job_detail["job"]["state"] == "queued"
+    assert audio_job_detail["job"]["available_at"] is not None
     assert any(
         log["event_type"] == "browser_failure_artifacts_captured"
         for log in audio_job_detail["job_logs"]
+    )
+    assert any(
+        log["event_type"] == "job_auto_retry_scheduled" for log in audio_job_detail["job_logs"]
     )
 
     project_response = client.get(f"/api/projects/{project_id}")
