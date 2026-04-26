@@ -1,10 +1,12 @@
 import hashlib
 import json
 import logging
+import shutil
 from dataclasses import asdict
 from pathlib import Path
 from uuid import UUID
 
+from apps.api.core.config_validation import resolve_path_within_roots
 from apps.api.db.session import SessionLocal
 from apps.api.models.asset import Asset
 from apps.api.models.background_job import BackgroundJob
@@ -72,9 +74,22 @@ def run_pending_jobs(
 
 
 def _process_job(session: Session, settings: MediaWorkerSettings, job: BackgroundJob) -> None:
-    if job.job_type != BackgroundJobType.COMPOSE_ROUGH_CUT:
-        raise ValueError(f"Unsupported media job type: {job.job_type.value}")
+    if job.job_type == BackgroundJobType.COMPOSE_ROUGH_CUT:
+        _process_rough_cut_job(session, settings, job)
+        return
 
+    if job.job_type == BackgroundJobType.FINAL_EXPORT:
+        _process_final_export_job(session, settings, job)
+        return
+
+    raise ValueError(f"Unsupported media job type: {job.job_type.value}")
+
+
+def _process_rough_cut_job(
+    session: Session,
+    settings: MediaWorkerSettings,
+    job: BackgroundJob,
+) -> None:
     project = session.get(Project, job.project_id)
     if project is None:
         raise ValueError("Project not found for media job.")
@@ -98,7 +113,10 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
     if narration_asset is None:
         raise ValueError("A ready narration asset is required for rough-cut composition.")
 
-    narration_duration_seconds = _probe_narration_duration(narration_asset)
+    narration_duration_seconds = _probe_narration_duration(
+        narration_asset,
+        storage_root=settings.storage_root,
+    )
     scene_assets = _select_scene_visual_assets(session, script)
     manifest = build_timeline_manifest(
         project=project,
@@ -112,11 +130,31 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
     validate_timeline_manifest(manifest)
     mark_job_progress(session, job, 45)
 
-    manifest_path = Path(str(job.payload_json["manifest_path"]))
-    preview_path = Path(output_asset.file_path or str(job.payload_json["preview_path"]))
-    subtitle_path = Path(subtitle_asset.file_path or str(job.payload_json["subtitle_path"]))
-    video_path = Path(str(job.payload_json["video_path"]))
-    ffmpeg_command_path = Path(str(job.payload_json["ffmpeg_command_path"]))
+    manifest_path = _resolve_media_storage_path(
+        Path(str(job.payload_json["manifest_path"])),
+        storage_root=settings.storage_root,
+        path_name="Rough-cut manifest path",
+    )
+    preview_path = _resolve_media_storage_path(
+        Path(output_asset.file_path or str(job.payload_json["preview_path"])),
+        storage_root=settings.storage_root,
+        path_name="Rough-cut preview path",
+    )
+    subtitle_path = _resolve_media_storage_path(
+        Path(subtitle_asset.file_path or str(job.payload_json["subtitle_path"])),
+        storage_root=settings.storage_root,
+        path_name="Subtitle output path",
+    )
+    video_path = _resolve_media_storage_path(
+        Path(str(job.payload_json["video_path"])),
+        storage_root=settings.storage_root,
+        path_name="FFmpeg video output path",
+    )
+    ffmpeg_command_path = _resolve_media_storage_path(
+        Path(str(job.payload_json["ffmpeg_command_path"])),
+        storage_root=settings.storage_root,
+        path_name="FFmpeg command-plan path",
+    )
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     preview_path.parent.mkdir(parents=True, exist_ok=True)
     subtitle_path.parent.mkdir(parents=True, exist_ok=True)
@@ -201,6 +239,161 @@ def _process_job(session: Session, settings: MediaWorkerSettings, job: Backgroun
     session.add(subtitle_asset)
     if video_asset is not None:
         session.add(video_asset)
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+
+    mark_job_progress(session, job, 95)
+    mark_job_completed(session, job)
+
+
+def _process_final_export_job(
+    session: Session,
+    settings: MediaWorkerSettings,
+    job: BackgroundJob,
+) -> None:
+    project = session.get(Project, job.project_id)
+    if project is None:
+        raise ValueError("Project not found for media job.")
+
+    script = _get_script(session, job)
+    output_asset = _get_output_asset(session, job)
+
+    output_asset.status = AssetStatus.GENERATING
+    session.add(output_asset)
+    session.commit()
+    mark_job_progress(session, job, 20)
+
+    manifest_path = _resolve_media_storage_path(
+        Path(str(job.payload_json["manifest_path"])),
+        storage_root=settings.storage_root,
+        path_name="Final-export manifest path",
+        must_exist=True,
+    )
+    subtitle_path = _resolve_media_storage_path(
+        Path(str(job.payload_json["subtitle_path"])),
+        storage_root=settings.storage_root,
+        path_name="Final-export subtitle path",
+        must_exist=True,
+    )
+    video_path = _resolve_media_storage_path(
+        Path(output_asset.file_path or str(job.payload_json["video_path"])),
+        storage_root=settings.storage_root,
+        path_name="Final-export output path",
+    )
+    ffmpeg_command_path = _resolve_media_storage_path(
+        Path(str(job.payload_json["ffmpeg_command_path"])),
+        storage_root=settings.storage_root,
+        path_name="Final-export command-plan path",
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    validate_timeline_manifest(manifest)
+    mark_job_progress(session, job, 50)
+
+    video_path.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg_command_path.parent.mkdir(parents=True, exist_ok=True)
+    source_video_path = _resolve_optional_source_video_path(
+        job=job,
+        storage_root=settings.storage_root,
+    )
+    export_profile = FFmpegExportProfile()
+
+    if not settings.media_enable_ffmpeg_render and source_video_path is not None:
+        ffmpeg_command_path.write_text(
+            json.dumps(
+                {
+                    "strategy": "copy_existing_rough_cut_video",
+                    "enabled": False,
+                    "source_video_path": str(source_video_path),
+                    "export_profile": asdict(export_profile),
+                    "manifest_path": str(manifest_path),
+                    "subtitle_path": str(subtitle_path),
+                    "outputs": {"video_path": str(video_path)},
+                    "note": (
+                        "FFmpeg render is disabled, so the worker reused "
+                        "the latest ready rough-cut MP4 as the final "
+                        "export source."
+                    ),
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        shutil.copy2(source_video_path, video_path)
+        create_job_log(
+            session,
+            job,
+            event_type="final_export_source_reused",
+            message="Final export reused the latest ready rough-cut MP4.",
+            metadata={"source_video_path": str(source_video_path)},
+        )
+    else:
+        narration_asset = _select_latest_ready_asset(
+            session,
+            script=script,
+            asset_types=(AssetType.NARRATION_AUDIO,),
+        )
+        if narration_asset is None:
+            raise ValueError("A ready narration asset is required for final export.")
+
+        ffmpeg_command = _build_ffmpeg_command(
+            settings=settings,
+            narration_asset=narration_asset,
+            manifest=manifest,
+            profile=export_profile,
+            subtitle_path=subtitle_path,
+            video_path=video_path,
+        )
+        ffmpeg_command_path.write_text(
+            json.dumps(
+                {
+                    "strategy": "ffmpeg_render",
+                    "command": ffmpeg_command,
+                    "enabled": settings.media_enable_ffmpeg_render,
+                    "export_profile": asdict(export_profile),
+                    "inputs": _build_ffmpeg_plan_inputs(manifest),
+                    "manifest_path": str(manifest_path),
+                    "subtitle_path": str(subtitle_path),
+                    "outputs": {"video_path": str(video_path)},
+                    "note": (
+                        "Final export renders a dedicated MP4 from the latest rough-cut manifest."
+                    ),
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        if not settings.media_enable_ffmpeg_render:
+            raise ValueError(
+                "Final export requires FFmpeg rendering to be enabled unless a ready rough-cut "
+                "MP4 is available to reuse."
+            )
+
+        _run_ffmpeg_command_with_retry(session, job, ffmpeg_command, video_path=video_path)
+        if not video_path.exists():
+            raise ValueError(
+                f"FFmpeg finished but did not create the expected final-export file: {video_path}"
+            )
+
+    output_asset.status = AssetStatus.READY
+    output_asset.file_path = str(video_path)
+    output_asset.mime_type = "video/mp4"
+    output_asset.duration_seconds = _manifest_duration_seconds(manifest)
+    output_asset.width = 1080
+    output_asset.height = 1920
+    output_asset.checksum = _file_sha256(video_path)
+
+    job.payload_json = {
+        **job.payload_json,
+        "output_asset_id": str(output_asset.id),
+        "video_path": str(video_path),
+        "ffmpeg_command_path": str(ffmpeg_command_path),
+        "final_video_asset_id": str(output_asset.id),
+        "total_duration_seconds": manifest["total_duration_seconds"],
+    }
+    session.add(output_asset)
     session.add(job)
     session.commit()
     session.refresh(job)
@@ -303,7 +496,12 @@ def _build_ffmpeg_command(
 
     scene_visuals = [
         SceneVisualInput(
-            path=Path(str(scene["visual_asset_path"])),
+            path=_resolve_media_storage_path(
+                Path(str(scene["visual_asset_path"])),
+                storage_root=settings.storage_root,
+                path_name="Scene visual asset path",
+                must_exist=True,
+            ),
             duration_seconds=float(scene["duration_seconds"]),
             overlay_text=str(scene.get("overlay_text", "")),
             visual_asset_type=str(scene.get("visual_asset_type", "")),
@@ -314,7 +512,12 @@ def _build_ffmpeg_command(
     return build_static_scene_video_command(
         ffmpeg_binary=settings.ffmpeg_binary,
         scene_visuals=scene_visuals,
-        narration_path=Path(str(narration_asset.file_path)),
+        narration_path=_resolve_media_storage_path(
+            Path(str(narration_asset.file_path)),
+            storage_root=settings.storage_root,
+            path_name="Narration asset path",
+            must_exist=True,
+        ),
         subtitle_path=subtitle_path,
         output_path=video_path,
         profile=profile,
@@ -395,11 +598,16 @@ def _render_mp4_if_enabled(
     return video_asset
 
 
-def _probe_narration_duration(narration_asset: Asset) -> float | None:
+def _probe_narration_duration(narration_asset: Asset, *, storage_root: Path) -> float | None:
     if narration_asset.file_path is None:
         return None
 
-    narration_path = Path(narration_asset.file_path)
+    narration_path = _resolve_media_storage_path(
+        Path(narration_asset.file_path),
+        storage_root=storage_root,
+        path_name="Narration asset path",
+        must_exist=True,
+    )
     if narration_asset.mime_type != "audio/wav" and narration_path.suffix.lower() != ".wav":
         return None
 
@@ -464,3 +672,35 @@ def _file_sha256(path: Path) -> str:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _resolve_media_storage_path(
+    value: Path,
+    *,
+    storage_root: Path,
+    path_name: str,
+    must_exist: bool = False,
+) -> Path:
+    return resolve_path_within_roots(
+        value,
+        allowed_roots=(storage_root,),
+        path_name=path_name,
+        must_exist=must_exist,
+    )
+
+
+def _resolve_optional_source_video_path(
+    *,
+    job: BackgroundJob,
+    storage_root: Path,
+) -> Path | None:
+    source_video_path = job.payload_json.get("source_video_path")
+    if not isinstance(source_video_path, str) or not source_video_path.strip():
+        return None
+
+    return _resolve_media_storage_path(
+        Path(source_video_path),
+        storage_root=storage_root,
+        path_name="Final-export source video path",
+        must_exist=True,
+    )

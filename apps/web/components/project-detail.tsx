@@ -9,6 +9,9 @@ import { ProjectForm } from "./project-form";
 import { ProjectPublishCenter } from "./project-publish-center";
 import { ProjectStatusActions } from "./project-status-actions";
 import { StatusBadge } from "./status-badge";
+import { useBackgroundJobEventRefresh } from "./use-background-job-event-refresh";
+import { useToast } from "./toast-provider";
+import { useAutoRefresh } from "./use-auto-refresh";
 import { updateProject } from "../lib/api";
 import type {
   Asset,
@@ -16,6 +19,7 @@ import type {
   BackgroundJob,
   BrandProfile,
   ContentIdea,
+  IdeaResearchSnapshot,
   Project,
   ProjectActivity,
   ProjectAnalytics,
@@ -38,6 +42,7 @@ type ProjectDetailProps = {
   promptPack: ScriptPromptPack | null;
   project: Project | null;
   publishJobs: PublishJob[];
+  researchSnapshots: IdeaResearchSnapshot[];
 };
 
 function formatTimestamp(value: string): string {
@@ -57,8 +62,18 @@ export function ProjectDetail({
   promptPack,
   project,
   publishJobs,
+  researchSnapshots,
 }: ProjectDetailProps) {
   const router = useRouter();
+  const { pushToast } = useToast();
+  const activeJobs = jobs.filter((job) =>
+    ["queued", "running", "waiting_external"].includes(job.state),
+  );
+  const { isLiveConnected } = useBackgroundJobEventRefresh({
+    enabled: project !== null && activeJobs.length > 0,
+    projectId: project?.id ?? null,
+  });
+  useAutoRefresh({ enabled: activeJobs.length > 0, intervalMs: 8000 });
 
   async function handleSubmit(payload: ProjectPayload) {
     if (!project) {
@@ -66,6 +81,11 @@ export function ProjectDetail({
     }
 
     await updateProject(project.id, payload);
+    pushToast({
+      title: "Project saved",
+      description: "Project settings and workflow metadata were updated successfully.",
+      tone: "success",
+    });
     router.refresh();
   }
 
@@ -102,6 +122,15 @@ export function ProjectDetail({
 
       {project ? (
         <>
+          {activeJobs.length > 0 ? (
+            <section className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">
+              {isLiveConnected
+                ? "Live job updates are connected for this project. Timed refresh stays on as a fallback while work is active."
+                : "Auto-refresh is on while active jobs run, and the page will also reconnect to the live job stream when available."}{" "}
+              {activeJobs.length} job{activeJobs.length === 1 ? "" : "s"} are active.
+            </section>
+          ) : null}
+
           <section className="grid gap-4 rounded-[1.75rem] border border-white/10 bg-[var(--card)] p-6 md:grid-cols-4">
             <div className="rounded-2xl border border-white/8 bg-white/4 p-4 md:col-span-2">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
@@ -150,6 +179,7 @@ export function ProjectDetail({
             jobs={jobs}
             promptPack={promptPack}
             project={project}
+            researchSnapshots={researchSnapshots}
           />
           <ProjectPublishCenter
             approvals={approvals}

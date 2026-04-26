@@ -20,6 +20,7 @@ import {
   queueVisualGeneration,
   approveIdea,
   approveScript,
+  generateProjectIdeaResearch,
   generateProjectIdeas,
   getAssetContentUrl,
   generateProjectScript,
@@ -34,12 +35,15 @@ import {
   retryJob,
   updateScene,
 } from "../lib/api";
+import { ApprovalFeedbackPanel } from "./approval-feedback-panel";
 import { SceneEditorCard } from "./scene-editor-card";
+import { useToast } from "./toast-provider";
 import type {
   Asset,
   ApprovalRecord,
   BackgroundJob,
   ContentIdea,
+  IdeaResearchSnapshot,
   Project,
   ProjectScript,
   SceneUpdatePayload,
@@ -54,12 +58,14 @@ type ProjectContentStudioProps = {
   jobs: BackgroundJob[];
   promptPack: ScriptPromptPack | null;
   project: Project;
+  researchSnapshots: IdeaResearchSnapshot[];
 };
 
 const retryPolicyMaxAttempts: Partial<Record<BackgroundJob["job_type"], number>> = {
   generate_audio_browser: 4,
   generate_visuals_browser: 4,
   compose_rough_cut: 3,
+  final_export: 3,
   publish_content: 2,
   sync_analytics: 2,
 };
@@ -115,14 +121,18 @@ function canRetryJob(job: BackgroundJob): boolean {
 function canResumeJob(job: BackgroundJob): boolean {
   return (
     job.state === "running" &&
-    ["generate_audio_browser", "generate_visuals_browser", "compose_rough_cut"].includes(
+    ["generate_audio_browser", "generate_visuals_browser", "compose_rough_cut", "final_export"].includes(
       job.job_type,
     )
   );
 }
 
 function isPlanningJob(job: BackgroundJob): boolean {
-  return job.job_type === "generate_ideas" || job.job_type === "generate_script";
+  return (
+    job.job_type === "generate_idea_research" ||
+    job.job_type === "generate_ideas" ||
+    job.job_type === "generate_script"
+  );
 }
 
 function assetStatusClassName(status: Asset["status"]): string {
@@ -147,10 +157,12 @@ function assetSortPriority(assetType: Asset["asset_type"]): number {
       return 1;
     case "rough_cut":
       return 2;
-    case "subtitle_file":
+    case "final_video":
       return 3;
-    default:
+    case "subtitle_file":
       return 4;
+    default:
+      return 5;
   }
 }
 
@@ -173,16 +185,40 @@ export function ProjectContentStudio({
   jobs,
   promptPack,
   project,
+  researchSnapshots,
 }: ProjectContentStudioProps) {
   const router = useRouter();
+  const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [ideaGenerationNotes, setIdeaGenerationNotes] = useState("");
   const [ideaReviewNotes, setIdeaReviewNotes] = useState<Record<string, string>>({});
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [researchFocusTopic, setResearchFocusTopic] = useState("");
+  const [researchNotes, setResearchNotes] = useState("");
   const [scriptGenerationNotes, setScriptGenerationNotes] = useState("");
   const [scriptReviewNotes, setScriptReviewNotes] = useState("");
 
   const approvedIdea = ideas.find((idea) => idea.status === "approved") ?? null;
+  const latestRejectedIdeaApproval =
+    approvals.find(
+      (approval) => approval.stage === "idea" && approval.decision === "rejected",
+    ) ?? null;
+  const latestRejectedScriptApproval =
+    (currentScript
+      ? approvals.find(
+          (approval) =>
+            approval.stage === "script" &&
+            approval.decision === "rejected" &&
+            approval.target_id === currentScript.id,
+        )
+      : null) ??
+    approvals.find(
+      (approval) => approval.stage === "script" && approval.decision === "rejected",
+    ) ??
+    null;
+  const latestResearchSnapshot = researchSnapshots[0] ?? null;
+  const canGenerateResearch =
+    project.status === "draft" || project.status === "idea_pending_approval";
   const canGenerateIdeas =
     project.status === "draft" || project.status === "idea_pending_approval";
   const canGenerateScript =
@@ -279,20 +315,34 @@ export function ProjectContentStudio({
     return leftSceneOrder - rightSceneOrder;
   });
 
-  function runAction(actionKey: string, callback: () => Promise<unknown>) {
+  function runAction(
+    actionKey: string,
+    successMessage: string,
+    callback: () => Promise<unknown>,
+  ) {
     setError(null);
     setPendingAction(actionKey);
 
     startTransition(() => {
       void callback()
         .then(() => {
+          pushToast({
+            title: "Workflow updated",
+            description: successMessage,
+            tone: "success",
+          });
           router.refresh();
           setPendingAction(null);
         })
         .catch((actionError) => {
-          setError(
-            actionError instanceof Error ? actionError.message : "Workflow action failed.",
-          );
+          const message =
+            actionError instanceof Error ? actionError.message : "Workflow action failed.";
+          setError(message);
+          pushToast({
+            title: "Workflow action failed",
+            description: message,
+            tone: "error",
+          });
           setPendingAction(null);
         });
     });
@@ -309,10 +359,22 @@ export function ProjectContentStudio({
 
     try {
       await updateScene(sceneId, payload);
+      pushToast({
+        title: "Scene saved",
+        description: "The current script scene plan was updated for future prompt packs and renders.",
+        tone: "success",
+      });
       router.refresh();
       setPendingAction(null);
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Unable to save scene.");
+      const message =
+        actionError instanceof Error ? actionError.message : "Unable to save scene.";
+      setError(message);
+      pushToast({
+        title: "Scene save failed",
+        description: message,
+        tone: "error",
+      });
       setPendingAction(null);
       throw actionError;
     }
@@ -332,7 +394,10 @@ export function ProjectContentStudio({
     const [movedScene] = reorderedScenes.splice(sceneIndex, 1);
     reorderedScenes.splice(targetIndex, 0, movedScene);
 
-    runAction(`scene-reorder-${currentScript.id}`, () =>
+    runAction(
+      `scene-reorder-${currentScript.id}`,
+      "Scene order updated for the current script version.",
+      () =>
       reorderScriptScenes(currentScript.id, {
         scene_ids: reorderedScenes.map((scene) => scene.id),
       }),
@@ -367,7 +432,160 @@ export function ProjectContentStudio({
         <section className="grid gap-5">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-white">1. Generate and review ideas</h3>
+              <h3 className="text-lg font-semibold text-white">1. Refresh idea research</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                Save trend, competitor, and posting-angle context before generating the next idea
+                batch so planning stays traceable instead of living in one-off notes.
+              </p>
+            </div>
+            <button
+              className="rounded-full border border-fuchsia-300/30 bg-fuchsia-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-fuchsia-100 transition hover:border-fuchsia-200/50 hover:bg-fuchsia-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!canGenerateResearch || pendingAction !== null}
+              onClick={() =>
+                runAction(
+                  "generate-idea-research",
+                  "Idea research was refreshed and saved for the next planning pass.",
+                  async () => {
+                    await generateProjectIdeaResearch(project.id, {
+                      focus_topic: optionalNotes(researchFocusTopic),
+                      source_feedback_notes: optionalNotes(researchNotes),
+                    });
+                    setResearchFocusTopic("");
+                    setResearchNotes("");
+                  },
+                )
+              }
+              type="button"
+            >
+              {pendingAction === "generate-idea-research"
+                ? "Refreshing..."
+                : latestResearchSnapshot
+                  ? "Refresh research"
+                  : "Generate research"}
+            </button>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-4">
+              <label
+                className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
+                htmlFor="research-focus-topic"
+              >
+                Focus topic
+              </label>
+              <input
+                className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-fuchsia-300/50"
+                disabled={pendingAction !== null}
+                id="research-focus-topic"
+                onChange={(event) => setResearchFocusTopic(event.target.value)}
+                placeholder="Optional: narrow research to a specific workflow, hook angle, or content pillar."
+                value={researchFocusTopic}
+              />
+              <label
+                className="mt-4 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
+                htmlFor="research-notes"
+              >
+                Research notes
+              </label>
+              <textarea
+                className="mt-3 min-h-24 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-fuchsia-300/50"
+                disabled={pendingAction !== null}
+                id="research-notes"
+                onChange={(event) => setResearchNotes(event.target.value)}
+                placeholder="Optional: add market context, lessons from past posts, or a bias toward a new audience angle."
+                value={researchNotes}
+              />
+            </div>
+
+            {latestResearchSnapshot ? (
+              <article className="rounded-2xl border border-fuchsia-300/20 bg-fuchsia-400/10 p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-fuchsia-100/70">
+                      Latest research snapshot
+                    </p>
+                    <h4 className="mt-2 text-lg font-semibold text-white">
+                      {latestResearchSnapshot.focus_topic ?? project.title}
+                    </h4>
+                  </div>
+                  <p className="text-xs uppercase tracking-[0.16em] text-fuchsia-100/70">
+                    Saved {formatTimestamp(latestResearchSnapshot.updated_at)}
+                  </p>
+                </div>
+                <p className="mt-4 text-sm leading-6 text-slate-100">
+                  {latestResearchSnapshot.summary}
+                </p>
+
+                <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      Trend observations
+                    </p>
+                    <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-200">
+                      {latestResearchSnapshot.trend_observations_json.map((item) => (
+                        <p key={item}>{item}</p>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      Competitor angles
+                    </p>
+                    <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-200">
+                      {latestResearchSnapshot.competitor_angles_json.map((item) => (
+                        <p key={item}>{item}</p>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      Posting strategies
+                    </p>
+                    <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-200">
+                      {latestResearchSnapshot.posting_strategies_json.map((item) => (
+                        <p key={item}>{item}</p>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      Recommended topics
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {latestResearchSnapshot.recommended_topics_json.map((topic) => (
+                        <span
+                          key={topic}
+                          className="rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-fuchsia-100"
+                        >
+                          {topic}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {latestResearchSnapshot.source_feedback_notes ? (
+                  <p className="mt-4 rounded-2xl border border-fuchsia-300/20 bg-fuchsia-400/10 px-4 py-3 text-sm text-fuchsia-50">
+                    Research notes: {latestResearchSnapshot.source_feedback_notes}
+                  </p>
+                ) : null}
+              </article>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-white/10 bg-white/4 p-5 text-sm text-slate-300">
+                <p className="font-semibold text-white">No saved research snapshot yet.</p>
+                <p className="mt-2">
+                  Generate one to capture trend observations, competitor framing, and recommended
+                  topics before the next idea batch.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="grid gap-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-white">2. Generate and review ideas</h3>
               <p className="mt-2 text-sm leading-6 text-slate-300">
                 Ideas are stored and reviewable, so you can pick one angle deliberately instead of
                 losing the earlier passes.
@@ -377,7 +595,7 @@ export function ProjectContentStudio({
               className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canGenerateIdeas || pendingAction !== null}
               onClick={() =>
-                runAction("generate-ideas", async () => {
+                runAction("generate-ideas", "A new idea batch was generated for review.", async () => {
                   await generateProjectIdeas(project.id, {
                     source_feedback_notes: optionalNotes(ideaGenerationNotes),
                   });
@@ -395,8 +613,16 @@ export function ProjectContentStudio({
           </div>
 
           <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-4">
+            <ApprovalFeedbackPanel
+              approval={latestRejectedIdeaApproval}
+              applyFeedbackLabel="Apply to idea notes"
+              emptyDescription="Reject an idea with notes and the next regeneration pass can reuse that guidance here."
+              emptyTitle="No rejected idea feedback yet."
+              onApplyFeedback={setIdeaGenerationNotes}
+              title="Latest rejected idea feedback"
+            />
             <label
-              className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
+              className="mt-4 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
               htmlFor="idea-generation-notes"
             >
               Idea regeneration notes
@@ -434,6 +660,9 @@ export function ProjectContentStudio({
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                           Score {idea.score}
+                        </p>
+                        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
+                          Topic: {idea.topic}
                         </p>
                         <h4 className="mt-2 text-lg font-semibold text-white">
                           {idea.suggested_title}
@@ -482,7 +711,7 @@ export function ProjectContentStudio({
                               className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                               disabled={pendingAction !== null}
                               onClick={() =>
-                                runAction(`approve-${idea.id}`, async () => {
+                                runAction(`approve-${idea.id}`, "Idea approved. Script generation can continue from this angle.", async () => {
                                   await approveIdea(idea.id, {
                                     feedback_notes: optionalNotes(ideaReviewNotes[idea.id] ?? ""),
                                   });
@@ -500,10 +729,12 @@ export function ProjectContentStudio({
                               className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                               disabled={pendingAction !== null}
                               onClick={() =>
-                                runAction(`reject-${idea.id}`, async () => {
+                                runAction(`reject-${idea.id}`, "Idea rejected with review feedback saved for the next pass.", async () => {
+                                  const rejectionNotes = ideaReviewNotes[idea.id] ?? "";
                                   await rejectIdea(idea.id, {
-                                    feedback_notes: optionalNotes(ideaReviewNotes[idea.id] ?? ""),
+                                    feedback_notes: optionalNotes(rejectionNotes),
                                   });
+                                  setIdeaGenerationNotes(rejectionNotes);
                                   setIdeaReviewNotes((currentNotes) => ({
                                     ...currentNotes,
                                     [idea.id]: "",
@@ -528,7 +759,7 @@ export function ProjectContentStudio({
         <section className="grid gap-5">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-white">2. Generate a script and scene plan</h3>
+              <h3 className="text-lg font-semibold text-white">3. Generate a script and scene plan</h3>
               <p className="mt-2 text-sm leading-6 text-slate-300">
                 Once one idea is approved, CreatorOS turns it into a reusable short-form script
                 with prompts for later narration and visual generation steps.
@@ -538,7 +769,7 @@ export function ProjectContentStudio({
               className="rounded-full border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-amber-100 transition hover:border-amber-200/50 hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canGenerateScript || pendingAction !== null}
               onClick={() =>
-                runAction("generate-script", async () => {
+                runAction("generate-script", "A fresh script draft and scene plan were generated.", async () => {
                   await generateProjectScript(project.id, {
                     source_feedback_notes: optionalNotes(scriptGenerationNotes),
                   });
@@ -556,8 +787,16 @@ export function ProjectContentStudio({
           </div>
 
           <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-4">
+            <ApprovalFeedbackPanel
+              approval={latestRejectedScriptApproval}
+              applyFeedbackLabel="Apply to script notes"
+              emptyDescription="Reject a script with notes and the next script draft can reuse that direction automatically from here."
+              emptyTitle="No rejected script feedback yet."
+              onApplyFeedback={setScriptGenerationNotes}
+              title="Latest rejected script feedback"
+            />
             <label
-              className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
+              className="mt-4 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"
               htmlFor="script-generation-notes"
             >
               Script regeneration notes
@@ -647,7 +886,7 @@ export function ProjectContentStudio({
                         className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={pendingAction !== null}
                         onClick={() =>
-                          runAction(`approve-script-${currentScript.id}`, async () => {
+                          runAction(`approve-script-${currentScript.id}`, "Script approved. Asset generation can now be queued safely.", async () => {
                             await approveScript(currentScript.id, {
                               feedback_notes: optionalNotes(scriptReviewNotes),
                             });
@@ -666,7 +905,7 @@ export function ProjectContentStudio({
                         className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={pendingAction !== null}
                         onClick={() =>
-                          runAction(`reject-script-${currentScript.id}`, async () => {
+                          runAction(`reject-script-${currentScript.id}`, "Script rejected. Review notes were carried forward for the next revision.", async () => {
                             await rejectScript(currentScript.id, {
                               feedback_notes: optionalNotes(scriptReviewNotes),
                             });
@@ -960,7 +1199,7 @@ export function ProjectContentStudio({
         <section className="grid gap-5">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-white">3. Queue asset generation work</h3>
+              <h3 className="text-lg font-semibold text-white">4. Queue asset generation work</h3>
               <p className="mt-2 text-sm leading-6 text-slate-300">
                 Approved scripts can now create persisted browser-job plans for narration and
                 scene visuals. This is the bridge between content approval and the real workers.
@@ -970,7 +1209,13 @@ export function ProjectContentStudio({
               <button
                 className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={!canQueueGeneration || activeAudioJob !== null || pendingAction !== null}
-                onClick={() => runAction("queue-audio", () => queueAudioGeneration(project.id))}
+                onClick={() =>
+                  runAction(
+                    "queue-audio",
+                    "Narration generation was queued for the browser worker.",
+                    () => queueAudioGeneration(project.id),
+                  )
+                }
                 type="button"
               >
                 {pendingAction === "queue-audio"
@@ -982,7 +1227,13 @@ export function ProjectContentStudio({
               <button
                 className="rounded-full border border-fuchsia-300/30 bg-fuchsia-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-fuchsia-100 transition hover:border-fuchsia-200/50 hover:bg-fuchsia-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={!canQueueGeneration || activeVisualJob !== null || pendingAction !== null}
-                onClick={() => runAction("queue-visuals", () => queueVisualGeneration(project.id))}
+                onClick={() =>
+                  runAction(
+                    "queue-visuals",
+                    "Visual generation jobs were queued for the current scene plan.",
+                    () => queueVisualGeneration(project.id),
+                  )
+                }
                 type="button"
               >
                 {pendingAction === "queue-visuals"
@@ -1095,7 +1346,11 @@ export function ProjectContentStudio({
                                 className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-100 transition hover:border-amber-200/50 hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-45"
                                 disabled={!canCancelThisJob || pendingAction !== null}
                                 onClick={() =>
-                                  runAction(`cancel-job-${job.id}`, () => cancelJob(job.id))
+                                  runAction(
+                                    `cancel-job-${job.id}`,
+                                    "The selected job was cancelled safely.",
+                                    () => cancelJob(job.id),
+                                  )
                                 }
                                 type="button"
                               >
@@ -1107,7 +1362,11 @@ export function ProjectContentStudio({
                                 className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-45"
                                 disabled={!canRetryThisJob || pendingAction !== null}
                                 onClick={() =>
-                                  runAction(`retry-job-${job.id}`, () => retryJob(job.id))
+                                  runAction(
+                                    `retry-job-${job.id}`,
+                                    "A new execution attempt was queued for the selected job.",
+                                    () => retryJob(job.id),
+                                  )
                                 }
                                 type="button"
                               >
@@ -1119,7 +1378,11 @@ export function ProjectContentStudio({
                                 className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-45"
                                 disabled={!canResumeThisJob || pendingAction !== null}
                                 onClick={() =>
-                                  runAction(`resume-job-${job.id}`, () => resumeJob(job.id))
+                                  runAction(
+                                    `resume-job-${job.id}`,
+                                    "The stale running job was reset so a worker can resume it.",
+                                    () => resumeJob(job.id),
+                                  )
                                 }
                                 type="button"
                               >
@@ -1174,7 +1437,11 @@ export function ProjectContentStudio({
                         className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={pendingAction !== null}
                         onClick={() =>
-                          runAction("approve-assets", () => approveProjectAssets(project.id))
+                          runAction(
+                            "approve-assets",
+                            "The current asset set was approved for rough-cut composition.",
+                            () => approveProjectAssets(project.id),
+                          )
                         }
                         type="button"
                       >
@@ -1186,7 +1453,11 @@ export function ProjectContentStudio({
                         className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={pendingAction !== null}
                         onClick={() =>
-                          runAction("reject-assets", () => rejectProjectAssets(project.id))
+                          runAction(
+                            "reject-assets",
+                            "The current asset set was rejected and can be regenerated.",
+                            () => rejectProjectAssets(project.id),
+                          )
                         }
                         type="button"
                       >
@@ -1212,7 +1483,13 @@ export function ProjectContentStudio({
                         <button
                           className="rounded-full border border-cyan-200/40 bg-cyan-300/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-50 transition hover:border-cyan-100/70 hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
                           disabled={!canQueueRoughCut || pendingAction !== null}
-                          onClick={() => runAction("queue-rough-cut", () => queueRoughCut(project.id))}
+                          onClick={() =>
+                            runAction(
+                              "queue-rough-cut",
+                              "Rough-cut composition was queued for the media worker.",
+                              () => queueRoughCut(project.id),
+                            )
+                          }
                           type="button"
                         >
                           {pendingAction === "queue-rough-cut"
@@ -1242,6 +1519,8 @@ export function ProjectContentStudio({
                         const assetLabel =
                           asset.asset_type === "rough_cut" && asset.mime_type?.startsWith("video/")
                             ? "Rough cut video"
+                            : asset.asset_type === "final_video"
+                            ? "Final export"
                             : asset.asset_type === "rough_cut"
                             ? "Rough cut preview"
                             : linkedScene
@@ -1360,7 +1639,7 @@ export function ProjectContentStudio({
                                     className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-45"
                                     disabled={pendingAction !== null}
                                     onClick={() =>
-                                      runAction(`approve-asset-${asset.id}`, () =>
+                                      runAction(`approve-asset-${asset.id}`, "The asset was approved and kept in the current review set.", () =>
                                         approveAsset(asset.id),
                                       )
                                     }
@@ -1376,7 +1655,7 @@ export function ProjectContentStudio({
                                     className="rounded-full border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-45"
                                     disabled={pendingAction !== null}
                                     onClick={() =>
-                                      runAction(`reject-asset-${asset.id}`, () =>
+                                      runAction(`reject-asset-${asset.id}`, "The asset was rejected and flagged for recovery or regeneration.", () =>
                                         rejectAsset(asset.id),
                                       )
                                     }
@@ -1392,7 +1671,7 @@ export function ProjectContentStudio({
                                     className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-45"
                                     disabled={pendingAction !== null}
                                     onClick={() =>
-                                      runAction(`regenerate-asset-${asset.id}`, () =>
+                                      runAction(`regenerate-asset-${asset.id}`, "A regeneration job was queued for the selected asset.", () =>
                                         regenerateAsset(asset.id),
                                       )
                                     }

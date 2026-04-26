@@ -1,19 +1,29 @@
 "use client";
 
-import { approvalDecisionLabels, publishJobStatusLabels } from "@creatoros/shared";
+import {
+  approvalDecisionLabels,
+  getPublishAdapterLabel,
+  publishJobStatusLabels,
+  resolvePublishAdapterName,
+} from "@creatoros/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
+import { useToast } from "./toast-provider";
 import {
   approveFinalVideo,
   approvePublishJob,
+  getAssetContentUrl,
   markPublishJobPublished,
   preparePublishJob,
+  queueFinalExport,
   queuePublishJob,
   rejectFinalVideo,
+  rejectPublishJob,
   schedulePublishJob,
   updatePublishJobMetadata,
 } from "../lib/api";
+import { ApprovalFeedbackPanel } from "./approval-feedback-panel";
 import type {
   ApprovalRecord,
   Asset,
@@ -44,6 +54,8 @@ type PublishJobMetadataDraft = {
 
 type PublishCommandRow = {
   activeHandoffJob: BackgroundJob | null;
+  adapterLabel: string;
+  adapterName: string;
   calendarLabel: string;
   handoffPath: string | null;
   job: PublishJob;
@@ -236,17 +248,36 @@ function buildPublishCommandRows(
       .sort(sortByNewestJob);
     const activeHandoffJob = handoffJobs.find(isActiveHandoffJob) ?? null;
     const latestHandoffJob = handoffJobs[0] ?? null;
+    const payloadAdapterName =
+      latestHandoffJob && typeof latestHandoffJob.payload_json.adapter_name === "string"
+        ? latestHandoffJob.payload_json.adapter_name
+        : resolvePublishAdapterName(job.platform);
     const lane = describePublishLane(job, activeHandoffJob);
 
     return {
       ...lane,
       activeHandoffJob,
+      adapterLabel: getPublishAdapterLabel(payloadAdapterName),
+      adapterName: payloadAdapterName,
       calendarLabel: job.scheduled_for ? formatTimestamp(job.scheduled_for) : "No publish time",
       handoffPath: latestHandoffJob ? getPayloadString(latestHandoffJob, "handoff_path") : null,
       job,
       latestHandoffJob,
     };
   });
+}
+
+function getPlatformSettingsPlaceholder(platform: string): string {
+  switch (resolvePublishAdapterName(platform)) {
+    case "youtube_studio_manual_handoff":
+      return '{"privacy": "private", "audience": "not_made_for_kids", "playlist_id": "optional"}';
+    case "tiktok_manual_handoff":
+      return '{"privacy": "followers", "allow_comments": true, "disclose_ai_generated": true}';
+    case "facebook_manual_handoff":
+      return '{"privacy": "friends", "page_id": "optional", "crosspost_to_instagram": false}';
+    default:
+      return '{"visibility": "draft"}';
+  }
 }
 
 export function ProjectPublishCenter({
@@ -258,6 +289,7 @@ export function ProjectPublishCenter({
   publishJobs,
 }: ProjectPublishCenterProps) {
   const router = useRouter();
+  const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [scheduledFor, setScheduledFor] = useState(defaultScheduleValue);
@@ -274,24 +306,49 @@ export function ProjectPublishCenter({
   const readyRoughCutAssets = currentScriptAssets.filter(
     (asset) => asset.asset_type === "rough_cut" && asset.status === "ready",
   );
+  const readyFinalVideoAssets = currentScriptAssets.filter(
+    (asset) => asset.asset_type === "final_video" && asset.status === "ready",
+  );
   const latestReadyRoughCut = readyRoughCutAssets[0] ?? null;
+  const latestReadyFinalVideo = readyFinalVideoAssets[0] ?? null;
+  const latestReadyFinalReviewAsset = latestReadyFinalVideo ?? latestReadyRoughCut;
   const latestFinalApproval =
-    latestReadyRoughCut === null
+    latestReadyFinalReviewAsset === null
       ? null
       : approvals.find(
           (approval) =>
-            approval.stage === "final_video" && approval.target_id === latestReadyRoughCut.id,
+            approval.stage === "final_video" &&
+            approval.target_id === latestReadyFinalReviewAsset.id,
         ) ?? null;
   const activePublishJob =
     publishJobs.find((job) =>
       ["pending_approval", "approved", "scheduled"].includes(job.status),
     ) ?? null;
+  const activeFinalExportJob =
+    jobs.find(
+      (job) =>
+        job.job_type === "final_export" &&
+        job.script_id === currentScript?.id &&
+        ["queued", "running", "waiting_external"].includes(job.state),
+    ) ?? null;
+  const latestFinalExportJob =
+    jobs
+      .filter((job) => job.job_type === "final_export" && job.script_id === currentScript?.id)
+      .sort(
+        (left, right) =>
+          new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
+      )[0] ?? null;
+  const canQueueFinalExport =
+    currentScript !== null &&
+    latestReadyRoughCut !== null &&
+    activeFinalExportJob === null &&
+    (project.status === "rough_cut_ready" || project.status === "final_pending_approval");
   const canReviewFinal =
-    project.status === "final_pending_approval" && latestReadyRoughCut !== null;
+    project.status === "final_pending_approval" && latestReadyFinalReviewAsset !== null;
   const canPreparePublish =
     project.status === "ready_to_publish" &&
     currentScript !== null &&
-    latestReadyRoughCut !== null &&
+    latestReadyFinalReviewAsset !== null &&
     activePublishJob === null;
   const publishCommandRows = buildPublishCommandRows(publishJobs, jobs);
   const waitingHandoffCount = publishCommandRows.filter(
@@ -305,20 +362,36 @@ export function ProjectPublishCenter({
   ).length;
   const publishedCount = publishCommandRows.filter((row) => row.job.status === "published").length;
 
-  function runAction(actionKey: string, callback: () => Promise<unknown>) {
+  function runAction(
+    actionKey: string,
+    successMessage: string,
+    callback: () => Promise<unknown>,
+  ) {
     setError(null);
     setPendingAction(actionKey);
     startTransition(() => {
       void Promise.resolve()
         .then(callback)
         .then(() => {
+          pushToast({
+            title: "Publish workflow updated",
+            description: successMessage,
+            tone: "success",
+          });
           router.refresh();
           setPendingAction(null);
         })
         .catch((actionError) => {
-          setError(
-            actionError instanceof Error ? actionError.message : "Publish workflow action failed.",
-          );
+          const message =
+            actionError instanceof Error
+              ? actionError.message
+              : "Publish workflow action failed.";
+          setError(message);
+          pushToast({
+            title: "Publish workflow action failed",
+            description: message,
+            tone: "error",
+          });
           setPendingAction(null);
         });
     });
@@ -361,19 +434,73 @@ export function ProjectPublishCenter({
 
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         <article className="rounded-2xl border border-white/8 bg-slate-950/40 p-5">
-          <h3 className="text-lg font-semibold text-white">Final video review</h3>
+          <h3 className="text-lg font-semibold text-white">Final export and review</h3>
           <p className="mt-2 text-sm leading-6 text-slate-300">
-            Use the ready rough cut as the v1 final-review artifact until final export is added.
+            Export a dedicated final MP4 when you can. If that is not available yet, CreatorOS can
+            still fall back to the ready rough cut for review continuity.
           </p>
 
-          {latestReadyRoughCut ? (
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button
+              className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!canQueueFinalExport || pendingAction !== null}
+              onClick={() =>
+                runAction(
+                  "queue-final-export",
+                  "A final-export media job was queued for this script.",
+                  () => queueFinalExport(project.id),
+                )
+              }
+              type="button"
+            >
+              {pendingAction === "queue-final-export"
+                ? "Queueing..."
+                : latestReadyFinalVideo
+                  ? "Re-export final cut"
+                  : "Export final cut"}
+            </button>
+          </div>
+
+          {latestFinalExportJob ? (
             <div className="mt-4 rounded-2xl border border-white/8 bg-white/4 p-4 text-sm text-slate-300">
-              <p className="font-medium text-white">Ready review asset</p>
-              <p className="mt-2 break-all">{latestReadyRoughCut.file_path}</p>
+              <p className="font-medium text-white">Latest final-export job</p>
+              <p className="mt-2">
+                {latestFinalExportJob.state} at {formatTimestamp(latestFinalExportJob.updated_at)}
+              </p>
+            </div>
+          ) : null}
+
+          {latestReadyFinalReviewAsset ? (
+            <div className="mt-4 rounded-2xl border border-white/8 bg-white/4 p-4 text-sm text-slate-300">
+              <p className="font-medium text-white">
+                Ready review asset
+                {latestReadyFinalReviewAsset.asset_type === "final_video"
+                  ? " (final export)"
+                  : " (rough-cut fallback)"}
+              </p>
+              <p className="mt-2 break-all">{latestReadyFinalReviewAsset.file_path}</p>
+              {latestReadyFinalReviewAsset.file_path ? (
+                <div className="mt-4 overflow-hidden rounded-2xl border border-white/8 bg-slate-950/60">
+                  {latestReadyFinalReviewAsset.mime_type?.startsWith("video/") ? (
+                    <video
+                      className="w-full bg-slate-950"
+                      controls
+                      preload="metadata"
+                      src={getAssetContentUrl(latestReadyFinalReviewAsset.id)}
+                    />
+                  ) : latestReadyFinalReviewAsset.mime_type === "text/html" ? (
+                    <iframe
+                      className="h-[420px] w-full bg-slate-950"
+                      src={getAssetContentUrl(latestReadyFinalReviewAsset.id)}
+                      title="Final review asset"
+                    />
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : (
             <p className="mt-4 rounded-2xl border border-dashed border-white/10 bg-white/4 p-4 text-sm text-slate-300">
-              A ready rough-cut asset is required before final approval.
+              A ready rough-cut asset is required before final approval or final export.
             </p>
           )}
 
@@ -387,7 +514,13 @@ export function ProjectPublishCenter({
             <button
               className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canReviewFinal || pendingAction !== null}
-              onClick={() => runAction("approve-final", () => approveFinalVideo(project.id))}
+              onClick={() =>
+                runAction(
+                  "approve-final",
+                  "The current final-review artifact was approved for publish preparation.",
+                  () => approveFinalVideo(project.id),
+                )
+              }
               type="button"
             >
               {pendingAction === "approve-final" ? "Approving..." : "Approve final video"}
@@ -395,7 +528,13 @@ export function ProjectPublishCenter({
             <button
               className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canReviewFinal || pendingAction !== null}
-              onClick={() => runAction("reject-final", () => rejectFinalVideo(project.id))}
+              onClick={() =>
+                runAction(
+                  "reject-final",
+                  "The current final-review artifact was rejected and kept out of publish prep.",
+                  () => rejectFinalVideo(project.id),
+                )
+              }
               type="button"
             >
               {pendingAction === "reject-final" ? "Rejecting..." : "Reject final video"}
@@ -414,7 +553,7 @@ export function ProjectPublishCenter({
             disabled={!canPreparePublish || pendingAction !== null || currentScript === null}
             onClick={() =>
               currentScript
-                ? runAction("prepare-publish", () =>
+                ? runAction("prepare-publish", "A publish job draft was prepared from the approved script metadata.", () =>
                     preparePublishJob(project.id, {
                       description: currentScript.caption,
                       hashtags: currentScript.hashtags,
@@ -499,6 +638,9 @@ export function ProjectPublishCenter({
                       <span className="rounded-full border border-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-100">
                         {row.job.platform}
                       </span>
+                      <span className="rounded-full border border-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                        {row.adapterLabel}
+                      </span>
                     </div>
                     <h4 className="mt-3 text-base font-semibold text-white">{row.job.title}</h4>
                     <p className="mt-1 text-sm leading-6 text-slate-300">
@@ -537,7 +679,15 @@ export function ProjectPublishCenter({
           publishCommandRows.map((row) => {
             const { activeHandoffJob, job, latestHandoffJob } = row;
             const metadataDraft = getMetadataDraft(job);
+            const latestPublishApproval =
+              approvals.find(
+                (approval) =>
+                  approval.stage === "publish" && approval.target_id === job.id,
+              ) ?? null;
             const canEditMetadata = ["pending_approval", "approved"].includes(job.status);
+            const canRejectPublish =
+              ["pending_approval", "approved"].includes(job.status) &&
+              activeHandoffJob === null;
             const canQueueHandoff =
               ["approved", "scheduled"].includes(job.status) && activeHandoffJob === null;
             const thumbnailOptions = assets.filter(
@@ -557,6 +707,9 @@ export function ProjectPublishCenter({
                   <span className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-amber-100">
                     {publishJobStatusLabels[job.status]}
                   </span>
+                  <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Handoff adapter: {row.adapterLabel}
+                  </p>
                   <h3 className="mt-3 text-lg font-semibold text-white">{job.title}</h3>
                   <p className="mt-2 text-sm leading-6 text-slate-300">{job.description}</p>
                 </div>
@@ -574,6 +727,19 @@ export function ProjectPublishCenter({
                     {hashtag}
                   </span>
                 ))}
+              </div>
+
+              <div className="mt-5">
+                <ApprovalFeedbackPanel
+                  approval={latestPublishApproval}
+                  applyFeedbackLabel="Copy to change notes"
+                  emptyDescription="Approve or reject the publish job to keep the latest publish review visible beside the metadata draft."
+                  emptyTitle="No publish review recorded yet."
+                  onApplyFeedback={(feedbackNotes) =>
+                    updateMetadataDraft(job, { changeNotes: feedbackNotes })
+                  }
+                  title="Latest publish review"
+                />
               </div>
 
               <div className="mt-5 rounded-2xl border border-cyan-300/10 bg-cyan-400/5 p-4">
@@ -673,7 +839,7 @@ export function ProjectPublishCenter({
                         platformSettingsJson: event.target.value,
                       })
                     }
-                    placeholder={'{"privacy": "private", "playlist_id": "optional"}'}
+                    placeholder={getPlatformSettingsPlaceholder(job.platform)}
                     value={metadataDraft.platformSettingsJson}
                   />
                 </label>
@@ -695,7 +861,7 @@ export function ProjectPublishCenter({
                     className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!canEditMetadata || pendingAction !== null}
                     onClick={() =>
-                      runAction(`update-publish-metadata-${job.id}`, () =>
+                      runAction(`update-publish-metadata-${job.id}`, "Publish metadata was saved and any required re-approval can continue from this draft.", () =>
                         updatePublishJobMetadata(job.id, {
                           change_notes: metadataDraft.changeNotes.trim() || null,
                           description: metadataDraft.description.trim(),
@@ -720,7 +886,7 @@ export function ProjectPublishCenter({
                 </div>
               </div>
 
-              <div className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
+              <div className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_auto_auto_auto] md:items-end">
                 <label className="grid gap-2 text-sm text-slate-300">
                   Schedule time
                   <input
@@ -746,17 +912,38 @@ export function ProjectPublishCenter({
                   className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={job.status !== "pending_approval" || pendingAction !== null}
                   onClick={() =>
-                    runAction(`approve-publish-${job.id}`, () => approvePublishJob(job.id))
+                    runAction(
+                      `approve-publish-${job.id}`,
+                      "The publish job was approved and can now be scheduled or queued for handoff.",
+                      () => approvePublishJob(job.id),
+                    )
+                  }
+                  type="button"
+                  >
+                  Approve
+                </button>
+                <button
+                  className="rounded-full border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-rose-100 transition hover:border-rose-200/50 hover:bg-rose-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!canRejectPublish || pendingAction !== null}
+                  onClick={() =>
+                    runAction(
+                      `reject-publish-${job.id}`,
+                      "The publish job was rejected and moved back into editable review.",
+                      () =>
+                        rejectPublishJob(job.id, {
+                          feedback_notes: metadataDraft.changeNotes.trim() || null,
+                        }),
+                    )
                   }
                   type="button"
                 >
-                  Approve
+                  Reject
                 </button>
                 <button
                   className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={job.status !== "approved" || pendingAction !== null}
                   onClick={() =>
-                    runAction(`schedule-publish-${job.id}`, () =>
+                    runAction(`schedule-publish-${job.id}`, "The publish job was scheduled and is ready for the handoff lane.", () =>
                       schedulePublishJob(job.id, {
                         scheduled_for: toIsoDateTime(metadataDraft.scheduledFor || scheduledFor),
                       }),
@@ -784,7 +971,7 @@ export function ProjectPublishCenter({
                     !["approved", "scheduled"].includes(job.status) || pendingAction !== null
                   }
                   onClick={() =>
-                    runAction(`mark-published-${job.id}`, () =>
+                    runAction(`mark-published-${job.id}`, "Manual publish completion was recorded for analytics and audit history.", () =>
                       markPublishJobPublished(job.id, {
                         external_post_id: externalPostId || null,
                         manual_publish_notes: manualPublishNotes || null,
@@ -801,15 +988,18 @@ export function ProjectPublishCenter({
                   <div>
                     <p className="text-sm font-semibold text-white">Publish handoff queue</p>
                     <p className="mt-1 text-xs leading-5 text-slate-400">
-                      Queue a background handoff that generates the exact manual upload package and
-                      waits for your platform confirmation.
+                      Queue a background handoff that generates the exact {row.adapterLabel.toLowerCase()} package and waits for your platform confirmation.
                     </p>
                   </div>
                   <button
                     className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200/50 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!canQueueHandoff || pendingAction !== null}
                     onClick={() =>
-                      runAction(`queue-publish-handoff-${job.id}`, () => queuePublishJob(job.id))
+                      runAction(
+                        `queue-publish-handoff-${job.id}`,
+                        "The publisher handoff package was queued for background preparation.",
+                        () => queuePublishJob(job.id),
+                      )
                     }
                     type="button"
                   >

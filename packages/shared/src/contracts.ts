@@ -9,6 +9,7 @@ import type {
   ContentIdeaStatus,
   ProjectStatus,
   ProviderName,
+  PublishAdapterName,
   PublishJobStatus,
   ScriptStatus,
 } from "./workflow";
@@ -67,6 +68,7 @@ export type ContentIdeaContract = {
   id: UUID;
   user_id: UUID;
   project_id: UUID;
+  topic: string;
   suggested_title: string;
   hook: string;
   angle: string;
@@ -75,6 +77,21 @@ export type ContentIdeaContract = {
   source_feedback_notes: Nullable<string>;
   status: ContentIdeaStatus;
   feedback_notes: Nullable<string>;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+};
+
+export type IdeaResearchSnapshotContract = {
+  id: UUID;
+  user_id: UUID;
+  project_id: UUID;
+  focus_topic: Nullable<string>;
+  source_feedback_notes: Nullable<string>;
+  summary: string;
+  trend_observations_json: string[];
+  competitor_angles_json: string[];
+  posting_strategies_json: string[];
+  recommended_topics_json: string[];
   created_at: ISODateTime;
   updated_at: ISODateTime;
 };
@@ -252,8 +269,7 @@ export type QueuePayloadBase = {
 export type ImplementedQueueJobType = BackgroundJobType;
 
 export type PlannedQueueJobType =
-  | "ingest_download"
-  | "final_export";
+  | "ingest_download";
 
 export type QueueJobType = ImplementedQueueJobType | PlannedQueueJobType;
 
@@ -262,10 +278,22 @@ export type GenerateIdeasQueuePayload = QueuePayloadBase & {
   brand_profile_id: UUID;
   target_platform: string;
   objective: string;
+  research_snapshot_id?: UUID;
   source_feedback_notes?: Nullable<string>;
   analytics_learning_context?: AnalyticsLearningContextContract;
   idea_count?: number;
   idea_ids?: UUID[];
+};
+
+export type GenerateIdeaResearchQueuePayload = QueuePayloadBase & {
+  job_type: "generate_idea_research";
+  brand_profile_id: UUID;
+  target_platform: string;
+  objective: string;
+  focus_topic?: Nullable<string>;
+  source_feedback_notes?: Nullable<string>;
+  analytics_learning_context?: AnalyticsLearningContextContract;
+  research_snapshot_id?: UUID;
 };
 
 export type GenerateScriptQueuePayload = QueuePayloadBase & {
@@ -341,16 +369,29 @@ export type IngestDownloadQueuePayload = QueuePayloadBase &
 
 export type FinalExportQueuePayload = QueuePayloadBase & {
   job_type: "final_export";
-  project_id: UUID;
   script_id: UUID;
+  script_version: number;
+  scene_count: number;
   rough_cut_asset_id: UUID;
+  source_video_asset_id?: UUID;
+  source_video_path?: StoragePath;
+  manifest_path: StoragePath;
+  subtitle_path: StoragePath;
+  output_asset_id: UUID;
+  video_path: StoragePath;
+  ffmpeg_command_path: StoragePath;
   export_profile: string;
 };
 
 export type PublishContentQueuePayload = QueuePayloadBase & {
   job_type: "publish_content";
+  adapter_name: PublishAdapterName;
   publish_job_id: UUID;
   approved_publish_job_state: "approved" | "scheduled";
+  platform: string;
+  final_asset_id: UUID;
+  handoff_path: StoragePath;
+  scheduled_for?: Nullable<ISODateTime>;
 };
 
 export type SyncAnalyticsQueuePayload = QueuePayloadBase & {
@@ -373,6 +414,7 @@ export type SyncAnalyticsQueuePayload = QueuePayloadBase & {
 };
 
 export type QueueJobPayload =
+  | GenerateIdeaResearchQueuePayload
   | GenerateIdeasQueuePayload
   | GenerateScriptQueuePayload
   | GenerateAudioQueuePayload
@@ -484,6 +526,11 @@ export function validateQueuePayload(payload: QueueJobPayload): string[] {
   const errors = validateQueuePayloadBase(payload);
 
   switch (payload.job_type) {
+    case "generate_idea_research":
+      requireString(payload.brand_profile_id, "brand_profile_id", errors);
+      requireString(payload.target_platform, "target_platform", errors);
+      requireString(payload.objective, "objective", errors);
+      break;
     case "generate_ideas":
       requireString(payload.brand_profile_id, "brand_profile_id", errors);
       requireString(payload.target_platform, "target_platform", errors);
@@ -515,10 +562,22 @@ export function validateQueuePayload(payload: QueueJobPayload): string[] {
       break;
     case "final_export":
       requireString(payload.script_id, "script_id", errors);
+      requirePositiveNumber(payload.script_version, "script_version", errors);
+      requirePositiveNumber(payload.scene_count, "scene_count", errors);
       requireString(payload.rough_cut_asset_id, "rough_cut_asset_id", errors);
+      requireString(payload.manifest_path, "manifest_path", errors);
+      requireString(payload.subtitle_path, "subtitle_path", errors);
+      requireString(payload.output_asset_id, "output_asset_id", errors);
+      requireString(payload.video_path, "video_path", errors);
+      requireString(payload.ffmpeg_command_path, "ffmpeg_command_path", errors);
+      requireString(payload.export_profile, "export_profile", errors);
       break;
     case "publish_content":
+      requireString(payload.adapter_name, "adapter_name", errors);
       requireString(payload.publish_job_id, "publish_job_id", errors);
+      requireString(payload.platform, "platform", errors);
+      requireString(payload.final_asset_id, "final_asset_id", errors);
+      requireString(payload.handoff_path, "handoff_path", errors);
       break;
     case "sync_analytics":
       requireString(payload.publish_job_id, "publish_job_id", errors);

@@ -20,6 +20,8 @@ from apps.api.schemas.content_workflow import (
     GenerationAttemptResponse,
     IdeaApprovalRequest,
     IdeaGenerateRequest,
+    IdeaResearchGenerateRequest,
+    IdeaResearchSnapshotResponse,
     InsightResponse,
     JobLogResponse,
     ManualInterventionRequest,
@@ -87,10 +89,12 @@ from apps.api.services.generation_pipeline import (
     queue_audio_generation_job,
     queue_visual_generation_job,
     submit_idea_generation_job,
+    submit_idea_research_job,
     submit_script_generation_job,
 )
+from apps.api.services.idea_research import list_project_idea_research_snapshots
 from apps.api.services.learning_context import build_analytics_learning_context
-from apps.api.services.media_pipeline import queue_rough_cut_job
+from apps.api.services.media_pipeline import queue_final_export_job, queue_rough_cut_job
 from apps.api.services.project_events import create_project_event, list_project_events
 from apps.api.services.project_export import (
     build_project_export_bundle,
@@ -106,6 +110,7 @@ from apps.api.services.publishing import (
     prepare_publish_job,
     queue_publish_content_job,
     reject_final_video,
+    reject_publish_job,
     schedule_publish_job,
     update_publish_job_metadata,
 )
@@ -125,6 +130,23 @@ def list_project_ideas_route(project_id: UUID, db: DbSession) -> list[ContentIde
 
     ideas = list_project_ideas(db, project)
     return [ContentIdeaResponse.model_validate(idea) for idea in ideas]
+
+
+@router.get(
+    "/projects/{project_id}/research",
+    response_model=list[IdeaResearchSnapshotResponse],
+)
+def list_project_idea_research_route(
+    project_id: UUID,
+    db: DbSession,
+) -> list[IdeaResearchSnapshotResponse]:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    snapshots = list_project_idea_research_snapshots(db, project)
+    return [IdeaResearchSnapshotResponse.model_validate(snapshot) for snapshot in snapshots]
 
 
 @router.get("/projects/{project_id}/approvals", response_model=list[ApprovalResponse])
@@ -592,6 +614,42 @@ def reject_final_video_route(
 
 
 @router.post(
+    "/projects/{project_id}/research/generate",
+    response_model=IdeaResearchSnapshotResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def generate_project_idea_research_route(
+    project_id: UUID,
+    db: DbSession,
+    payload: IdeaResearchGenerateRequest,
+) -> IdeaResearchSnapshotResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    brand_profile = get_owned_brand_profile(db, user, project.brand_profile_id)
+    if brand_profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brand profile not found",
+        )
+
+    try:
+        snapshot = submit_idea_research_job(
+            db,
+            user=user,
+            project=project,
+            brand_profile=brand_profile,
+            payload=payload,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return IdeaResearchSnapshotResponse.model_validate(snapshot)
+
+
+@router.post(
     "/projects/{project_id}/ideas/generate",
     response_model=list[ContentIdeaResponse],
     status_code=status.HTTP_201_CREATED,
@@ -946,6 +1004,34 @@ def queue_rough_cut_route(project_id: UUID, db: DbSession) -> BackgroundJobRespo
 
 
 @router.post(
+    "/projects/{project_id}/compose/final-export",
+    response_model=BackgroundJobResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def queue_final_export_route(project_id: UUID, db: DbSession) -> BackgroundJobResponse:
+    user = get_or_create_default_user(db)
+    project = get_project(db, user, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    current_script = get_current_script(db, project)
+    if current_script is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
+
+    try:
+        job = queue_final_export_job(
+            db,
+            user=user,
+            project=project,
+            script=current_script,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return BackgroundJobResponse.model_validate(job)
+
+
+@router.post(
     "/projects/{project_id}/publish-jobs/prepare",
     response_model=PublishJobResponse,
     status_code=status.HTTP_201_CREATED,
@@ -1005,6 +1091,35 @@ def approve_publish_job_route(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     return PublishJobResponse.model_validate(approved_job)
+
+
+@router.post("/publish-jobs/{publish_job_id}/reject", response_model=PublishJobResponse)
+def reject_publish_job_route(
+    publish_job_id: UUID,
+    payload: ApprovalDecisionRequest,
+    db: DbSession,
+) -> PublishJobResponse:
+    user = get_or_create_default_user(db)
+    publish_job = get_owned_publish_job(db, user, publish_job_id)
+    if publish_job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publish job not found")
+
+    project = get_project(db, user, publish_job.project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    try:
+        rejected_job = reject_publish_job(
+            db,
+            user=user,
+            project=project,
+            publish_job=publish_job,
+            feedback_notes=payload.feedback_notes,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    return PublishJobResponse.model_validate(rejected_job)
 
 
 @router.patch("/publish-jobs/{publish_job_id}/metadata", response_model=PublishJobResponse)

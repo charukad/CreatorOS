@@ -14,6 +14,7 @@ class ContentIdea(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     project_id: Mapped[UUID] = mapped_column(
         Uuid, ForeignKey("projects.id"), index=True, nullable=False
     )
+    topic: Mapped[str] = mapped_column(Text, nullable=False)
     suggested_title: Mapped[str] = mapped_column(String(255), nullable=False)
     hook: Mapped[str] = mapped_column(Text, nullable=False)
     angle: Mapped[str] = mapped_column(Text, nullable=False)

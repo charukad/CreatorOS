@@ -1,23 +1,29 @@
 # Queue Jobs
 
 ## Current Implementation Note
-- `generate_ideas` and `generate_script` now create project-level background job records and lifecycle logs before running the local deterministic generator inline
+- `generate_idea_research`, `generate_ideas`, and `generate_script` now create project-level background job records and lifecycle logs before running deterministic local planning inline
 - `generate_audio_browser` and `generate_visuals_browser` can now be queued through the API
 - queue submission persists `background_jobs`, `generation_attempts`, and planned `assets`
-- the browser worker can now execute those queued jobs in local `dry_run` mode and materialize WAV/SVG development artifacts
+- the browser worker can now execute those queued jobs in local `dry_run` mode or through persistent-profile Playwright provider modules
 - `compose_rough_cut` can now be queued after asset approval and consumed by the media worker
-- the media worker currently probes WAV narration duration, validates contiguous timeline data, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, an FFmpeg command-plan sidecar with scene overlay text, trim/loop handling, and fade transitions, and optionally renders/registers a `video/mp4` rough cut when `MEDIA_ENABLE_FFMPEG_RENDER=true`
+- `final_export` can now be queued after a completed rough-cut job for the current script
+- the media worker currently probes WAV narration duration, validates contiguous timeline data, writes an audio-anchored timeline manifest, an HTML rough-cut preview artifact, an SRT subtitle sidecar asset, an FFmpeg command-plan sidecar with scene overlay text, trim/loop handling, and fade transitions, optionally renders/registers a `video/mp4` rough cut when `MEDIA_ENABLE_FFMPEG_RENDER=true`, and can render or reuse a source MP4 for the dedicated `final_video` export
 - job detail, job timeline logs, safe cancel, and safe retry operations are available through the API, dedicated job detail screen, and project page
 - queued browser/media job payloads include a `correlation_id` that is also copied into queue log metadata
+- queued browser, media, publisher, and analytics jobs now publish Redis wake-up signals plus general `creatoros:jobs:*` event payloads after the queue write commits
+- worker entrypoints now run as long-lived Redis-backed listener services that drain backlog immediately, then wait on worker-specific wake-up channels with timed polling fallback
+- worker loops now publish ephemeral Redis heartbeats so operations views can show last-seen time, current loop phase, wake-up counts, and processed-job totals
+- the API now exposes `GET /api/events/background-jobs/stream` so the web dashboard, project, job, and operations screens can react to pushed job events instead of relying only on timed polling
 - browser provider debug artifacts and failure screenshot/HTML snapshots are captured into per-provider debug folders and linked from job logs
 - browser workers now load versioned selector bundles, capture checkpoint screenshot/HTML artifacts during session setup, and log the selector version used for each provider run
+- Playwright-backed ElevenLabs and Flow providers now use selector fallback resolution, provider workspace URLs, and persistent Chromium profiles when `BROWSER_PROVIDER_MODE=playwright`
 - browser workers retry timeout/selector-style provider failures once before failing the job
 - browser output ingestion now stages raw downloads into explicit project metadata ingest paths, writes per-download manifest sidecars, persists file checksums, treats matching repeated downloads as idempotent, logs duplicate checksums, and quarantines mismatched or conflicting downloads for manual review
 - browser workers now emit per-attempt request metadata and output registration payloads under project `metadata/` paths
 - browser workers now redact secret-like browser log fields and pause auth/captcha/verification failures in `waiting_external` for operator recovery
 - media workers retry timeout-style FFmpeg render failures once before failing the job
 - analytics snapshots can now be queued for published jobs through the API and project analytics panel, then consumed by the analytics worker with first-pass insights persisted for review
-- actual Redis-backed execution for idea/script generation, automated retry policy, and live worker progress updates are still pending
+- actual Redis-backed blocking execution for inline idea/script generation and automated retry backoff policy are still pending
 - automated platform polling adapters for `sync_analytics` are still pending
 
 ## Principles
@@ -29,6 +35,25 @@
   `packages/shared/src/contract-fixtures.ts`.
 
 ## Core Jobs
+### `generate_idea_research`
+Input:
+- project_id
+- brand_profile_id
+- optional focus topic
+- optional source feedback notes
+
+Output:
+- persisted idea research snapshot with summary, trend observations, competitor angles, posting strategies, and recommended topics
+
+Current inline-local payload includes:
+- brand profile id
+- target platform
+- objective
+- optional focus topic
+- source feedback notes
+- same-brand analytics learning context when prior insights exist
+- generated research snapshot id after completion
+
 ### `generate_ideas`
 Input:
 - project_id
@@ -42,6 +67,8 @@ Current inline-local payload includes:
 - brand profile id
 - target platform
 - objective
+- latest research snapshot id when available
+- derived idea research context when available
 - source feedback notes for regeneration
 - same-brand analytics learning context when prior insights exist
 - idea count and generated idea ids after completion
@@ -139,11 +166,26 @@ Persisted queue payload includes:
 ### `final_export`
 Input:
 - project_id
-- rough cut id
+- current approved script id
+- rough-cut review asset id
+- completed rough-cut manifest and subtitle sidecars
+- optional ready rough-cut MP4 source asset
+- output final-video asset id
 - export profile
 
 Output:
 - final video asset
+- FFmpeg command-plan sidecar
+
+Persisted queue payload includes:
+- script version
+- scene count
+- rough-cut asset id
+- optional source MP4 asset id and path when a ready rough-cut video exists
+- manifest and subtitle paths copied from the latest completed rough-cut job
+- final-video output asset id and planned storage path
+- planned final-export FFmpeg command-plan path
+- export profile settings used for the render or source-video reuse decision
 
 ### `publish_content`
 Input:
@@ -171,7 +213,7 @@ Output:
 
 Current manual v1 behavior:
 - `POST /api/publish-jobs/{publish_job_id}/queue` creates a `publish_content` background job only after publish approval or scheduling
-- `python -m workers.publisher.main` claims `publish_content` jobs and uses the `manual_publish_handoff` adapter to write the upload package
+- `python -m workers.publisher.main` claims `publish_content` jobs and selects a platform-aware manual handoff adapter for YouTube, TikTok, or Facebook, with a generic manual fallback for unknown platforms
 - publish handoff jobs remain `waiting_external` until the user uploads manually and records completion
 - `POST /api/publish-jobs/{publish_job_id}/analytics/queue` creates a `sync_analytics` background job only after the publish job is marked `published`
 - `python -m workers.analytics.main` claims `sync_analytics` jobs, persists the supplied metric snapshot, creates insights, and completes the job
@@ -188,7 +230,7 @@ Current manual v1 behavior:
 - media jobs: up to 3 total execution attempts (initial run plus 2 retries) for transient FFmpeg failures
 - publish jobs: up to 2 total execution attempts (initial run plus 1 retry), then manual review required
 - analytics sync jobs: up to 2 total execution attempts for operator-supplied metric snapshots
-- inline idea/script planning jobs do not support manual retry; re-run the project action that created the job instead
+- inline idea research/idea/script planning jobs do not support manual retry; re-run the project action that created the job instead
 
 Current manual retry behavior:
 - `POST /api/jobs/{job_id}/retry` is allowed only for `failed` or `cancelled` jobs

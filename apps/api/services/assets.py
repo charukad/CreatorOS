@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from apps.api.core.config_validation import resolve_path_within_roots
 from apps.api.models.approval import Approval
 from apps.api.models.asset import Asset
 from apps.api.models.project import Project
@@ -233,16 +234,12 @@ def resolve_asset_file_path(asset: Asset, storage_root: Path) -> Path:
     if asset.file_path is None:
         raise ValueError("The requested asset does not have a stored file yet.")
 
-    root_path = storage_root.resolve()
-    candidate_path = Path(asset.file_path).resolve()
-
-    if not candidate_path.is_relative_to(root_path):
-        raise ValueError("The requested asset path is outside the configured storage root.")
-
-    if not candidate_path.exists():
-        raise FileNotFoundError("The requested asset file does not exist on disk.")
-
-    return candidate_path
+    return resolve_path_within_roots(
+        Path(asset.file_path),
+        allowed_roots=(storage_root,),
+        path_name="The requested asset path",
+        must_exist=True,
+    )
 
 
 def has_approved_asset_review(db: Session, project: Project, script: ProjectScript) -> bool:

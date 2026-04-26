@@ -6,6 +6,7 @@ import apps.api.models  # noqa: F401
 from apps.api.db.base import Base
 from apps.api.db.session import get_db
 from apps.api.main import app
+from apps.api.models.asset import Asset
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -371,5 +372,150 @@ def test_media_worker_retries_transient_ffmpeg_timeout_once(
         log["event_type"] == "media_render_retry_scheduled"
         for log in detail_response.json()["job_logs"]
     )
+
+    app.dependency_overrides.clear()
+
+
+def test_media_worker_exports_final_video_after_rough_cut_ready(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run_ffmpeg_command(command: list[str]) -> None:
+        Path(command[-1]).write_bytes(b"final export mp4")
+
+    monkeypatch.setattr("workers.media.runtime.run_ffmpeg_command", fake_run_ffmpeg_command)
+
+    session_factory = _create_test_session()
+    client = _make_test_client(session_factory)
+
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(client, brand_profile_id)
+    script = _create_approved_script_for_tests(client, project_id)
+    _queue_and_finish_asset_jobs(
+        client=client,
+        project_id=project_id,
+        tmp_path=tmp_path,
+        session_factory=session_factory,
+    )
+
+    approve_assets_response = client.post(f"/api/projects/{project_id}/assets/approve", json={})
+    assert approve_assets_response.status_code == 200
+
+    rough_cut_queue_response = client.post(f"/api/projects/{project_id}/compose/rough-cut")
+    assert rough_cut_queue_response.status_code == 201
+
+    processed_media_jobs = run_media_jobs(
+        settings=MediaWorkerSettings(
+            storage_root=tmp_path / "storage",
+            downloads_root=tmp_path / "downloads",
+            media_enable_ffmpeg_render=True,
+        ),
+        session_factory=session_factory,
+    )
+    assert processed_media_jobs == 1
+
+    final_export_queue_response = client.post(f"/api/projects/{project_id}/compose/final-export")
+    assert final_export_queue_response.status_code == 201
+    assert final_export_queue_response.json()["job_type"] == "final_export"
+    assert final_export_queue_response.json()["payload_json"]["script_id"] == script["id"]
+
+    processed_final_jobs = run_media_jobs(
+        settings=MediaWorkerSettings(
+            storage_root=tmp_path / "storage",
+            downloads_root=tmp_path / "downloads",
+            media_enable_ffmpeg_render=True,
+        ),
+        session_factory=session_factory,
+    )
+    assert processed_final_jobs == 1
+
+    jobs_response = client.get(f"/api/projects/{project_id}/jobs")
+    assert jobs_response.status_code == 200
+    final_export_job = next(
+        job for job in jobs_response.json() if job["job_type"] == "final_export"
+    )
+    assert final_export_job["state"] == "completed"
+    assert final_export_job["payload_json"]["final_video_asset_id"] is not None
+
+    command_plan_path = tmp_path / final_export_job["payload_json"]["ffmpeg_command_path"]
+    assert command_plan_path.exists()
+    command_plan = json.loads(command_plan_path.read_text(encoding="utf-8"))
+    assert command_plan["strategy"] == "ffmpeg_render"
+    assert command_plan["outputs"]["video_path"].endswith(".mp4")
+
+    assets_response = client.get(f"/api/projects/{project_id}/assets")
+    assert assets_response.status_code == 200
+    final_video_assets = [
+        asset for asset in assets_response.json() if asset["asset_type"] == "final_video"
+    ]
+    assert len(final_video_assets) == 1
+    final_video_asset = final_video_assets[0]
+    assert final_video_asset["status"] == "ready"
+    assert final_video_asset["mime_type"] == "video/mp4"
+    assert final_video_asset["checksum"] is not None
+    assert (tmp_path / final_video_asset["file_path"]).read_bytes() == b"final export mp4"
+
+    project_response = client.get(f"/api/projects/{project_id}")
+    assert project_response.status_code == 200
+    assert project_response.json()["status"] == "final_pending_approval"
+
+    approval_response = client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+    assert approval_response.status_code == 200
+    assert approval_response.json()["target_id"] == final_video_asset["id"]
+
+    app.dependency_overrides.clear()
+
+
+def test_media_worker_rejects_asset_paths_outside_storage_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    session_factory = _create_test_session()
+    client = _make_test_client(session_factory)
+
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(client, brand_profile_id)
+    _create_approved_script_for_tests(client, project_id)
+    _queue_and_finish_asset_jobs(
+        client=client,
+        project_id=project_id,
+        tmp_path=tmp_path,
+        session_factory=session_factory,
+    )
+
+    approve_assets_response = client.post(f"/api/projects/{project_id}/assets/approve", json={})
+    assert approve_assets_response.status_code == 200
+
+    queue_response = client.post(f"/api/projects/{project_id}/compose/rough-cut")
+    assert queue_response.status_code == 201
+    job_id = queue_response.json()["id"]
+
+    with session_factory() as session:
+        scene_asset = session.query(Asset).filter(Asset.scene_id.is_not(None)).first()
+        assert scene_asset is not None
+        scene_asset.file_path = str(tmp_path / "outside-storage" / "scene.png")
+        session.add(scene_asset)
+        session.commit()
+
+    processed_media_jobs = run_media_jobs(
+        settings=MediaWorkerSettings(
+            storage_root=tmp_path / "storage",
+            downloads_root=tmp_path / "downloads",
+        ),
+        session_factory=session_factory,
+    )
+    assert processed_media_jobs == 1
+
+    detail_response = client.get(f"/api/jobs/{job_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["job"]["state"] == "failed"
+    assert "Scene visual asset path must stay within configured roots" in detail["job"][
+        "error_message"
+    ]
 
     app.dependency_overrides.clear()

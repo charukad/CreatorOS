@@ -10,29 +10,32 @@
 
 ## Personal-Use Bootstrap Note
 - until auth/session is implemented, v1 local development can attach brand profiles and projects to a single configured default user
+- `GET /api/session` now exposes that single-user local identity so the web app can confirm the active personal workspace owner before interactive actions run
 
 ## Logging and Correlation
 - the API, browser worker, and media worker use structured JSON logs
 - API request logs include method, path, status code, duration, and request ID
 - clients may send `X-Request-ID`; otherwise the API generates one and returns it
 - log output redacts URL credentials and common token, cookie, secret, password, and API-key fields
-- `GET /api/health/ready` returns redacted connection strings so readiness checks do not expose local credentials
+- `GET /api/health/ready` now performs live database and Redis checks and returns redacted dependency statuses with `ok` or `degraded`
 
 ## Current Workflow Note
 - the current idea and script workflow runs synchronously inside the API as a local deterministic generator
+- optional idea research snapshots can now be generated and persisted before idea generation, then reused automatically by later idea batches
 - asset-generation planning is now persisted through queued job records, generation attempts, and planned assets
 - the browser worker can now consume queued narration and visual jobs in local `dry_run` mode and mark assets ready
 - browser output ingestion now persists checksums, keeps regeneration paths attempt-specific, handles matching re-ingestion idempotently, logs duplicate asset checksums, and quarantines mismatched or conflicting downloads
 - browser workers now load versioned selector registries, write checkpoint artifacts and staged download manifests, and redact secret-like browser log fields before persisting operator-facing job logs
 - when the required assets finish generating, the project moves into `asset_pending_approval` for explicit review
 - after asset approval, `compose_rough_cut` queues a media-worker job that probes WAV narration duration and writes an audio-anchored timeline manifest, rough-cut preview artifact, SRT subtitle sidecar asset, FFmpeg command-plan sidecar, and optionally a `video/mp4` rough-cut asset when FFmpeg rendering is enabled
+- once a rough cut is ready, `compose/final-export` can queue a final-export media job that reuses the rough-cut MP4 when FFmpeg rendering is disabled or renders a dedicated `final_video` artifact when FFmpeg execution is available
 - job detail, project activity, job timeline logs, safe cancel, retry, and resume endpoints are implemented for operator recovery
 - browser workers retry timeout/selector-style provider failures once, and media workers retry timeout-style FFmpeg render failures once, before the job reaches `failed`
 - browser jobs now write per-attempt request metadata and output registration sidecars under project metadata storage and link those paths from job logs
 - operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, duplicate asset warnings, and non-destructive artifact retention candidates in API responses
-- final-video approval, publish-job preparation, publish approval, and queue-backed manual publish handoffs are implemented before manual published completion
+- final-video approval, publish-job preparation, publish approval, and queue-backed platform-aware manual publish handoffs are implemented before manual published completion
 - manual analytics snapshots and first-pass insight generation are implemented for published jobs
-- Redis-backed execution, automated retry backoff beyond the current inline worker retry, and live progress updates are still planned
+- queued browser, media, publisher, and analytics jobs now publish Redis wake-up signals plus general job events, worker entrypoints keep Redis-backed heartbeats for operations visibility, and the dashboard/project/job/operations screens can subscribe to a live SSE job-event stream while timed refresh remains as fallback; fully blocking Redis-backed execution for inline idea/script planning and automated retry backoff beyond the current inline worker retry are still planned
 
 ## Core Resources
 ### Brand Profiles
@@ -43,6 +46,9 @@
 - `PATCH /api/brand-profiles/:id`
 - `GET /api/brand-profiles`
 
+### Session
+- `GET /api/session`
+
 ### Projects
 - `POST /api/projects`
 - `GET /api/projects/:id`
@@ -52,6 +58,7 @@
 - `POST /api/projects/:id/manual-override`
 - `POST /api/projects/:id/transition`
 - `GET /api/projects/:id/ideas`
+- `GET /api/projects/:id/research`
 - `GET /api/projects/:id/activity`
 - `GET /api/projects/:id/export`
 - `GET /api/projects/:id/analytics`
@@ -61,10 +68,12 @@
 - `GET /api/projects/:id/publish-jobs`
 - `POST /api/projects/:id/assets/approve`
 - `POST /api/projects/:id/assets/reject`
+- `POST /api/projects/:id/compose/final-export`
 - `POST /api/projects/:id/compose/rough-cut`
 - `POST /api/projects/:id/final-video/approve`
 - `POST /api/projects/:id/final-video/reject`
 - `POST /api/projects/:id/publish-jobs/prepare`
+- `POST /api/projects/:id/research/generate`
 - `POST /api/projects/:id/ideas/generate`
 - `GET /api/projects/:id/scripts/current`
 - `POST /api/projects/:id/scripts/generate`
@@ -99,14 +108,19 @@
 - `POST /api/jobs/:id/resume`
 - `POST /api/jobs/:id/retry`
 
+### Events
+- `GET /api/events/background-jobs/stream`
+
 ### Operations
 - `GET /api/operations/recovery`
+- `GET /api/operations/workers`
 
 ### Analytics
 - `GET /api/analytics/account`
 
 ### Publish Jobs
 - `POST /api/publish-jobs/:id/approve`
+- `POST /api/publish-jobs/:id/reject`
 - `PATCH /api/publish-jobs/:id/metadata`
 - `POST /api/publish-jobs/:id/queue`
 - `POST /api/publish-jobs/:id/schedule`
@@ -115,6 +129,25 @@
 - `POST /api/publish-jobs/:id/analytics/queue`
 
 ## Implemented Payloads
+### `GET /api/session`
+Response excerpt:
+```json
+{
+  "auth_mode": "single_user_local",
+  "environment": "development",
+  "requires_approval_checkpoints": true,
+  "user": {
+    "id": "uuid",
+    "email": "creatoros-local@example.com",
+    "name": "CreatorOS Local User"
+  }
+}
+```
+
+Behavior note:
+- the response creates or reuses the configured default user record for personal local development
+- the web shell uses this endpoint for session checks and operator display, not for multi-user auth
+
 ### `POST /api/brand-profiles`
 ```json
 {
@@ -224,6 +257,33 @@ Behavior note:
 Behavior note:
 - manual overrides bypass guarded transition prerequisites but require a reason and leave a project-event audit trail
 
+### `POST /api/projects/:id/research/generate`
+Request body:
+```json
+{
+  "focus_topic": "AI creator workflows",
+  "source_feedback_notes": "Bias this toward tactical proof-led examples."
+}
+```
+
+Response excerpt:
+```json
+{
+  "id": "uuid",
+  "focus_topic": "AI creator workflows",
+  "summary": "For solo founders on youtube_shorts...",
+  "trend_observations_json": ["..."],
+  "competitor_angles_json": ["..."],
+  "posting_strategies_json": ["..."],
+  "recommended_topics_json": ["AI creator workflows", "..."]
+}
+```
+
+Behavior note:
+- creates a completed `generate_idea_research` background job with lifecycle logs before returning the saved snapshot
+- snapshots are project-scoped and remain available in exports for later review
+- the web app surfaces the latest saved research summary plus its trend, competitor, strategy, and topic lists
+
 ### `POST /api/projects/:id/ideas/generate`
 Request body:
 ```json
@@ -234,6 +294,8 @@ Request body:
 
 Behavior note:
 - creates a completed `generate_ideas` background job with lifecycle logs before returning the generated ideas
+- generated idea records now persist `topic`, `score`, `angle`, `rationale`, and approval status
+- when a saved research snapshot exists, the job payload includes `research_snapshot_id` plus the research context used to steer the new idea batch
 - project-level generation jobs may have `script_id: null` because they run before a script exists
 - source feedback notes are copied to the generation job payload and each returned idea
 - same-brand analytics learnings are copied to the generation job payload and influence idea rationales when available
@@ -262,6 +324,11 @@ Response excerpt:
   "feedback_notes": "Lean harder into the transformation angle."
 }
 ```
+
+Behavior note:
+- marks the selected idea as `approved`
+- marks every other non-rejected idea on the project as `rejected`
+- advances the parent project to `script_pending_approval` so script generation becomes the next expected step
 
 ### `POST /api/ideas/:id/reject`
 ```json
@@ -600,6 +667,15 @@ Behavior note:
 - preserves a redacted human-readable reason in `error_message`
 - writes a `manual_intervention_required` job log entry for project activity and recovery queues
 
+### `GET /api/events/background-jobs/stream`
+Behavior note:
+- returns a `text/event-stream` response backed by the general Redis job-events channel
+- optional query params:
+  - `project_id` limits the stream to one project
+  - `job_id` limits the stream to one background job
+- current event types include `stream_open`, `job_event`, `keepalive`, and `stream_error`
+- the web dashboard, project, job, and operations screens use this route for live refresh and keep timed polling as fallback
+
 ### `GET /api/operations/recovery`
 Query parameters:
 - `stale_after_minutes` defaults to `30`
@@ -642,6 +718,38 @@ Behavior note:
 - stale running jobs are `running` jobs whose `updated_at` is older than `stale_after_minutes`
 - quarantined downloads come from `downloads_quarantined` job logs
 - duplicate asset warnings come from `duplicate_asset_detected` job logs
+
+### `GET /api/operations/workers`
+Response excerpt:
+```json
+{
+  "workers": [
+    {
+      "worker_id": "browser-local-1",
+      "worker_name": "browser-worker",
+      "worker_type": "browser",
+      "status": "listening",
+      "redis_listener_enabled": true,
+      "processed_total": 4,
+      "wakeups_seen": 2,
+      "last_job_type": "generate_audio_browser"
+    }
+  ],
+  "summary": {
+    "total_workers": 1,
+    "active_workers": 1,
+    "listening_workers": 1,
+    "processing_workers": 0,
+    "polling_workers": 0,
+    "wakeup_workers": 0
+  }
+}
+```
+
+Behavior note:
+- worker heartbeats are ephemeral Redis records written by the long-lived browser, media, publisher, and analytics service loops
+- `status` reflects the current loop phase such as `listening`, `polling`, `processing`, or `wakeup_received`
+- missing workers simply age out of Redis when their heartbeat TTL expires
 
 ### `GET /api/operations/artifacts/retention-plan`
 Query parameters:
@@ -782,10 +890,46 @@ Behavior note:
 - every scene must have a ready visual asset and the script must have a ready narration asset
 - the media worker marks the rough-cut and subtitle assets ready, then promotes the project to `rough_cut_ready`
 
+### `POST /api/projects/:id/compose/final-export`
+Response excerpt:
+```json
+{
+  "id": "uuid",
+  "project_id": "uuid",
+  "script_id": "uuid",
+  "job_type": "final_export",
+  "provider_name": "local_media",
+  "state": "queued",
+  "payload_json": {
+    "script_version": 1,
+    "scene_count": 4,
+    "rough_cut_asset_id": "uuid",
+    "source_video_asset_id": "uuid-when-a-ready-rough-cut-mp4-exists",
+    "source_video_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234.mp4",
+    "manifest_path": "storage/projects/{project_id}/rough-cuts/script-v1-rough-cut-abcd1234-manifest.json",
+    "subtitle_path": "storage/projects/{project_id}/subtitles/script-v1-rough-cut-abcd1234.srt",
+    "output_asset_id": "uuid",
+    "video_path": "storage/projects/{project_id}/final-exports/script-v1-final-export-efgh5678.mp4",
+    "ffmpeg_command_path": "storage/projects/{project_id}/final-exports/script-v1-final-export-efgh5678-ffmpeg-command.json",
+    "export_profile": {
+      "frame_rate": 30,
+      "height": 1920,
+      "video_codec": "libx264",
+      "width": 1080
+    }
+  }
+}
+```
+
+Behavior note:
+- the route requires a completed rough-cut job for the current script plus a ready rough-cut review asset
+- only one active final-export job may exist for a script at a time
+- the media worker marks the `final_video` asset ready, then promotes the project to `final_pending_approval`
+
 ### `POST /api/projects/:id/final-video/approve`
 Behavior note:
 - requires the project to be in `final_pending_approval`
-- uses the ready rough-cut artifact as the v1 final-review asset until final exports are implemented
+- prefers the latest ready `final_video` artifact for final review and falls back to the latest ready rough cut when a dedicated final export does not exist yet
 - records a `final_video` approval against the asset
 - moves the project to `ready_to_publish`
 
@@ -822,6 +966,13 @@ Behavior note:
 - moves the publish job from `pending_approval` to `approved`
 - does not publish or schedule content by itself
 
+### `POST /api/publish-jobs/:id/reject`
+Behavior note:
+- records a `publish` rejection against the publish job
+- allows rejection while the publish job is still `pending_approval` or `approved`
+- moves the publish job back to `pending_approval` so metadata can be edited and re-approved
+- blocks rejection while an active publish handoff job already exists for that publish job
+
 ### `PATCH /api/publish-jobs/:id/metadata`
 ```json
 {
@@ -851,10 +1002,10 @@ Behavior note:
 Behavior note:
 - requires the publish job to be `approved` or `scheduled`
 - requires the linked final-review asset to still be ready
-- creates a `publish_content` background job using the v1 `manual_publish_handoff` adapter
+- creates a `publish_content` background job using a platform-aware manual adapter selected from the publish platform, with a generic manual fallback for unknown platforms
 - blocks duplicate queued, running, or waiting-external publish handoff jobs for the same publish job
 - writes the planned handoff path to the job payload under `handoff_path`
-- the publisher worker generates the handoff JSON and moves the job to `waiting_external`
+- the publisher worker generates an adapter-specific handoff JSON package and moves the job to `waiting_external`
 - the job is completed only after the user records manual publish completion with `mark-published`
 
 ### `POST /api/publish-jobs/:id/schedule`
@@ -997,7 +1148,6 @@ Behavior note:
 - `POST /api/scripts/:id/regenerate`
 
 ### Rough Cut / Final Video
-- `POST /api/projects/:id/finalize`
 - `GET /api/projects/:id/exports`
 
 ## Example Project State Machine
@@ -1006,11 +1156,13 @@ Behavior note:
 ## Current Guarded Transition Rules
 - the API only allows explicit transitions between known adjacent states
 - invalid jumps return `409 Conflict`
+- approving an idea now moves the project into `script_pending_approval`
 - moving into `script_pending_approval` requires a generated script to exist
 - moving into `asset_generation` now requires the current script version to be explicitly approved
 - scene edits are only allowed while the current script is in `draft` or `rejected` state during script approval
 - scene reorders follow the same script approval gate and prompt packs reject non-contiguous scene order data
 - moving into `rough_cut_ready` requires an approved asset set and a ready rough-cut artifact
+- moving into `final_pending_approval` requires a ready rough-cut or final-export review artifact
 - moving into `ready_to_publish` requires final-video approval
 - moving into `scheduled` requires a scheduled publish job
 - moving into `published` requires a publish job marked as published

@@ -28,6 +28,17 @@ export type BrandProfile = {
   updated_at: string;
 };
 
+export type ViewerSession = {
+  auth_mode: "single_user_local";
+  environment: string;
+  requires_approval_checkpoints: boolean;
+  user: {
+    id: string;
+    email: string;
+    name: string;
+  };
+};
+
 export type BrandProfilePayload = {
   channel_name: string;
   niche: string;
@@ -88,6 +99,7 @@ export type ContentIdea = {
   id: string;
   user_id: string;
   project_id: string;
+  topic: string;
   suggested_title: string;
   hook: string;
   angle: string;
@@ -101,6 +113,26 @@ export type ContentIdea = {
 };
 
 export type IdeaGeneratePayload = {
+  source_feedback_notes?: string | null;
+};
+
+export type IdeaResearchSnapshot = {
+  id: string;
+  user_id: string;
+  project_id: string;
+  focus_topic: string | null;
+  source_feedback_notes: string | null;
+  summary: string;
+  trend_observations_json: string[];
+  competitor_angles_json: string[];
+  posting_strategies_json: string[];
+  recommended_topics_json: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type IdeaResearchGeneratePayload = {
+  focus_topic?: string | null;
   source_feedback_notes?: string | null;
 };
 
@@ -313,6 +345,37 @@ export type OperationsRecovery = {
   };
 };
 
+export type WorkerStatus = {
+  worker_id: string;
+  worker_name: string;
+  worker_type: string;
+  status: string;
+  redis_listener_enabled: boolean;
+  last_seen_at: string;
+  started_at: string;
+  processed_total: number;
+  wakeups_seen: number;
+  last_job_id: string | null;
+  last_job_type: string | null;
+  last_event_type: string | null;
+  active_job_count: number;
+  idle_shutdown_seconds: number;
+  poll_interval_seconds: number;
+  listen_timeout_seconds: number;
+};
+
+export type WorkerPresence = {
+  workers: WorkerStatus[];
+  summary: {
+    total_workers: number;
+    active_workers: number;
+    listening_workers: number;
+    processing_workers: number;
+    polling_workers: number;
+    wakeup_workers: number;
+  };
+};
+
 export type ArtifactRetentionCandidate = {
   asset_id: string;
   project_id: string;
@@ -517,6 +580,7 @@ export type ProjectExport = {
   exported_at: string;
   project: Record<string, unknown>;
   brand_profile: Record<string, unknown>;
+  idea_research_snapshots: Record<string, unknown>[];
   ideas: Record<string, unknown>[];
   scripts: Record<string, unknown>[];
   approvals: Record<string, unknown>[];

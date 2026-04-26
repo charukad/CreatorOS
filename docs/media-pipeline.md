@@ -5,16 +5,19 @@ Turn approved script + generated assets into an automatically assembled short-fo
 
 ## Current Implementation Note
 - after asset approval, the API can queue a `compose_rough_cut` background job
+- after a rough cut is ready, the API can queue a `final_export` background job for the same script
 - the media worker resolves the latest ready narration asset and one ready visual per scene
 - the media worker probes WAV narration duration and uses it as the timeline timing anchor
 - the worker writes a deterministic audio-anchored timeline manifest sidecar file
 - the timeline manifest contract is defined in `packages/shared/src/contracts.ts`
 - the first rough-cut output is an HTML preview artifact registered as a `rough_cut` asset
 - the worker also writes an SRT subtitle sidecar registered as a `subtitle_file` asset
-- the worker writes a JSON FFmpeg command-plan sidecar for the future MP4 render
+- the worker writes JSON FFmpeg command-plan sidecars for rough cuts and final exports
 - optional FFmpeg-based MP4 rendering is available behind `MEDIA_ENABLE_FFMPEG_RENDER=true`
+- final exports are persisted as `final_video` assets and promote the project to `final_pending_approval`
+- when FFmpeg rendering is disabled but a ready rough-cut MP4 already exists, the final-export job reuses that source video instead of failing
 - timeout-style FFmpeg render failures are retried once inline before the media job fails
-- real local FFmpeg install/manual MP4 QA, transitions, and final export are still pending
+- real local FFmpeg install/manual MP4 QA and real sample export QA are still pending
 
 ## Inputs
 - approved script
@@ -71,6 +74,7 @@ continues to enforce the same core rules at runtime.
 - H.264 mp4 in v1
 - save subtitles as separate artifact where possible
 - preserve timeline manifest for later edits/regeneration
+- prefer the dedicated `final_video` export for final review and publish preparation when it exists
 
 ## FFmpeg Responsibilities
 - concat scene media
@@ -83,7 +87,9 @@ continues to enforce the same core rules at runtime.
 ## Current FFmpeg Command Plan
 - command builders live under `workers/media/ffmpeg`
 - rough-cut jobs write an auditable command plan beside the manifest
+- final-export jobs write a second auditable command plan beside the final-video output path
 - the planned command loops static images, trims/loops video clips to the timeline duration, draws scene overlay text, applies first-pass fade in/out transitions, concats the video streams, maps the narration audio, and applies the generated SRT subtitle file
 - command-plan sidecars include export profile settings, inputs, outputs, and the full FFmpeg argv list for audit/debugging
 - actual execution remains disabled until FFmpeg is installed and `MEDIA_ENABLE_FFMPEG_RENDER=true`
-- when execution succeeds, the worker registers a separate `video/mp4` rough-cut asset
+- when rough-cut execution succeeds, the worker registers a separate `video/mp4` rough-cut asset
+- when final-export execution succeeds, the worker registers a `final_video` asset for approval and publish preparation

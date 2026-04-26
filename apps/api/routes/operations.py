@@ -8,10 +8,12 @@ from apps.api.db.session import get_db
 from apps.api.schemas.content_workflow import (
     ArtifactRetentionPlanResponse,
     OperationsRecoveryResponse,
+    WorkerPresenceResponse,
 )
 from apps.api.services.artifact_retention import build_artifact_retention_plan
 from apps.api.services.operations import get_operations_recovery_snapshot
 from apps.api.services.users import get_or_create_default_user
+from apps.api.services.worker_presence import list_worker_heartbeats
 
 router = APIRouter(prefix="/operations", tags=["operations"])
 
@@ -46,3 +48,22 @@ def get_artifact_retention_plan_route(
         storage_root=settings.storage_root,
         limit=limit,
     )
+
+
+@router.get("/workers", response_model=WorkerPresenceResponse)
+def get_worker_presence_route() -> WorkerPresenceResponse:
+    settings = get_settings()
+    workers = list_worker_heartbeats(settings.redis_url)
+    summary = {
+        "total_workers": len(workers),
+        "active_workers": sum(
+            1
+            for worker in workers
+            if worker["status"] in {"processing", "listening", "polling", "wakeup_received"}
+        ),
+        "listening_workers": sum(1 for worker in workers if worker["status"] == "listening"),
+        "processing_workers": sum(1 for worker in workers if worker["status"] == "processing"),
+        "polling_workers": sum(1 for worker in workers if worker["status"] == "polling"),
+        "wakeup_workers": sum(1 for worker in workers if worker["status"] == "wakeup_received"),
+    }
+    return WorkerPresenceResponse(workers=workers, summary=summary)

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { startTransition, useState, type Dispatch, type SetStateAction } from "react";
+import { useToast } from "./toast-provider";
 import { queuePublishJobAnalyticsSync } from "../lib/api";
 import type { BackgroundJob, ProjectAnalytics, PublishJob } from "../types/api";
 
@@ -21,6 +22,7 @@ function formatPercent(value: number | null): string {
 
 export function ProjectAnalyticsPanel({ analytics, jobs, publishJobs }: ProjectAnalyticsPanelProps) {
   const router = useRouter();
+  const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [views, setViews] = useState("1000");
@@ -54,13 +56,23 @@ export function ProjectAnalyticsPanel({ analytics, jobs, publishJobs }: ProjectA
         views: Number(views),
       })
         .then(() => {
+          pushToast({
+            title: "Analytics sync queued",
+            description: "The latest manual metrics were handed to the analytics worker for persistence and insight generation.",
+            tone: "success",
+          });
           router.refresh();
           setPendingAction(null);
         })
         .catch((actionError) => {
-          setError(
-            actionError instanceof Error ? actionError.message : "Unable to queue analytics sync.",
-          );
+          const message =
+            actionError instanceof Error ? actionError.message : "Unable to queue analytics sync.";
+          setError(message);
+          pushToast({
+            title: "Analytics sync failed",
+            description: message,
+            tone: "error",
+          });
           setPendingAction(null);
         });
     });

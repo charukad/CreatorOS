@@ -13,6 +13,7 @@ import {
   manualOverrideProjectStatus,
   transitionProjectStatus,
 } from "../lib/api";
+import { useToast } from "./toast-provider";
 import type {
   ApprovalRecord,
   Asset,
@@ -62,6 +63,7 @@ export function ProjectStatusActions({
   publishJobs,
 }: ProjectStatusActionsProps) {
   const router = useRouter();
+  const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [manualReason, setManualReason] = useState("");
   const [manualTarget, setManualTarget] = useState<Project["status"]>("failed");
@@ -91,8 +93,15 @@ export function ProjectStatusActions({
   const hasReadyRoughCutAsset = currentScriptAssets.some(
     (asset) => asset.status === "ready" && asset.asset_type === "rough_cut",
   );
+  const hasReadyFinalVideoAsset = currentScriptAssets.some(
+    (asset) => asset.status === "ready" && asset.asset_type === "final_video",
+  );
   const readyRoughCutAssetIds = currentScriptAssets
-    .filter((asset) => asset.status === "ready" && asset.asset_type === "rough_cut")
+    .filter(
+      (asset) =>
+        asset.status === "ready" &&
+        (asset.asset_type === "rough_cut" || asset.asset_type === "final_video"),
+    )
     .map((asset) => asset.id);
   const latestAssetApproval =
     currentScript === null
@@ -135,8 +144,8 @@ export function ProjectStatusActions({
       return "Queue and run the rough-cut media worker before marking the rough cut ready.";
     }
 
-    if (targetStatus === "final_pending_approval" && !hasReadyRoughCutAsset) {
-      return "Create a ready rough cut before starting final approval.";
+    if (targetStatus === "final_pending_approval" && !hasReadyRoughCutAsset && !hasReadyFinalVideoAsset) {
+      return "Create a ready rough cut or final export before starting final approval.";
     }
 
     if (
@@ -157,6 +166,10 @@ export function ProjectStatusActions({
     return null;
   }
 
+  function describeStatusSuccess(targetStatus: Project["status"]): string {
+    return `Project moved to ${projectStatusLabels[targetStatus].toLowerCase()}.`;
+  }
+
   function handleTransition(targetStatus: Project["status"]) {
     setError(null);
     setNotice(null);
@@ -165,14 +178,24 @@ export function ProjectStatusActions({
     startTransition(() => {
       void transitionProjectStatus(project.id, { target_status: targetStatus })
         .then(() => {
+          pushToast({
+            title: "Project status updated",
+            description: describeStatusSuccess(targetStatus),
+            tone: "success",
+          });
           router.refresh();
         })
         .catch((transitionError) => {
-          setError(
+          const message =
             transitionError instanceof Error
               ? transitionError.message
-              : "Unable to update project status.",
-          );
+              : "Unable to update project status.";
+          setError(message);
+          pushToast({
+            title: "Project status update failed",
+            description: message,
+            tone: "error",
+          });
           setPendingTarget(null);
         });
     });
@@ -188,14 +211,24 @@ export function ProjectStatusActions({
         reason: manualReason.trim() || "Archived from the project workflow controls.",
       })
         .then(() => {
+          pushToast({
+            title: "Project archived",
+            description: "The project was moved out of the active workflow.",
+            tone: "success",
+          });
           router.refresh();
         })
         .catch((archiveError) => {
-          setError(
+          const message =
             archiveError instanceof Error
               ? archiveError.message
-              : "Unable to archive this project.",
-          );
+              : "Unable to archive this project.";
+          setError(message);
+          pushToast({
+            title: "Project archive failed",
+            description: message,
+            tone: "error",
+          });
           setPendingTarget(null);
         });
     });
@@ -206,7 +239,13 @@ export function ProjectStatusActions({
     setNotice(null);
 
     if (manualReason.trim().length === 0) {
-      setError("Add a manual override reason before forcing a workflow status.");
+      const message = "Add a manual override reason before forcing a workflow status.";
+      setError(message);
+      pushToast({
+        title: "Manual override needs a reason",
+        description: message,
+        tone: "error",
+      });
       return;
     }
 
@@ -217,14 +256,24 @@ export function ProjectStatusActions({
         reason: manualReason.trim(),
       })
         .then(() => {
+          pushToast({
+            title: "Manual override recorded",
+            description: `Project status was forced to ${projectStatusLabels[manualTarget].toLowerCase()} with an audit note.`,
+            tone: "success",
+          });
           router.refresh();
         })
         .catch((overrideError) => {
-          setError(
+          const message =
             overrideError instanceof Error
               ? overrideError.message
-              : "Unable to apply the manual override.",
-          );
+              : "Unable to apply the manual override.";
+          setError(message);
+          pushToast({
+            title: "Manual override failed",
+            description: message,
+            tone: "error",
+          });
           setPendingTarget(null);
         });
     });
@@ -237,16 +286,25 @@ export function ProjectStatusActions({
       void exportProject(project.id)
         .then((bundle) => {
           const byteSize = new Blob([JSON.stringify(bundle)]).size;
-          setNotice(
-            `Project export is ready: ${bundle.ideas.length} ideas, ${bundle.scripts.length} scripts, ${bundle.assets.length} assets, ${byteSize.toLocaleString()} bytes.`,
-          );
+          const message = `Project export is ready: ${bundle.ideas.length} ideas, ${bundle.scripts.length} scripts, ${bundle.assets.length} assets, ${byteSize.toLocaleString()} bytes.`;
+          setNotice(message);
+          pushToast({
+            title: "Project export prepared",
+            description: message,
+            tone: "success",
+          });
         })
         .catch((exportError) => {
-          setError(
+          const message =
             exportError instanceof Error
               ? exportError.message
-              : "Unable to export this project.",
-          );
+              : "Unable to export this project.";
+          setError(message);
+          pushToast({
+            title: "Project export failed",
+            description: message,
+            tone: "error",
+          });
         });
     });
   }

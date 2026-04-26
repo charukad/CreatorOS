@@ -45,6 +45,9 @@ jobs:
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/python -m pip install -r requirements.txt
 
+      - name: Scan for hardcoded secrets
+        run: ./scripts/secret_scan.py
+
       - name: Lint Python
         run: .venv/bin/ruff check .
 

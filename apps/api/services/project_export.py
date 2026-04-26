@@ -10,6 +10,7 @@ from apps.api.models.approval import Approval
 from apps.api.models.asset import Asset
 from apps.api.models.background_job import BackgroundJob
 from apps.api.models.content_idea import ContentIdea
+from apps.api.models.idea_research_snapshot import IdeaResearchSnapshot
 from apps.api.models.insight import Insight
 from apps.api.models.project import Project
 from apps.api.models.project_event import ProjectEvent
@@ -39,6 +40,7 @@ def build_project_export_bundle(db: Session, project: Project) -> dict[str, Any]
         "exported_at": datetime.now(UTC),
         "project": project,
         "brand_profile": project.brand_profile,
+        "idea_research_snapshots": _list_by_project(db, IdeaResearchSnapshot, project),
         "ideas": _list_by_project(db, ContentIdea, project),
         "scripts": scripts,
         "approvals": _list_by_project(db, Approval, project),

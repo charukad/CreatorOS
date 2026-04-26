@@ -15,7 +15,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 from workers.browser.config import BrowserWorkerSettings
-from workers.browser.providers import ProviderJobPayload
+from workers.browser.providers import DryRunElevenLabsProvider, ProviderJobPayload
 from workers.browser.providers.debug_artifacts import write_failure_debug_artifacts
 from workers.browser.runtime import _materialize_attempt_outputs, run_pending_jobs
 
@@ -425,7 +425,7 @@ def test_browser_worker_captures_failure_screenshot_and_html_artifacts(
 
     monkeypatch.setattr(
         "workers.browser.runtime._get_provider",
-        lambda settings, job_type: FailingBrowserProvider(
+        lambda settings, job, selector_bundle=None, session_descriptor=None: FailingBrowserProvider(
             tmp_path / "downloads" / "debug" / "failing"
         ),
     )
@@ -489,9 +489,11 @@ def test_browser_worker_retries_retryable_provider_failures_once(
 
     monkeypatch.setattr(
         "workers.browser.runtime._get_provider",
-        lambda settings, job_type: RetryOnceBrowserProvider(
-            tmp_path / "downloads",
-            failure_message=failure_message,
+        lambda settings, job, selector_bundle=None, session_descriptor=None: (
+            RetryOnceBrowserProvider(
+                tmp_path / "downloads",
+                failure_message=failure_message,
+            )
         ),
     )
 
@@ -537,8 +539,8 @@ def test_browser_worker_pauses_for_manual_intervention_without_leaking_secrets(
 
     monkeypatch.setattr(
         "workers.browser.runtime._get_provider",
-        lambda settings, job_type: ManualInterventionBrowserProvider(
-            tmp_path / "downloads" / "debug" / "manual"
+        lambda settings, job, selector_bundle=None, session_descriptor=None: (
+            ManualInterventionBrowserProvider(tmp_path / "downloads" / "debug" / "manual")
         ),
     )
 
@@ -786,6 +788,73 @@ def test_browser_worker_quarantines_conflicting_canonical_asset_file(
         assert conflict_log.metadata_json["asset_id"] == str(asset.id)
 
     app.dependency_overrides.clear()
+
+
+def test_browser_worker_rejects_canonical_asset_paths_outside_storage_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    session_factory = _create_test_session()
+    client = _make_test_client(session_factory)
+
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Reject escaped asset path",
+        objective="Validate browser ingest path boundary checks",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(f"/api/projects/{project_id}/generate/audio", json={})
+    assert queue_response.status_code == 201
+
+    incoming_download = tmp_path / "provider-output.wav"
+    incoming_download.write_bytes(b"safe bytes")
+
+    with session_factory() as session:
+        job = get_background_job(session, UUID(queue_response.json()["id"]))
+        assert job is not None
+        attempt = job.generation_attempts[0]
+        asset = attempt.assets[0]
+        asset.file_path = str(tmp_path / "outside-storage" / "escaped.wav")
+        session.add(asset)
+        session.commit()
+
+        with pytest.raises(ValueError, match="Browser asset destination path must stay"):
+            _materialize_attempt_outputs(session, attempt, [str(incoming_download)])
+
+    app.dependency_overrides.clear()
+
+
+def test_browser_debug_artifacts_redact_secret_like_values(tmp_path: Path) -> None:
+    provider = DryRunElevenLabsProvider(tmp_path / "downloads")
+    job_id = provider.submit_job(
+        ProviderJobPayload(
+            project_id="project-1",
+            prompt="Narration token=raw-token api_key=raw-key",
+        )
+    )
+
+    prompt_artifacts = provider.capture_debug_artifacts(job_id)
+    prompt_text = Path(prompt_artifacts[0]).read_text(encoding="utf-8")
+    assert "raw-token" not in prompt_text
+    assert "raw-key" not in prompt_text
+    assert "[redacted]" in prompt_text
+
+    failure_artifacts = write_failure_debug_artifacts(
+        tmp_path / "downloads" / "debug",
+        provider_job_id=job_id,
+        error=RuntimeError("cookie=session-secret"),
+        snapshot_html="<html><body>token=raw-token</body></html>",
+    )
+    failure_html = Path(failure_artifacts[1]).read_text(encoding="utf-8")
+    assert "raw-token" not in failure_html
+    assert "session-secret" not in failure_html
+    assert "[redacted]" in failure_html
 
 
 def test_asset_review_routes_update_status_and_approval_history(

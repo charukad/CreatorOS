@@ -1,0 +1,54 @@
+name: Dependency Audit
+
+on:
+  schedule:
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    name: Audit dependencies and report stale packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies and audit tooling
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt pip-audit
+
+      - name: Run dependency audit
+        run: ./scripts/dependency_audit.sh
+
+      - name: Summarize outdated dependencies
+        run: |
+          {
+            echo "## pnpm outdated"
+            echo
+            pnpm outdated || true
+            echo
+            echo "## pip outdated"
+            echo
+            .venv/bin/python -m pip list --outdated || true
+          } >> "$GITHUB_STEP_SUMMARY"

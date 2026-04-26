@@ -1,3 +1,5 @@
+"use client";
+
 import {
   assetStatusLabels,
   backgroundJobStateLabels,
@@ -6,17 +8,22 @@ import {
 } from "@creatoros/shared";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { useBackgroundJobEventRefresh } from "./use-background-job-event-refresh";
+import { useAutoRefresh } from "./use-auto-refresh";
 import type {
   ArtifactRetentionCandidate,
   ArtifactRetentionPlan,
   OperationsRecovery,
   RecoveryJob,
   RecoveryLog,
+  WorkerPresence,
+  WorkerStatus,
 } from "../types/api";
 
 type OperationsRecoveryCenterProps = {
   recovery: OperationsRecovery;
   retentionPlan: ArtifactRetentionPlan;
+  workerPresence: WorkerPresence;
 };
 
 function formatTimestamp(value: string): string {
@@ -42,6 +49,20 @@ function formatLabel(value: string): string {
 
 function formatMetadata(metadata: Record<string, unknown>): string {
   return JSON.stringify(metadata, null, 2);
+}
+
+function workerStatusClassName(status: string): string {
+  switch (status) {
+    case "processing":
+      return "border-emerald-300/30 bg-emerald-400/10 text-emerald-100";
+    case "wakeup_received":
+      return "border-cyan-300/30 bg-cyan-400/10 text-cyan-100";
+    case "listening":
+    case "polling":
+      return "border-sky-300/30 bg-sky-400/10 text-sky-100";
+    default:
+      return "border-white/10 bg-white/5 text-slate-100";
+  }
 }
 
 function JobRecoveryCard({ item }: { item: RecoveryJob }) {
@@ -191,6 +212,51 @@ function RetentionCandidateCard({ item }: { item: ArtifactRetentionCandidate }) 
   );
 }
 
+function WorkerStatusCard({ worker }: { worker: WorkerStatus }) {
+  return (
+    <article className="rounded-2xl border border-white/8 bg-slate-950/40 p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex flex-wrap gap-2">
+            <span
+              className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${workerStatusClassName(worker.status)}`}
+            >
+              {formatLabel(worker.status)}
+            </span>
+            <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-100">
+              {formatLabel(worker.worker_type)}
+            </span>
+            <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100">
+              {worker.redis_listener_enabled ? "Redis listener" : "Polling only"}
+            </span>
+          </div>
+          <h3 className="mt-4 text-lg font-semibold text-white">{worker.worker_name}</h3>
+          <p className="mt-3 text-sm leading-6 text-slate-300">
+            Last seen {formatTimestamp(worker.last_seen_at)}.
+            {worker.last_event_type ? ` Latest event: ${formatLabel(worker.last_event_type)}.` : ""}
+          </p>
+        </div>
+        <div className="text-sm text-slate-300 lg:text-right">
+          <p>Processed jobs: {worker.processed_total}</p>
+          <p>Wake-ups: {worker.wakeups_seen}</p>
+          <p>Active jobs in loop: {worker.active_job_count}</p>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 text-sm text-slate-300 md:grid-cols-3">
+        <p>Started: {formatTimestamp(worker.started_at)}</p>
+        <p>Poll interval: {worker.poll_interval_seconds}s</p>
+        <p>Listen timeout: {worker.listen_timeout_seconds}s</p>
+      </div>
+      {worker.last_job_id || worker.last_job_type ? (
+        <p className="mt-3 text-xs uppercase tracking-[0.16em] text-slate-500">
+          Last job: {worker.last_job_type ? formatLabel(worker.last_job_type) : "Unknown"}
+          {worker.last_job_id ? ` · ${worker.last_job_id}` : ""}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
 function RecoverySection({
   children,
   count,
@@ -229,9 +295,16 @@ function EmptyRecoveryState({ label }: { label: string }) {
 export function OperationsRecoveryCenter({
   recovery,
   retentionPlan,
+  workerPresence,
 }: OperationsRecoveryCenterProps) {
   const totalAttentionItems = recovery.summary.total_attention_items;
   const retentionSummary = retentionPlan.summary;
+  const liveUpdatesEnabled =
+    workerPresence.summary.active_workers > 0 || totalAttentionItems > 0;
+  const { isLiveConnected } = useBackgroundJobEventRefresh({
+    enabled: liveUpdatesEnabled,
+  });
+  useAutoRefresh({ enabled: workerPresence.summary.active_workers > 0, intervalMs: 8000 });
 
   return (
     <section className="grid gap-6">
@@ -246,7 +319,8 @@ export function OperationsRecoveryCenter({
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-slate-300">
               This page collects failed jobs, manual-intervention jobs, stale running work,
-              quarantined downloads, and duplicate asset warnings into one operator view.
+              quarantined downloads, duplicate asset warnings, and live worker presence into one
+              operator view.
             </p>
           </div>
           <div className="rounded-2xl border border-amber-300/20 bg-amber-400/10 p-5 text-sm text-amber-50">
@@ -260,6 +334,28 @@ export function OperationsRecoveryCenter({
 
       <section className="grid gap-4 md:grid-cols-5">
         {Object.entries(recovery.summary).map(([key, value]) => (
+          <article className="rounded-2xl border border-white/8 bg-white/4 p-4" key={key}>
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+              {key.replaceAll("_", " ")}
+            </p>
+            <p className="mt-2 text-3xl font-semibold text-white">{value}</p>
+          </article>
+        ))}
+      </section>
+
+      {workerPresence.summary.active_workers > 0 ? (
+        <section className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">
+          {isLiveConnected
+            ? "Live job events are connected for operations, and timed refresh remains active while workers are busy."
+            : "Auto-refresh is on while workers are active, and the page will reconnect to the live event stream when available."}{" "}
+          {workerPresence.summary.active_workers} worker
+          {workerPresence.summary.active_workers === 1 ? "" : "s"} are actively listening,
+          polling, or processing jobs.
+        </section>
+      ) : null}
+
+      <section className="grid gap-4 md:grid-cols-6">
+        {Object.entries(workerPresence.summary).map(([key, value]) => (
           <article className="rounded-2xl border border-white/8 bg-white/4 p-4" key={key}>
             <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
               {key.replaceAll("_", " ")}
@@ -295,6 +391,20 @@ export function OperationsRecoveryCenter({
           </p>
         </article>
       </section>
+
+      <RecoverySection
+        count={workerPresence.workers.length}
+        description="Worker presence comes from Redis heartbeats written by the long-lived browser, media, publisher, and analytics service loops."
+        title="Worker Status"
+      >
+        {workerPresence.workers.length === 0 ? (
+          <EmptyRecoveryState label="worker heartbeats" />
+        ) : (
+          workerPresence.workers.map((worker) => (
+            <WorkerStatusCard key={worker.worker_id} worker={worker} />
+          ))
+        )}
+      </RecoverySection>
 
       <RecoverySection
         count={recovery.failed_jobs.length}

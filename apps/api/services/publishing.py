@@ -30,6 +30,8 @@ from apps.api.schemas.enums import (
 from apps.api.services.approvals import create_approval_record, get_latest_stage_approval
 from apps.api.services.background_jobs import create_job_log
 from apps.api.services.project_events import create_project_event
+from apps.api.services.publish_adapters import resolve_publish_adapter_name
+from apps.api.services.queue_events import emit_background_job_event
 from apps.api.services.storage_paths import build_project_storage_path
 
 ACTIVE_PUBLISH_JOB_STATUSES = {
@@ -237,6 +239,58 @@ def approve_publish_job(
     return publish_job
 
 
+def reject_publish_job(
+    db: Session,
+    *,
+    user: User,
+    project: Project,
+    publish_job: PublishJob,
+    feedback_notes: str | None = None,
+) -> PublishJob:
+    if publish_job.project_id != project.id:
+        raise ValueError("The selected publish job does not belong to this project.")
+
+    if publish_job.status not in {
+        PublishJobStatus.PENDING_APPROVAL,
+        PublishJobStatus.APPROVED,
+    }:
+        raise ValueError("Only pending or approved publish jobs can be rejected.")
+
+    active_handoff_job = _get_active_publish_content_job(db, publish_job)
+    if active_handoff_job is not None:
+        raise ValueError("Publish jobs with an active handoff job cannot be rejected.")
+
+    previous_status = publish_job.status
+    create_approval_record(
+        db,
+        user=user,
+        project=project,
+        target_type=ApprovalTargetType.PUBLISH_JOB,
+        target_id=publish_job.id,
+        stage=ApprovalStage.PUBLISH,
+        decision=ApprovalDecision.REJECTED,
+        feedback_notes=feedback_notes,
+    )
+    publish_job.status = PublishJobStatus.PENDING_APPROVAL
+    db.add(publish_job)
+    create_project_event(
+        db,
+        project,
+        event_type="publish_job_rejected",
+        title="Publish job rejected",
+        description=feedback_notes,
+        level="warning",
+        metadata={
+            "publish_job_id": str(publish_job.id),
+            "platform": publish_job.platform,
+            "previous_status": previous_status.value,
+        },
+    )
+    db.commit()
+    db.refresh(publish_job)
+    return publish_job
+
+
 def update_publish_job_metadata(
     db: Session,
     *,
@@ -410,6 +464,7 @@ def queue_publish_content_job(
 
     short_publish_job_id = str(publish_job.id).split("-")[0]
     correlation_id = str(uuid4())
+    adapter_name = resolve_publish_adapter_name(publish_job.platform)
     handoff_path = build_project_storage_path(
         project.id,
         "publish",
@@ -424,7 +479,7 @@ def queue_publish_content_job(
         state=BackgroundJobState.QUEUED,
         payload_json={
             "job_type": BackgroundJobType.PUBLISH_CONTENT.value,
-            "adapter_name": "manual_publish_handoff",
+            "adapter_name": adapter_name,
             "publish_job_id": str(publish_job.id),
             "approved_publish_job_state": publish_job.status.value,
             "platform": publish_job.platform,
@@ -446,7 +501,7 @@ def queue_publish_content_job(
         event_type="job_queued",
         message="Manual publish handoff job was queued.",
         metadata={
-            "adapter_name": "manual_publish_handoff",
+            "adapter_name": adapter_name,
             "publish_job_id": str(publish_job.id),
             "platform": publish_job.platform,
             "handoff_path": handoff_path,
@@ -468,6 +523,12 @@ def queue_publish_content_job(
     )
     db.commit()
     db.refresh(job)
+    emit_background_job_event(
+        job,
+        event_type="job_queued",
+        publish_to_worker_queue=True,
+        metadata={"queue_reason": "publish_handoff"},
+    )
     return job
 
 
@@ -558,20 +619,25 @@ def _validate_final_approval_state(
         raise ValueError("The selected script does not belong to this project.")
 
     if final_asset is None:
-        raise ValueError("A ready rough-cut or final video asset is required for final review.")
+        raise ValueError("A ready final-review asset is required for final review.")
 
 
 def get_latest_ready_final_review_asset(db: Session, script: ProjectScript) -> Asset | None:
-    statement = (
-        select(Asset)
-        .where(
-            Asset.script_id == script.id,
-            Asset.asset_type == AssetType.ROUGH_CUT,
-            Asset.status == AssetStatus.READY,
+    assets = list(
+        db.scalars(
+            select(Asset)
+            .where(
+                Asset.script_id == script.id,
+                Asset.asset_type.in_((AssetType.FINAL_VIDEO, AssetType.ROUGH_CUT)),
+                Asset.status == AssetStatus.READY,
+            )
+            .order_by(desc(Asset.updated_at), desc(Asset.created_at))
         )
-        .order_by(desc(Asset.updated_at), desc(Asset.created_at))
     )
-    return db.scalar(statement)
+    for asset in assets:
+        if asset.asset_type == AssetType.FINAL_VIDEO:
+            return asset
+    return assets[0] if assets else None
 
 
 def _get_publish_job_by_idempotency_key(
@@ -601,7 +667,10 @@ def _get_active_publish_job(
     return db.scalar(statement)
 
 
-def _ensure_no_active_publish_content_job(db: Session, publish_job: PublishJob) -> None:
+def _get_active_publish_content_job(
+    db: Session,
+    publish_job: PublishJob,
+) -> BackgroundJob | None:
     statement = select(BackgroundJob).where(
         BackgroundJob.project_id == publish_job.project_id,
         BackgroundJob.script_id == publish_job.script_id,
@@ -609,7 +678,11 @@ def _ensure_no_active_publish_content_job(db: Session, publish_job: PublishJob) 
         BackgroundJob.state.in_(ACTIVE_PUBLISH_EXECUTION_STATES),
         BackgroundJob.payload_json["publish_job_id"].as_string() == str(publish_job.id),
     )
-    existing_job = db.scalar(statement)
+    return db.scalar(statement)
+
+
+def _ensure_no_active_publish_content_job(db: Session, publish_job: PublishJob) -> None:
+    existing_job = _get_active_publish_content_job(db, publish_job)
     if existing_job is not None:
         raise ValueError("An active publish handoff job already exists for this publish job.")
 

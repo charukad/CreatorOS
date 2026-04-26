@@ -24,7 +24,7 @@ from apps.api.services.background_jobs import (
 from apps.api.services.project_events import create_project_event
 from sqlalchemy.orm import Session, sessionmaker
 
-from workers.publisher.adapters import ManualPublishHandoffAdapter
+from workers.publisher.adapters import get_publish_adapter
 from workers.publisher.config import PublisherWorkerSettings
 
 logger = logging.getLogger(__name__)
@@ -74,7 +74,13 @@ def _process_job(session: Session, job: BackgroundJob) -> None:
     if publish_job.status not in {PublishJobStatus.APPROVED, PublishJobStatus.SCHEDULED}:
         raise ValueError("Publish handoff requires an approved or scheduled publish job.")
 
-    adapter = ManualPublishHandoffAdapter()
+    requested_adapter_name = job.payload_json.get("adapter_name")
+    adapter = get_publish_adapter(
+        platform=publish_job.platform,
+        adapter_name=str(requested_adapter_name)
+        if isinstance(requested_adapter_name, str)
+        else None,
+    )
     handoff_package = adapter.build_handoff_package(
         project=project,
         publish_job=publish_job,

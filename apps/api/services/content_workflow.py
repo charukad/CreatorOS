@@ -97,6 +97,7 @@ def generate_content_ideas(
     project: Project,
     brand_profile: BrandProfile,
     *,
+    idea_research_context: dict[str, object] | None = None,
     source_feedback_notes: str | None = None,
     analytics_learning_context: dict[str, object] | None = None,
 ) -> list[ContentIdea]:
@@ -109,6 +110,7 @@ def generate_content_ideas(
         ContentIdea(
             user_id=user.id,
             project_id=project.id,
+            topic=str(idea["topic"]),
             suggested_title=idea["suggested_title"],
             hook=idea["hook"],
             angle=idea["angle"],
@@ -120,6 +122,7 @@ def generate_content_ideas(
             project,
             brand_profile,
             source_feedback_notes,
+            idea_research_context=idea_research_context,
             analytics_learning_context=analytics_learning_context,
         )
     ]
@@ -161,6 +164,8 @@ def approve_content_idea(
 
         db.add(existing_idea)
 
+    project.status = ProjectStatus.SCRIPT_PENDING_APPROVAL
+    db.add(project)
     create_approval_record(
         db,
         user=user,
@@ -565,10 +570,12 @@ def validate_project_transition_prerequisites(
             raise ValueError(
                 f"Project cannot transition to '{target_status.value}' without a generated script."
             )
-        if not has_ready_rough_cut(db, current_script):
+        from apps.api.services.publishing import get_latest_ready_final_review_asset
+
+        if get_latest_ready_final_review_asset(db, current_script) is None:
             raise ValueError(
                 "Project cannot transition to 'final_pending_approval' until a rough-cut "
-                "artifact is ready for final review."
+                "or final-export artifact is ready for review."
             )
 
     if target_status == ProjectStatus.READY_TO_PUBLISH:
@@ -639,9 +646,19 @@ def _build_idea_candidates(
     brand_profile: BrandProfile,
     source_feedback_notes: str | None = None,
     *,
+    idea_research_context: dict[str, object] | None = None,
     analytics_learning_context: dict[str, object] | None = None,
 ) -> Sequence[dict[str, str | int]]:
-    topic = _normalize_phrase(project.title)
+    research_topics = _research_topics(
+        idea_research_context,
+        fallback=_normalize_phrase(project.title),
+    )
+    research_summary = _normalize_phrase(
+        str(idea_research_context.get("summary", "")) if idea_research_context else ""
+    )
+    trend_observations = _research_lines(idea_research_context, "trend_observations")
+    competitor_angles = _research_lines(idea_research_context, "competitor_angles")
+    posting_strategies = _research_lines(idea_research_context, "posting_strategies")
     objective = _normalize_phrase(project.objective)
     audience = _normalize_phrase(brand_profile.target_audience)
     tone = _normalize_phrase(brand_profile.tone)
@@ -661,62 +678,132 @@ def _build_idea_candidates(
     audience_short = audience.split(",")[0]
     revised_prefix = "Revised: " if revision_note else ""
     learned_prefix = "Analytics-backed: " if learning_focus and not revised_prefix else ""
+    research_prefix = (
+        "Research-led: " if research_summary and not revised_prefix and not learned_prefix else ""
+    )
+    primary_topic = research_topics[0]
+    secondary_topic = research_topics[1] if len(research_topics) > 1 else primary_topic
+    tertiary_topic = research_topics[2] if len(research_topics) > 2 else primary_topic
+    first_trend = trend_observations[0] if trend_observations else ""
+    first_competitor = competitor_angles[0] if competitor_angles else ""
+    first_strategy = posting_strategies[0] if posting_strategies else ""
+    research_guidance = f" Research summary: {research_summary}." if research_summary else ""
+    research_rationale_suffix = (
+        f" Uses research guidance from the latest snapshot.{research_guidance}"
+        if research_summary
+        else ""
+    )
 
     return [
         {
+            "topic": primary_topic,
             "suggested_title": (
-                f"{revised_prefix}{learned_prefix}3 ways {audience_short} can apply "
-                f"{topic} this week"
+                f"{revised_prefix}{learned_prefix}{research_prefix}3 ways "
+                f"{audience_short} can apply "
+                f"{primary_topic} this week"
             ),
             "hook": (
-                f"What if {topic.lower()} could save {audience_short.lower()} hours this week"
+                f"What if {primary_topic.lower()} could save {audience_short.lower()} "
+                "hours this week"
                 f"{question_open}"
             ),
             "angle": (
                 f"Turn {objective.lower()} into a practical three-step playbook tailored to "
-                f"{audience_short.lower()}."
+                f"{audience_short.lower()} and focused on {primary_topic.lower()}."
                 + (f" Use the revision focus: {revision_note}." if revision_note else "")
+                + (f" Use this research observation: {first_trend}." if first_trend else "")
                 + learning_guidance
             ),
             "rationale": (
                 f"Fits the {tone.lower()} tone, gives {platform} viewers a fast payoff, and leaves "
                 f"room for a {cta_style.lower()} ending.{revision_guidance}{learning_guidance}"
+                f"{research_rationale_suffix}"
             ),
             "score": 94 if learning_focus else 91,
         },
         {
-            "suggested_title": f"{revised_prefix}The biggest {topic} mistake creators still make",
-            "hook": f"Most creators overcomplicate {topic.lower()} before they ever get results.",
+            "topic": secondary_topic,
+            "suggested_title": (
+                f"{revised_prefix}The biggest {secondary_topic} mistake creators still make"
+            ),
+            "hook": (
+                f"Most creators overcomplicate {secondary_topic.lower()} before they ever get "
+                "results."
+            ),
             "angle": (
                 "Lead with the common mistake, then reframe the workflow into a lighter, more "
                 "repeatable process."
                 + (f" Fold in this requested direction: {revision_note}." if revision_note else "")
+                + (
+                    f" Differentiate with this competitor gap: {first_competitor}."
+                    if first_competitor
+                    else ""
+                )
                 + learning_guidance
             ),
             "rationale": (
                 f"Good for {platform} because it creates tension quickly and matches the brand's "
                 f"{hook_style.lower()} hook instinct.{revision_guidance}{learning_guidance}"
+                f"{research_rationale_suffix}"
             ),
             "score": 90 if learning_focus else 87,
         },
         {
-            "suggested_title": f"{revised_prefix}My {topic} workflow in 4 fast shots",
+            "topic": tertiary_topic,
+            "suggested_title": (f"{revised_prefix}My {tertiary_topic} workflow in 4 fast shots"),
             "hook": (
-                f"Here is the {visual_style.lower()} version of how I approach {topic.lower()}."
+                f"Here is the {visual_style.lower()} version of how I approach "
+                f"{tertiary_topic.lower()}."
             ),
             "angle": (
                 "Show the workflow as a short behind-the-scenes sequence with on-screen proof "
                 "and simple narration."
                 + (f" Shape the proof around: {revision_note}." if revision_note else "")
+                + (f" Apply this posting strategy: {first_strategy}." if first_strategy else "")
                 + learning_guidance
             ),
             "rationale": (
                 f"Plays well with {visual_style.lower()} visuals and supports the project note: "
                 f"{notes}.{revision_guidance}{learning_guidance}"
+                f"{research_rationale_suffix}"
             ),
             "score": 87 if learning_focus else 84,
         },
     ]
+
+
+def _research_topics(
+    idea_research_context: dict[str, object] | None,
+    *,
+    fallback: str,
+) -> list[str]:
+    if not idea_research_context:
+        return [fallback, fallback, fallback]
+
+    raw_topics = idea_research_context.get("recommended_topics")
+    if not isinstance(raw_topics, list):
+        return [fallback, fallback, fallback]
+
+    topics = [_normalize_phrase(str(topic)) for topic in raw_topics if str(topic).strip()]
+    if not topics:
+        return [fallback, fallback, fallback]
+    while len(topics) < 3:
+        topics.append(topics[-1])
+    return topics[:3]
+
+
+def _research_lines(
+    idea_research_context: dict[str, object] | None,
+    key: str,
+) -> list[str]:
+    if not idea_research_context:
+        return []
+
+    raw_value = idea_research_context.get(key)
+    if not isinstance(raw_value, list):
+        return []
+
+    return [_normalize_phrase(str(item)) for item in raw_value if str(item).strip()]
 
 
 def _build_script_package(

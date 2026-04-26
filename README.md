@@ -8,6 +8,7 @@ The repository now includes a working first vertical slice:
 - a Next.js dashboard for brand profiles, projects, ideas, scripts, approvals, queued jobs, generated asset previews, and asset review
 - a FastAPI service with persisted workflow records, approval history, background jobs, generation attempts, and assets
 - a browser worker that can consume queued narration/visual jobs in `dry_run` mode and write local development artifacts
+- a Redis-backed worker service loop that keeps browser, media, publisher, and analytics workers alive for queued jobs
 - a publisher worker that generates approval-safe manual publish handoff packages
 - an analytics worker that persists queued manual metric snapshots and first-pass insights
 - shared TypeScript workflow contracts in `packages/shared`

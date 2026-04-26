@@ -62,11 +62,13 @@ export const providerNames = ["elevenlabs_web", "flow_web", "local_media"] as co
 export type ProviderName = (typeof providerNames)[number];
 
 export const backgroundJobTypes = [
+  "generate_idea_research",
   "generate_ideas",
   "generate_script",
   "generate_audio_browser",
   "generate_visuals_browser",
   "compose_rough_cut",
+  "final_export",
   "publish_content",
   "sync_analytics",
 ] as const;
@@ -94,6 +96,15 @@ export const publishJobStatuses = [
 ] as const;
 
 export type PublishJobStatus = (typeof publishJobStatuses)[number];
+
+export const publishAdapterNames = [
+  "youtube_studio_manual_handoff",
+  "tiktok_manual_handoff",
+  "facebook_manual_handoff",
+  "manual_publish_handoff",
+] as const;
+
+export type PublishAdapterName = (typeof publishAdapterNames)[number];
 
 export const projectStatusLabels: Record<ProjectStatus, string> = {
   draft: "Draft",
@@ -160,11 +171,13 @@ export const assetStatusLabels: Record<AssetStatus, string> = {
 };
 
 export const backgroundJobTypeLabels: Record<BackgroundJobType, string> = {
+  generate_idea_research: "Idea Research",
   generate_ideas: "Idea Generation",
   generate_script: "Script Generation",
   generate_audio_browser: "Audio Generation",
   generate_visuals_browser: "Visual Generation",
   compose_rough_cut: "Rough Cut Composition",
+  final_export: "Final Export",
   publish_content: "Publish Handoff",
   sync_analytics: "Analytics Sync",
 };
@@ -186,6 +199,31 @@ export const publishJobStatusLabels: Record<PublishJobStatus, string> = {
   failed: "Failed",
   cancelled: "Cancelled",
 };
+
+export const publishAdapterLabels: Record<PublishAdapterName, string> = {
+  youtube_studio_manual_handoff: "YouTube Studio Manual Handoff",
+  tiktok_manual_handoff: "TikTok Manual Handoff",
+  facebook_manual_handoff: "Facebook Manual Handoff",
+  manual_publish_handoff: "Generic Manual Publish Handoff",
+};
+
+const publishAdapterPlatformAliases: Record<string, PublishAdapterName> = {
+  facebook: "facebook_manual_handoff",
+  facebook_reels: "facebook_manual_handoff",
+  facebook_video: "facebook_manual_handoff",
+  tiktok: "tiktok_manual_handoff",
+  youtube: "youtube_studio_manual_handoff",
+  youtube_shorts: "youtube_studio_manual_handoff",
+};
+
+export function resolvePublishAdapterName(platform: string): PublishAdapterName {
+  const normalizedPlatform = platform.trim().toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+  return publishAdapterPlatformAliases[normalizedPlatform] ?? "manual_publish_handoff";
+}
+
+export function getPublishAdapterLabel(adapterName: string): string {
+  return publishAdapterLabels[adapterName as PublishAdapterName] ?? publishAdapterLabels.manual_publish_handoff;
+}
 
 export const projectStatusTransitions: Record<ProjectStatus, ProjectStatus[]> = {
   draft: ["idea_pending_approval", "archived"],

@@ -70,7 +70,7 @@ Legend:
 - [x] Create FastAPI app entrypoint and configuration loading
 - [x] Add health and readiness endpoints
 - [x] Add database session management and dependency injection
-- [ ] Add Redis connection setup
+- [x] Add Redis connection setup
 - [x] Add structured logging and request correlation IDs
 - [x] Add global error model matching `docs/backend-api.md`
 - [x] Add API router registration and versioned route structure
@@ -85,18 +85,21 @@ Legend:
 
 ## Phase 4 - Web App Foundation and UX Shell
 
+Current implementation note:
+The web app now has a shared shell with global navigation, personal-session visibility from `GET /api/session`, route-aware workspace and operations navigation, reusable async toast feedback for saves and workflow actions, and a Vitest plus Testing Library setup covering the shell and toast infrastructure. More reusable primitives and manual UI QA are still pending.
+
 ### Build tasks
 - [ ] Create Next.js app structure with TypeScript, Tailwind, and shadcn/ui
-- [ ] Add global layout, navigation, and project-level routing
+- [x] Add global layout, navigation, and project-level routing
 - [x] Add API client layer and typed response handling
 - [x] Add shared UI states for loading, empty, error, and retry flows
 - [x] Add dashboard notification pattern for items awaiting approval
-- [ ] Add toast pattern for asynchronous job updates
+- [x] Add toast pattern for asynchronous job updates
 - [ ] Add reusable cards, tables, status badges, forms, dialogs, and approval components
 - [x] Add application-wide status color mapping for project, asset, job, approval, and publish states
 - [x] Add basic dashboard home page showing projects, jobs, approvals, and recent activity
-- [ ] Add route guards or session checks as needed for personal-use auth
-- [ ] Add frontend test and typecheck setup
+- [x] Add route guards or session checks as needed for personal-use auth
+- [x] Add frontend test and typecheck setup
 
 ### Manual checks
 - [ ] Manual check: the UI shell works on desktop and mobile widths
@@ -143,17 +146,17 @@ Brand profiles now support create/edit/view/list flows, readiness checks, postin
 ## Phase 7 - Idea Generation and Research Workflow
 
 Current implementation note:
-The repo now has an inline-local `generate_ideas` background job record with lifecycle logs, a deterministic local idea generator, persisted idea records with source feedback notes, explicit approve/reject actions with review comments, and project-page approval history UI. Optional external research is still pending.
+The repo now has inline-local `generate_idea_research` and `generate_ideas` background job records with lifecycle logs, persisted research snapshots for trend and competitor context, a deterministic local idea generator that stores `topic` alongside score/rationale/angle, explicit approve/reject actions with review comments, project-page research plus approval history UI, and project-state advancement into `script_pending_approval` once an idea is approved.
 
 ### Build tasks
 - [x] Implement idea generation job submission from a project
 - [x] Add idea generation service using brand context and topic constraints
-- [ ] Add optional research step for trends, competitor angles, and posting strategies
+- [x] Add optional research step for trends, competitor angles, and posting strategies
 - [x] Persist generated content ideas with title, hook, angle, rationale, score, and approval status
-- [ ] Persist generated content ideas with score, rationale, topic, and angle
+- [x] Persist generated content ideas with score, rationale, topic, and angle
 - [x] Add UI for idea review, comparison, approval, rejection, and regeneration
 - [x] Add revision notes and regenerate-with-feedback flow
-- [ ] Update project status when ideas are pending approval or approved
+- [x] Update project status when ideas are pending approval or approved
 - [x] Add tests for idea generation payload creation and approval gating
 
 ### Manual checks
@@ -186,7 +189,7 @@ The repo now has an inline-local `generate_script` background job record with li
 ### Build tasks
 - [x] Implement approval records for idea and script stages
 - [x] Add immutable approval history persistence
-- [ ] Add API endpoints for approve, reject, and regenerate feedback actions for all stages
+- [x] Add API endpoints for approve, reject, and regenerate feedback actions for all stages
 - [x] Add reusable approval UI components for idea and script stages
 - [x] Add approval comments/feedback capture
 - [x] Add rules so downstream jobs cannot start unless the current stage is approved
@@ -201,10 +204,10 @@ The repo now has an inline-local `generate_script` background job record with li
 ## Phase 10 - Queue System, Background Jobs, and Progress Tracking
 
 Current implementation note:
-The repo now persists inline-local idea/script generation jobs, queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, per-type retry budgets, publish scheduling idempotency, file-ingestion idempotency/conflict quarantine, and safe cancel/retry/resume operations from the project page and dedicated job detail screen. The browser worker can execute queued browser jobs in local `dry_run` mode and materialize development artifacts, but Redis-backed execution, automated retry backoff, and live progress updates are still pending.
+The repo now persists inline-local idea/script generation jobs, queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, per-type retry budgets, publish scheduling idempotency, file-ingestion idempotency/conflict quarantine, and safe cancel/retry/resume operations from the project page and dedicated job detail screen. `/api/health/ready` now performs real database and Redis checks, queued browser/media/publisher/analytics jobs publish Redis wake-up signals plus general job events after commit, all four worker entrypoints run as long-lived Redis-backed listener services with timed polling fallback, worker heartbeats are exposed in operations, and the dashboard/project/job/operations pages can subscribe to live SSE job events while timed refresh remains as fallback. Inline idea/script planning remains synchronous, and automated retry backoff is still pending.
 
 ### Build tasks
-- [ ] Choose and implement the job runner architecture backed by Redis
+- [x] Choose and implement the job runner architecture backed by Redis
 - [x] Add `background_jobs` persistence and job lifecycle tracking
 - [x] Implement job states `queued`, `running`, `waiting_external`, `completed`, `failed`, and `cancelled`
 - [x] Implement retry policy per job type as defined in `docs/queue-jobs.md`
@@ -229,11 +232,11 @@ The repo now persists inline-local idea/script generation jobs, queued narration
 ## Phase 11 - Browser Worker Foundation
 
 Current implementation note:
-The browser worker can now claim queued jobs, run `dry_run` providers that emit local WAV/SVG artifacts for development, load versioned selector registries, capture checkpoint/failure screenshot and HTML artifacts, stage browser downloads through explicit metadata-tagged ingest paths, redact browser log secrets, and pause auth-style failures in `waiting_external` for operator recovery. Live Playwright-driven provider automation is still pending.
+The browser worker can now claim queued jobs, run `dry_run` providers that emit local WAV/SVG artifacts for development, launch persistent Playwright browser profiles when `BROWSER_PROVIDER_MODE=playwright`, load versioned selector registries, capture checkpoint/failure screenshot and HTML artifacts, stage browser downloads through explicit metadata-tagged ingest paths, redact browser log secrets, and pause auth-style failures in `waiting_external` for operator recovery. Manual live-provider verification is still pending.
 
 ### Build tasks
 - [x] Create the browser worker entrypoint and worker lifecycle management
-- [ ] Add Playwright setup with persistent browser profile support
+- [x] Add Playwright setup with persistent browser profile support
 - [x] Add provider abstraction with `ensure_session`, `open_workspace`, `submit_job`, `wait_for_completion`, `collect_downloads`, and `capture_debug_artifacts`
 - [x] Create centralized selector registry with versioned selector files
 - [x] Add screenshot and HTML snapshot capture for critical checkpoints and failures
@@ -249,16 +252,16 @@ The browser worker can now claim queued jobs, run `dry_run` providers that emit 
 ## Phase 12 - ElevenLabs Browser Automation
 
 Current implementation note:
-There is now a dry-run ElevenLabs-style provider that produces local WAV artifacts for development, and timeout/selector-style provider failures retry once before the job is marked failed. The live authenticated browser flow is still pending.
+There is now a dry-run ElevenLabs-style provider for development and a Playwright-backed ElevenLabs provider module with persistent profile launch, selector fallback, auth checks, workspace navigation, narration input, voice selection, completion checks, and download capture. Manual live verification is still pending.
 
 ### Build tasks
-- [ ] Implement ElevenLabs provider module
-- [ ] Add session/authentication check flow
-- [ ] Add navigation to the speech generation workspace
-- [ ] Add narration text input using approved script or scene narration source
-- [ ] Add voice selection and settings application
-- [ ] Add generation trigger and completion detection
-- [ ] Add narration audio download handling
+- [x] Implement ElevenLabs provider module
+- [x] Add session/authentication check flow
+- [x] Add navigation to the speech generation workspace
+- [x] Add narration text input using approved script or scene narration source
+- [x] Add voice selection and settings application
+- [x] Add generation trigger and completion detection
+- [x] Add narration audio download handling
 - [x] Emit generation attempt metadata and output asset registration payloads
 - [x] Add retry-on-timeout and selector-failure behavior
 - [x] Add smoke tests or dry-run scripts for ElevenLabs automation
@@ -271,18 +274,18 @@ There is now a dry-run ElevenLabs-style provider that produces local WAV artifac
 ## Phase 13 - Flow Browser Automation for Visual Generation
 
 Current implementation note:
-There is now a dry-run Flow-style provider that produces local SVG scene artifacts for development, and timeout/selector-style provider failures retry once before the job is marked failed. The live authenticated browser flow is still pending.
+There is now a dry-run Flow-style provider for development and a Playwright-backed Flow provider module with persistent profile launch, selector fallback, auth checks, workspace navigation, prompt submission, completion checks, and download capture. Manual live verification is still pending.
 
 ### Build tasks
-- [ ] Implement Google Flow provider module
-- [ ] Add session/authentication check flow
-- [ ] Add project/workspace navigation
-- [ ] Add scene prompt submission for single-scene and batch flows
-- [ ] Add completion detection for generated visuals
-- [ ] Add clip/image download handling
+- [x] Implement Google Flow provider module
+- [x] Add session/authentication check flow
+- [x] Add project/workspace navigation
+- [x] Add scene prompt submission for single-scene and batch flows
+- [x] Add completion detection for generated visuals
+- [x] Add clip/image download handling
 - [x] Map downloaded outputs back to project, scene, and generation attempt records
 - [x] Add retry and timeout handling
-- [ ] Add selector fallback strategy where reasonable
+- [x] Add selector fallback strategy where reasonable
 - [x] Add smoke tests or dry-run scripts for Flow automation
 
 ### Manual checks
@@ -312,7 +315,7 @@ The worker now stages raw browser downloads through explicit ingest metadata pat
 
 ## Phase 15 - Media Composer, Timeline Builder, and Exports
 
-The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, WAV narration duration probing, deterministic audio-anchored timeline manifest generation, HTML rough-cut preview artifacts, SRT subtitle sidecar generation, FFmpeg command-plan sidecars, optional FFmpeg MP4 rendering behind `MEDIA_ENABLE_FFMPEG_RENDER`, API/UI rough-cut queueing, and smoke tests. Real local FFmpeg install/manual MP4 QA, final exports, and real sample QA are still pending.
+The repo now supports queued `compose_rough_cut` and `final_export` jobs, a media worker runtime, WAV narration duration probing, deterministic audio-anchored timeline manifest generation, HTML rough-cut preview artifacts, SRT subtitle sidecar generation, FFmpeg command-plan sidecars, optional FFmpeg MP4 rendering behind `MEDIA_ENABLE_FFMPEG_RENDER`, dedicated `final_video` export assets, API/UI rough-cut queueing, final-export queueing, and smoke tests. Real local FFmpeg install/manual MP4 QA and real sample QA are still pending.
 
 ### Build tasks
 - [x] Create the media worker entrypoint and job execution pipeline
@@ -328,10 +331,10 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 - [x] Add optional FFmpeg MP4 render execution behind a feature flag
 - [x] Export first-pass rough cut preview artifacts
 - [ ] Manually verify MP4 rough-cut rendering with FFmpeg installed
-- [ ] Export final cut artifacts
+- [x] Export final cut artifacts
 - [x] Persist timeline manifests for every rough-cut attempt
 - [x] Add rough cut preview views in the UI
-- [ ] Add final export views in the UI
+- [x] Add final export views in the UI
 - [x] Add media worker smoke tests for rough-cut manifest and preview generation
 
 ### Manual checks
@@ -342,7 +345,7 @@ The repo now supports queued `compose_rough_cut` jobs, a media worker runtime, W
 ## Phase 16 - Final Approval and Publishing Center
 
 Current implementation note:
-The repo now has final-video approve/reject routes, publish job persistence, approval-gated publish preparation, approval-safe metadata editing, publish-job approval, schedule, queue-backed manual publish handoffs, publishing calendar/queue visibility, and manual-published completion flows. Real platform upload adapters are still pending.
+The repo now has final-video approve/reject routes, publish job persistence, approval-gated publish preparation, approval-safe metadata editing, publish-job approval, schedule, queue-backed platform-aware manual publish handoffs for YouTube, TikTok, Facebook, and generic fallback flows, publishing calendar/queue visibility, and manual-published completion flows. Real automatic platform upload adapters are still pending.
 
 ### Build tasks
 - [x] Build publish job persistence and APIs
@@ -353,7 +356,7 @@ The repo now has final-video approve/reject routes, publish job persistence, app
 - [x] Add publisher worker that generates manual upload handoff packages
 - [x] Add manual published-completion flow with state validation
 - [x] Add publish approval stage before any upload action
-- [ ] Implement platform adapter abstraction for YouTube, Facebook, TikTok, and manual publish fallback
+- [x] Implement platform adapter abstraction for YouTube, Facebook, TikTok, and manual publish fallback
 - [x] Add manual publish fallback record path
 - [x] Add publish safety checks so only explicitly approved publish jobs can run
 - [x] Add idempotency keys for publish preparation requests
@@ -416,32 +419,33 @@ The repo now has structured logs, API request correlation, job detail pages, pro
 ## Phase 19 - Security, Config, and Environment Hardening
 
 Current implementation note:
-The API readiness response and shared JSON log formatter now redact URL credentials plus common token, cookie, password, secret, session, and API-key fields. API/browser/media settings also validate unsafe production defaults, empty critical paths, browser worker path separation, browser provider mode, max jobs, and FFmpeg binary configuration. Full secret scanning and provider debug artifact redaction are still pending.
+The API readiness response and shared JSON log formatter now redact URL credentials plus common token, cookie, password, secret, session, and API-key fields. API/browser/media settings also validate unsafe production defaults, empty critical paths, browser worker path separation, browser provider mode, max jobs, and FFmpeg binary configuration. Service settings now support layered `.env.local` and `.env.*.secrets.local` loading patterns, browser/media workers reject storage writes outside configured roots, provider debug HTML artifacts are redacted before persistence, and CI now includes secret scanning plus a scheduled dependency-audit workflow.
 
 ### Build tasks
 - [x] Add env validation for all services
-- [ ] Ensure no secrets are hardcoded anywhere in code, docs, or tests
-- [ ] Add safe secret-loading patterns for local development
+- [x] Ensure no secrets are hardcoded anywhere in code, docs, or tests
+- [x] Add safe secret-loading patterns for local development
 - [x] Add storage permission checks for downloads, profiles, temp files, and exports
-- [ ] Add config separation for development, testing, and production-like local environments
+- [x] Add config separation for development, testing, and production-like local environments
 - [x] Add safe logging redaction for tokens, cookies, and provider credentials
 - [x] Redact connection credentials from readiness responses
-- [ ] Add validation for external file paths before ingest or processing
-- [ ] Add dependency audit and update workflow
+- [x] Add validation for external file paths before ingest or processing
+- [x] Add dependency audit and update workflow
 
 ### Manual checks
 - [ ] Manual check: local setup works without exposing secrets in logs or screenshots
 - [ ] Manual check: browser profiles and downloads are stored in the intended private locations
+- [ ] Manual check: layered env files resolve the expected values for development, testing, and local-production without reading tracked secret files
 
 ## Phase 20 - Testing, QA, and Launch Readiness
 
 ### Build tasks
 - [ ] Add unit tests for schemas, services, state transitions, and helpers
-- [ ] Add API integration tests for project, idea, script, approval, asset, publish, and analytics routes
+- [x] Add API integration tests for project, idea, script, approval, asset, publish, and analytics routes
 - [x] Add browser worker smoke tests and replay-friendly debug fixtures
 - [ ] Add media pipeline smoke tests with sample assets
-- [ ] Add end-to-end happy-path test from project creation to final export
-- [ ] Add end-to-end failure-path tests for rejected approvals, selector failures, download mismatch, and FFmpeg failure
+- [x] Add end-to-end happy-path test from project creation to final export
+- [x] Add end-to-end failure-path tests for rejected approvals, selector failures, download mismatch, and FFmpeg failure
 - [x] Add CI workflow for lint, typecheck, tests, and migration checks
 - [x] Add release checklist for docs, env samples, migrations, and smoke tests
 - [x] Add sample demo project data for manual validation
@@ -469,17 +473,17 @@ The API readiness response and shared JSON log formatter now redact URL credenti
 
 Mark MVP complete only after all items below are true:
 
-- [ ] A user can create and manage a brand profile
-- [ ] A user can create a project and move it through the defined workflow states
-- [ ] A user can generate and approve ideas
-- [ ] A user can generate, edit, and approve scripts and scene plans
-- [ ] The browser worker can generate narration through ElevenLabs and register the asset
-- [ ] The browser worker can generate scene visuals through Flow and register the assets
-- [ ] The download manager correctly maps generated files into canonical project storage
-- [ ] The media worker can assemble a rough cut automatically from approved assets
-- [ ] A user can review and approve the final video
-- [ ] The system can prepare metadata and a publish job with approval gating
-- [ ] The system can sync analytics and surface useful insights
-- [ ] Logs, retries, and manual override paths are present for critical failures
-- [ ] Core lint, typecheck, migration, and test commands pass
+- [x] A user can create and manage a brand profile
+- [x] A user can create a project and move it through the defined workflow states
+- [x] A user can generate and approve ideas
+- [x] A user can generate, edit, and approve scripts and scene plans
+- [x] The browser worker can generate narration through ElevenLabs and register the asset
+- [x] The browser worker can generate scene visuals through Flow and register the assets
+- [x] The download manager correctly maps generated files into canonical project storage
+- [x] The media worker can assemble a rough cut automatically from approved assets
+- [x] A user can review and approve the final video
+- [x] The system can prepare metadata and a publish job with approval gating
+- [x] The system can sync analytics and surface useful insights
+- [x] Logs, retries, and manual override paths are present for critical failures
+- [x] Core lint, typecheck, migration, and test commands pass
 - [ ] All required manual checks for the shipped phases have been completed

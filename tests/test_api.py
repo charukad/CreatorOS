@@ -12,6 +12,7 @@ from apps.api.models.asset import Asset
 from apps.api.models.background_job import BackgroundJob
 from apps.api.models.project import Project
 from apps.api.models.project_script import ProjectScript
+from apps.api.models.user import User
 from apps.api.schemas.enums import (
     AssetStatus,
     AssetType,
@@ -27,7 +28,7 @@ from apps.api.services.background_jobs import (
     mark_job_manual_intervention_required,
 )
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, update
+from sqlalchemy import create_engine, select, update
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -164,6 +165,58 @@ def _move_project_to_final_review_for_tests(
         return str(rough_cut.id)
 
 
+def _move_project_to_final_review_with_export_for_tests(
+    session_factory: sessionmaker[Session],
+    *,
+    project_id: str,
+    script_id: str,
+) -> tuple[str, str]:
+    with session_factory() as session:
+        project = session.get(Project, UUID(project_id))
+        script = session.get(ProjectScript, UUID(script_id))
+        assert project is not None
+        assert script is not None
+
+        rough_cut = Asset(
+            user_id=project.user_id,
+            project_id=project.id,
+            script_id=script.id,
+            scene_id=None,
+            generation_attempt_id=None,
+            asset_type=AssetType.ROUGH_CUT,
+            status=AssetStatus.READY,
+            provider_name=ProviderName.LOCAL_MEDIA,
+            file_path=f"storage/projects/{project.id}/rough-cuts/test-final.html",
+            mime_type="text/html",
+            duration_seconds=script.estimated_duration_seconds,
+            width=1080,
+            height=1920,
+            checksum="test-rough-cut-checksum",
+        )
+        final_video = Asset(
+            user_id=project.user_id,
+            project_id=project.id,
+            script_id=script.id,
+            scene_id=None,
+            generation_attempt_id=None,
+            asset_type=AssetType.FINAL_VIDEO,
+            status=AssetStatus.READY,
+            provider_name=ProviderName.LOCAL_MEDIA,
+            file_path=f"storage/projects/{project.id}/final-exports/test-final.mp4",
+            mime_type="video/mp4",
+            duration_seconds=script.estimated_duration_seconds,
+            width=1080,
+            height=1920,
+            checksum="test-final-video-checksum",
+        )
+        project.status = ProjectStatus.FINAL_PENDING_APPROVAL
+        session.add(rough_cut)
+        session.add(final_video)
+        session.add(project)
+        session.commit()
+        return str(rough_cut.id), str(final_video.id)
+
+
 def _create_ready_thumbnail_for_tests(
     session_factory: sessionmaker[Session],
     *,
@@ -207,14 +260,37 @@ def test_live_health() -> None:
     assert response.json()["service"] == "api"
 
 
-def test_ready_health_redacts_connection_credentials() -> None:
-    client = TestClient(app)
+def test_ready_health_redacts_connection_credentials(monkeypatch) -> None:
+    client = _make_test_client()
+    monkeypatch.setattr(
+        "apps.api.routes.health.get_redis_connection_status",
+        lambda redis_url: f"reachable ({redact_sensitive_value(redis_url)})",
+    )
     response = client.get("/api/health/ready")
 
     assert response.status_code == 200
+    assert response.json()["status"] == "ok"
     dependencies = response.json()["dependencies"]
+    assert dependencies["database"].startswith("reachable")
     assert "creatoros:creatoros" not in dependencies["database"]
     assert "[redacted]" in dependencies["database"]
+    app.dependency_overrides.clear()
+
+
+def test_ready_health_reports_degraded_when_redis_is_unavailable(monkeypatch) -> None:
+    client = _make_test_client()
+    monkeypatch.setattr(
+        "apps.api.routes.health.get_redis_connection_status",
+        lambda _redis_url: "unavailable: ConnectionError (redis://localhost:6379/0)",
+    )
+
+    response = client.get("/api/health/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "degraded"
+    assert response.json()["dependencies"]["redis"].startswith("unavailable:")
+
+    app.dependency_overrides.clear()
 
 
 def test_redaction_helper_handles_urls_and_secret_assignments() -> None:
@@ -229,6 +305,30 @@ def test_redaction_helper_handles_urls_and_secret_assignments() -> None:
     assert "session-value" not in redacted
     assert "raw-key" not in redacted
     assert "[redacted]" in redacted
+
+
+def test_session_route_returns_single_user_identity() -> None:
+    client, session_factory = _make_test_client_with_session()
+
+    first_response = client.get("/api/session")
+    second_response = client.get("/api/session")
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+    first_payload = first_response.json()
+    second_payload = second_response.json()
+
+    assert first_payload["auth_mode"] == "single_user_local"
+    assert first_payload["requires_approval_checkpoints"] is True
+    assert first_payload["user"]["email"] == "creatoros-local@example.com"
+    assert first_payload["user"]["name"] == "CreatorOS Local User"
+    assert first_payload["user"]["id"] == second_payload["user"]["id"]
+
+    with session_factory() as session:
+      users = session.scalars(select(User)).all()
+
+    assert len(users) == 1
 
 
 def test_http_errors_use_global_error_model() -> None:
@@ -599,10 +699,62 @@ def test_generate_project_ideas_updates_project_status() -> None:
     ideas = generate_response.json()
     assert len(ideas) == 3
     assert all(idea["status"] == "proposed" for idea in ideas)
+    assert all(idea["topic"] for idea in ideas)
 
     get_response = client.get(f"/api/projects/{project_id}")
     assert get_response.status_code == 200
     assert get_response.json()["status"] == "idea_pending_approval"
+
+    app.dependency_overrides.clear()
+
+
+def test_idea_research_generation_creates_snapshot_and_completed_job() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Research-backed creator workflow",
+        objective="Seed stronger short-form angles",
+        notes="Favor proof over generic advice",
+    )
+
+    research_response = client.post(
+        f"/api/projects/{project_id}/research/generate",
+        json={
+            "focus_topic": "AI creator workflows",
+            "source_feedback_notes": "Bias the next batch toward tactical proof-led examples.",
+        },
+    )
+
+    assert research_response.status_code == 201
+    snapshot = research_response.json()
+    assert snapshot["focus_topic"] == "AI creator workflows"
+    assert "visible proof" in snapshot["summary"].lower()
+    assert any("proof-led" in item.lower() for item in snapshot["competitor_angles_json"])
+    assert len(snapshot["trend_observations_json"]) == 3
+    assert len(snapshot["recommended_topics_json"]) >= 3
+
+    list_response = client.get(f"/api/projects/{project_id}/research")
+    assert list_response.status_code == 200
+    listed_snapshots = list_response.json()
+    assert len(listed_snapshots) == 1
+    assert listed_snapshots[0]["id"] == snapshot["id"]
+
+    jobs_response = client.get(f"/api/projects/{project_id}/jobs")
+    assert jobs_response.status_code == 200
+    research_job = next(
+        job for job in jobs_response.json() if job["job_type"] == "generate_idea_research"
+    )
+    assert research_job["state"] == "completed"
+    assert research_job["payload_json"]["research_snapshot_id"] == snapshot["id"]
+
+    detail_response = client.get(f"/api/jobs/{research_job['id']}")
+    assert detail_response.status_code == 200
+    event_types = {log["event_type"] for log in detail_response.json()["job_logs"]}
+    assert {"job_queued", "job_started", "idea_research_generated", "job_completed"}.issubset(
+        event_types
+    )
 
     app.dependency_overrides.clear()
 
@@ -708,6 +860,50 @@ def test_idea_generation_creates_completed_project_level_job() -> None:
     app.dependency_overrides.clear()
 
 
+def test_idea_generation_uses_latest_research_snapshot_and_persists_topics() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Use saved research in idea generation",
+        objective="Generate tighter short-form hooks",
+        notes=None,
+    )
+    research_response = client.post(
+        f"/api/projects/{project_id}/research/generate",
+        json={
+            "focus_topic": "Short-form automation",
+            "source_feedback_notes": "Make the ideas feel specific to solo creators.",
+        },
+    )
+    assert research_response.status_code == 201
+    research_snapshot = research_response.json()
+
+    generate_ideas_response = client.post(f"/api/projects/{project_id}/ideas/generate")
+
+    assert generate_ideas_response.status_code == 201
+    ideas = generate_ideas_response.json()
+    assert len(ideas) == 3
+    assert all(idea["topic"] in research_snapshot["recommended_topics_json"] for idea in ideas)
+    assert any("research" in idea["rationale"].lower() for idea in ideas)
+
+    jobs_response = client.get(f"/api/projects/{project_id}/jobs")
+    assert jobs_response.status_code == 200
+    idea_job = next(job for job in jobs_response.json() if job["job_type"] == "generate_ideas")
+    assert idea_job["payload_json"]["research_snapshot_id"] == research_snapshot["id"]
+    assert (
+        idea_job["payload_json"]["idea_research_context"]["research_snapshot_id"]
+        == research_snapshot["id"]
+    )
+    assert (
+        idea_job["payload_json"]["idea_research_context"]["recommended_topics"]
+        == research_snapshot["recommended_topics_json"]
+    )
+
+    app.dependency_overrides.clear()
+
+
 def test_idea_regeneration_persists_source_feedback_notes() -> None:
     client = _make_test_client()
     brand_profile_id = _create_brand_profile_for_tests(client)
@@ -743,6 +939,37 @@ def test_idea_regeneration_persists_source_feedback_notes() -> None:
     assert latest_revision_job["payload_json"]["idea_ids"] == [
         idea["id"] for idea in regenerated_ideas
     ]
+
+    app.dependency_overrides.clear()
+
+
+def test_project_export_includes_idea_research_snapshots() -> None:
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Export research history",
+        objective="Keep planning exports complete",
+        notes=None,
+    )
+    research_response = client.post(
+        f"/api/projects/{project_id}/research/generate",
+        json={"focus_topic": "Retention-focused creator workflows"},
+    )
+    assert research_response.status_code == 201
+    snapshot = research_response.json()
+
+    export_response = client.get(f"/api/projects/{project_id}/export")
+
+    assert export_response.status_code == 200
+    export_bundle = export_response.json()
+    assert len(export_bundle["idea_research_snapshots"]) == 1
+    assert export_bundle["idea_research_snapshots"][0]["id"] == snapshot["id"]
+    assert (
+        export_bundle["idea_research_snapshots"][0]["focus_topic"]
+        == "Retention-focused creator workflows"
+    )
 
     app.dependency_overrides.clear()
 
@@ -1261,6 +1488,55 @@ def test_queue_audio_generation_creates_job_and_planned_asset() -> None:
     app.dependency_overrides.clear()
 
 
+def test_queue_audio_generation_emits_worker_wakeup_event(monkeypatch) -> None:
+    captured_events: list[dict[str, object]] = []
+
+    def capture_emit(job, *, event_type: str, publish_to_worker_queue: bool = False, metadata=None):
+        captured_events.append(
+            {
+                "job_id": str(job.id),
+                "job_type": job.job_type.value,
+                "event_type": event_type,
+                "publish_to_worker_queue": publish_to_worker_queue,
+                "metadata": metadata or {},
+            }
+        )
+
+    monkeypatch.setattr(
+        "apps.api.services.generation_pipeline.emit_background_job_event",
+        capture_emit,
+    )
+
+    client = _make_test_client()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Emit audio wakeup events",
+        objective="Wake the browser worker when narration is queued",
+        notes=None,
+    )
+    _create_approved_script_for_tests(client, project_id)
+
+    queue_response = client.post(
+        f"/api/projects/{project_id}/generate/audio",
+        json={"voice_label": "Warm guide"},
+    )
+
+    assert queue_response.status_code == 201
+    assert captured_events == [
+        {
+            "job_id": queue_response.json()["id"],
+            "job_type": "generate_audio_browser",
+            "event_type": "job_queued",
+            "publish_to_worker_queue": True,
+            "metadata": {"queue_reason": "audio_generation"},
+        }
+    ]
+
+    app.dependency_overrides.clear()
+
+
 def test_queue_visual_generation_creates_scene_assets_for_current_script() -> None:
     client = _make_test_client()
     brand_profile_id = _create_brand_profile_for_tests(client)
@@ -1514,6 +1790,64 @@ def test_operations_recovery_snapshot_surfaces_jobs_and_ingest_warnings() -> Non
     assert recovery["duplicate_asset_warnings"][0]["event_type"] == "duplicate_asset_detected"
 
     app.dependency_overrides.clear()
+
+
+def test_operations_worker_presence_route_summarizes_workers(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "apps.api.routes.operations.list_worker_heartbeats",
+        lambda _redis_url: [
+            {
+                "worker_id": "browser-local-1",
+                "worker_name": "browser-worker",
+                "worker_type": "browser",
+                "status": "listening",
+                "redis_listener_enabled": True,
+                "last_seen_at": "2026-04-25T00:00:00+00:00",
+                "started_at": "2026-04-25T00:00:00+00:00",
+                "processed_total": 4,
+                "wakeups_seen": 2,
+                "last_job_id": "job-1",
+                "last_job_type": "generate_audio_browser",
+                "last_event_type": "job_queued",
+                "active_job_count": 0,
+                "idle_shutdown_seconds": 0.0,
+                "poll_interval_seconds": 5.0,
+                "listen_timeout_seconds": 15.0,
+            },
+            {
+                "worker_id": "media-local-1",
+                "worker_name": "media-worker",
+                "worker_type": "media",
+                "status": "processing",
+                "redis_listener_enabled": True,
+                "last_seen_at": "2026-04-25T00:00:00+00:00",
+                "started_at": "2026-04-25T00:00:00+00:00",
+                "processed_total": 1,
+                "wakeups_seen": 1,
+                "last_job_id": "job-2",
+                "last_job_type": "compose_rough_cut",
+                "last_event_type": "jobs_processed",
+                "active_job_count": 1,
+                "idle_shutdown_seconds": 0.0,
+                "poll_interval_seconds": 5.0,
+                "listen_timeout_seconds": 15.0,
+            },
+        ],
+    )
+
+    client = TestClient(app)
+    response = client.get("/api/operations/workers")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["total_workers"] == 2
+    assert payload["summary"]["active_workers"] == 2
+    assert payload["summary"]["listening_workers"] == 1
+    assert payload["summary"]["processing_workers"] == 1
+    assert payload["summary"]["polling_workers"] == 0
+    assert payload["summary"]["wakeup_workers"] == 0
+    assert payload["workers"][0]["worker_type"] == "browser"
+    assert payload["workers"][1]["last_job_type"] == "compose_rough_cut"
 
 
 def test_artifact_retention_plan_surfaces_safe_and_manual_cleanup_candidates(
@@ -1948,6 +2282,47 @@ def test_final_video_approval_unblocks_publish_prep_with_idempotency() -> None:
     app.dependency_overrides.clear()
 
 
+def test_final_video_approval_prefers_exported_final_asset_for_publish_prep() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Prefer final export for publish prep",
+        objective="Use the dedicated final video when it exists",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    rough_cut_asset_id, final_video_asset_id = _move_project_to_final_review_with_export_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+
+    approval_response = client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+
+    assert approval_response.status_code == 200
+    approval = approval_response.json()
+    assert approval["target_id"] == final_video_asset_id
+    assert approval["target_id"] != rough_cut_asset_id
+
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Use final export",
+            "description": "Publish from the final MP4 asset.",
+            "hashtags": ["#CreatorOS"],
+        },
+    )
+
+    assert prepare_response.status_code == 201
+    publish_job = prepare_response.json()
+    assert publish_job["final_asset_id"] == final_video_asset_id
+
+    app.dependency_overrides.clear()
+
+
 def test_publish_job_approval_schedule_and_manual_publish_flow() -> None:
     client, session_factory = _make_test_client_with_session()
     brand_profile_id = _create_brand_profile_for_tests(client)
@@ -2038,6 +2413,132 @@ def test_publish_job_approval_schedule_and_manual_publish_flow() -> None:
     final_project_response = client.get(f"/api/projects/{project_id}")
     assert final_project_response.status_code == 200
     assert final_project_response.json()["status"] == "published"
+
+    app.dependency_overrides.clear()
+
+
+def test_publish_job_rejection_requires_reapproval_before_scheduling() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Reject publish review",
+        objective="Send publish metadata back for revision before scheduling",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+    client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Needs another review",
+            "description": "Metadata that should be reviewed again.",
+            "hashtags": ["#CreatorOS", "#Review"],
+        },
+    )
+    assert prepare_response.status_code == 201
+    publish_job_id = prepare_response.json()["id"]
+
+    approve_response = client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    assert approve_response.status_code == 200
+    assert approve_response.json()["status"] == "approved"
+
+    reject_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/reject",
+        json={"feedback_notes": "Tighten the title and update the hashtags."},
+    )
+    assert reject_response.status_code == 200
+    assert reject_response.json()["status"] == "pending_approval"
+
+    approvals_response = client.get(f"/api/projects/{project_id}/approvals")
+    assert approvals_response.status_code == 200
+    assert any(
+        approval["stage"] == "publish"
+        and approval["target_id"] == publish_job_id
+        and approval["decision"] == "rejected"
+        and approval["feedback_notes"] == "Tighten the title and update the hashtags."
+        for approval in approvals_response.json()
+    )
+
+    blocked_schedule_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/schedule",
+        json={"scheduled_for": "2030-01-04T00:00:00+00:00"},
+    )
+    assert blocked_schedule_response.status_code == 409
+    assert "approved publish jobs" in _error_message(blocked_schedule_response)
+
+    reapprove_response = client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    assert reapprove_response.status_code == 200
+    assert reapprove_response.json()["status"] == "approved"
+
+    schedule_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/schedule",
+        json={"scheduled_for": "2030-01-04T00:00:00+00:00"},
+    )
+    assert schedule_response.status_code == 200
+    assert schedule_response.json()["status"] == "scheduled"
+
+    activity_response = client.get(f"/api/projects/{project_id}/activity")
+    assert activity_response.status_code == 200
+    assert any(
+        activity["activity_type"] == "publish_job_rejected"
+        and activity["metadata_json"]["previous_status"] == "approved"
+        for activity in activity_response.json()
+    )
+
+    app.dependency_overrides.clear()
+
+
+def test_publish_job_rejection_blocks_active_handoff_jobs() -> None:
+    client, session_factory = _make_test_client_with_session()
+    brand_profile_id = _create_brand_profile_for_tests(client)
+    project_id = _create_project_for_tests(
+        client,
+        brand_profile_id,
+        title="Reject queued publish handoff",
+        objective="Block publish rejection while a handoff job is active",
+        notes=None,
+    )
+    script = _create_approved_script_for_tests(client, project_id)
+    _move_project_to_final_review_for_tests(
+        session_factory,
+        project_id=project_id,
+        script_id=str(script["id"]),
+    )
+    client.post(f"/api/projects/{project_id}/final-video/approve", json={})
+
+    prepare_response = client.post(
+        f"/api/projects/{project_id}/publish-jobs/prepare",
+        json={
+            "platform": "youtube_shorts",
+            "title": "Queued publish review",
+            "description": "Approved metadata that already has a handoff queued.",
+            "hashtags": ["#CreatorOS"],
+        },
+    )
+    assert prepare_response.status_code == 201
+    publish_job_id = prepare_response.json()["id"]
+
+    approve_response = client.post(f"/api/publish-jobs/{publish_job_id}/approve", json={})
+    assert approve_response.status_code == 200
+
+    queue_response = client.post(f"/api/publish-jobs/{publish_job_id}/queue")
+    assert queue_response.status_code == 200
+
+    reject_response = client.post(
+        f"/api/publish-jobs/{publish_job_id}/reject",
+        json={"feedback_notes": "Do not allow review changes after handoff starts."},
+    )
+    assert reject_response.status_code == 409
+    assert "active handoff job" in _error_message(reject_response)
 
     app.dependency_overrides.clear()
 

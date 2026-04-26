@@ -8,6 +8,9 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
+import { useBackgroundJobEventRefresh } from "./use-background-job-event-refresh";
+import { useToast } from "./toast-provider";
+import { useAutoRefresh } from "./use-auto-refresh";
 import { cancelJob, markJobManualIntervention, resumeJob, retryJob } from "../lib/api";
 import type { BackgroundJob, BackgroundJobDetail } from "../types/api";
 
@@ -19,6 +22,7 @@ const retryPolicyMaxAttempts: Partial<Record<BackgroundJob["job_type"], number>>
   generate_audio_browser: 4,
   generate_visuals_browser: 4,
   compose_rough_cut: 3,
+  final_export: 3,
   publish_content: 2,
   sync_analytics: 2,
 };
@@ -50,7 +54,7 @@ function canRetryJob(job: BackgroundJob): boolean {
 function canResumeJob(job: BackgroundJob): boolean {
   return (
     job.state === "running" &&
-    ["generate_audio_browser", "generate_visuals_browser", "compose_rough_cut"].includes(
+    ["generate_audio_browser", "generate_visuals_browser", "compose_rough_cut", "final_export"].includes(
       job.job_type,
     )
   );
@@ -77,10 +81,32 @@ function retryPolicyLabel(job: BackgroundJob): string {
 
 export function JobDetail({ detail }: JobDetailProps) {
   const router = useRouter();
+  const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [manualReason, setManualReason] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const { job } = detail;
+  const isActiveJob = ["queued", "running", "waiting_external"].includes(job.state);
+  const { isLiveConnected } = useBackgroundJobEventRefresh({
+    enabled: isActiveJob,
+    jobId: job.id,
+  });
+  useAutoRefresh({ enabled: isActiveJob, intervalMs: 6000 });
+
+  function successMessage(actionKey: string): string {
+    switch (actionKey) {
+      case "cancel":
+        return "The job moved to cancelled and will not continue without an explicit retry.";
+      case "retry":
+        return "A fresh attempt was queued using the persisted retry policy.";
+      case "resume":
+        return "The stale running job was reset so a worker can pick it up again.";
+      case "manual-intervention":
+        return "The job now waits for operator recovery with the note saved in its audit trail.";
+      default:
+        return "The job action completed successfully.";
+    }
+  }
 
   function runAction(actionKey: string, callback: () => Promise<unknown>) {
     setError(null);
@@ -88,11 +114,23 @@ export function JobDetail({ detail }: JobDetailProps) {
     startTransition(() => {
       void callback()
         .then(() => {
+          pushToast({
+            title: "Job updated",
+            description: successMessage(actionKey),
+            tone: "success",
+          });
           router.refresh();
           setPendingAction(null);
         })
         .catch((actionError) => {
-          setError(actionError instanceof Error ? actionError.message : "Job action failed.");
+          const message =
+            actionError instanceof Error ? actionError.message : "Job action failed.";
+          setError(message);
+          pushToast({
+            title: "Job action failed",
+            description: message,
+            tone: "error",
+          });
           setPendingAction(null);
         });
     });
@@ -100,7 +138,13 @@ export function JobDetail({ detail }: JobDetailProps) {
 
   function handleManualIntervention() {
     if (manualReason.trim().length === 0) {
-      setError("Add a reason before marking this job for manual intervention.");
+      const message = "Add a reason before marking this job for manual intervention.";
+      setError(message);
+      pushToast({
+        title: "Manual intervention needs a reason",
+        description: message,
+        tone: "error",
+      });
       return;
     }
 
@@ -135,6 +179,14 @@ export function JobDetail({ detail }: JobDetailProps) {
       {error ? (
         <section className="rounded-2xl border border-rose-300/30 bg-rose-500/10 p-4 text-sm text-rose-100">
           {error}
+        </section>
+      ) : null}
+
+      {isActiveJob ? (
+        <section className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">
+          {isLiveConnected
+            ? "Live updates are connected for this job, and timed refresh remains available as a safety net."
+            : "Auto-refresh is on while this job is active, and the page will reconnect to the live job stream when available."}
         </section>
       ) : null}
 

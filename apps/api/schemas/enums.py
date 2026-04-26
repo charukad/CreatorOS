@@ -75,11 +75,13 @@ class ProviderName(StrEnum):
 
 
 class BackgroundJobType(StrEnum):
+    GENERATE_IDEA_RESEARCH = "generate_idea_research"
     GENERATE_IDEAS = "generate_ideas"
     GENERATE_SCRIPT = "generate_script"
     GENERATE_AUDIO_BROWSER = "generate_audio_browser"
     GENERATE_VISUALS_BROWSER = "generate_visuals_browser"
     COMPOSE_ROUGH_CUT = "compose_rough_cut"
+    FINAL_EXPORT = "final_export"
     PUBLISH_CONTENT = "publish_content"
     SYNC_ANALYTICS = "sync_analytics"
 

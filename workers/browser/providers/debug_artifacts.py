@@ -5,6 +5,8 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+from apps.api.core.redaction import redact_sensitive_value
+
 _PLACEHOLDER_SCREENSHOT = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
 )
@@ -27,7 +29,9 @@ def write_failure_debug_artifacts(
 
     screenshot_path.write_bytes(screenshot_bytes or _PLACEHOLDER_SCREENSHOT)
     html_path.write_text(
-        snapshot_html or _fallback_snapshot_html(error=error, provider_job_id=provider_job_id),
+        _redact_artifact_text(
+            snapshot_html or _fallback_snapshot_html(error=error, provider_job_id=provider_job_id)
+        ),
         encoding="utf-8",
     )
 
@@ -52,7 +56,9 @@ def write_checkpoint_debug_artifacts(
 
     screenshot_path.write_bytes(screenshot_bytes or _PLACEHOLDER_SCREENSHOT)
     html_path.write_text(
-        snapshot_html or _fallback_checkpoint_html(checkpoint_name=checkpoint_name),
+        _redact_artifact_text(
+            snapshot_html or _fallback_checkpoint_html(checkpoint_name=checkpoint_name)
+        ),
         encoding="utf-8",
     )
 
@@ -140,3 +146,7 @@ def _fallback_checkpoint_html(*, checkpoint_name: str) -> str:
             "</html>",
         ]
     )
+
+
+def _redact_artifact_text(value: str) -> str:
+    return redact_sensitive_value(value)

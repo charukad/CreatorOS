@@ -39,6 +39,11 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    idea_research_snapshots = relationship(
+        "IdeaResearchSnapshot",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
     scripts = relationship(
         "ProjectScript",
         back_populates="project",

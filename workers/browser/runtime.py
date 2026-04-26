@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
 
+from apps.api.core.config_validation import resolve_path_within_roots
 from apps.api.db.session import SessionLocal
 from apps.api.models.asset import Asset
 from apps.api.models.background_job import BackgroundJob
@@ -34,8 +35,8 @@ from workers.browser.downloads import (
 )
 from workers.browser.providers import (
     BrowserProvider,
-    DryRunElevenLabsProvider,
-    DryRunFlowProvider,
+    ElevenLabsProvider,
+    FlowProvider,
     ProviderJobPayload,
 )
 from workers.browser.providers.debug_artifacts import write_checkpoint_debug_artifacts
@@ -93,12 +94,25 @@ def run_pending_jobs(
 
 
 def _process_job(session: Session, settings: BrowserWorkerSettings, job: BackgroundJob) -> None:
-    provider = _get_provider(settings, job.job_type)
+    selector_bundle = None
+    session_descriptor = None
+    if job.provider_name is not None:
+        selector_bundle = load_selector_bundle(job.provider_name)
+        session_descriptor = build_session_descriptor(settings, job.provider_name, selector_bundle)
+
+    provider = _get_provider(
+        settings,
+        job,
+        selector_bundle=selector_bundle,
+        session_descriptor=session_descriptor,
+    )
     selector_bundle, session_descriptor = _prepare_provider_session(
         session,
         settings,
         job,
         provider,
+        selector_bundle=selector_bundle,
+        session_descriptor=session_descriptor,
     )
 
     attempts = sorted(job.generation_attempts, key=lambda attempt: attempt.created_at)
@@ -181,16 +195,26 @@ def _process_job(session: Session, settings: BrowserWorkerSettings, job: Backgro
     mark_job_completed(session, job)
 
 
-def _get_provider(settings: BrowserWorkerSettings, job_type: BackgroundJobType):
-    if settings.browser_provider_mode != "dry_run":
-        raise ValueError(
-            "Only the 'dry_run' browser provider mode is implemented in this environment."
+def _get_provider(
+    settings: BrowserWorkerSettings,
+    job: BackgroundJob,
+    *,
+    selector_bundle: SelectorBundle | None,
+    session_descriptor: BrowserSessionDescriptor | None,
+) -> BrowserProvider:
+    if job.job_type == BackgroundJobType.GENERATE_AUDIO_BROWSER:
+        return ElevenLabsProvider(
+            settings,
+            selector_bundle=selector_bundle,
+            session_descriptor=session_descriptor,
         )
-    if job_type == BackgroundJobType.GENERATE_AUDIO_BROWSER:
-        return DryRunElevenLabsProvider(settings.playwright_download_root)
-    if job_type == BackgroundJobType.GENERATE_VISUALS_BROWSER:
-        return DryRunFlowProvider(settings.playwright_download_root)
-    raise ValueError(f"Unsupported browser job type: {job_type.value}")
+    if job.job_type == BackgroundJobType.GENERATE_VISUALS_BROWSER:
+        return FlowProvider(
+            settings,
+            selector_bundle=selector_bundle,
+            session_descriptor=session_descriptor,
+        )
+    raise ValueError(f"Unsupported browser job type: {job.job_type.value}")
 
 
 def _prepare_provider_session(
@@ -198,19 +222,26 @@ def _prepare_provider_session(
     settings: BrowserWorkerSettings,
     job: BackgroundJob,
     provider: BrowserProvider,
+    *,
+    selector_bundle: SelectorBundle | None = None,
+    session_descriptor: BrowserSessionDescriptor | None = None,
 ) -> tuple[SelectorBundle | None, BrowserSessionDescriptor | None]:
     if job.provider_name is None:
         return None, None
 
-    selector_bundle = load_selector_bundle(job.provider_name)
-    session_descriptor = build_session_descriptor(settings, job.provider_name, selector_bundle)
+    resolved_selector_bundle = selector_bundle or load_selector_bundle(job.provider_name)
+    resolved_session_descriptor = session_descriptor or build_session_descriptor(
+        settings,
+        job.provider_name,
+        resolved_selector_bundle,
+    )
 
     _log_browser_job_event(
         session,
         job,
         event_type="browser_selector_registry_loaded",
         message="Loaded the versioned selector registry for this browser provider.",
-        metadata=selector_bundle_summary(selector_bundle),
+        metadata=selector_bundle_summary(resolved_selector_bundle),
     )
     _log_browser_job_event(
         session,
@@ -218,20 +249,20 @@ def _prepare_provider_session(
         event_type="browser_session_prepared",
         message="Prepared browser profile and debug roots for the provider session.",
         metadata={
-            "provider_name": session_descriptor.provider_name.value,
-            "profile_name": session_descriptor.profile_name,
-            "profile_path": str(session_descriptor.profile_path),
-            "debug_root": str(session_descriptor.debug_root),
-            "workspace_label": session_descriptor.workspace_label,
-            "selector_version": session_descriptor.selector_version,
+            "provider_name": resolved_session_descriptor.provider_name.value,
+            "profile_name": resolved_session_descriptor.profile_name,
+            "profile_path": str(resolved_session_descriptor.profile_path),
+            "debug_root": str(resolved_session_descriptor.debug_root),
+            "workspace_label": resolved_session_descriptor.workspace_label,
+            "selector_version": resolved_session_descriptor.selector_version,
         },
     )
     _capture_checkpoint_artifacts(
         session,
         job,
-        session_descriptor,
+        resolved_session_descriptor,
         checkpoint_name="session_prepared",
-        metadata={"workspace_label": session_descriptor.workspace_label},
+        metadata={"workspace_label": resolved_session_descriptor.workspace_label},
     )
 
     try:
@@ -241,14 +272,14 @@ def _prepare_provider_session(
             job,
             event_type="browser_session_validated",
             message="Browser provider session is available for the next automation step.",
-            metadata={"profile_name": session_descriptor.profile_name},
+            metadata={"profile_name": resolved_session_descriptor.profile_name},
         )
         _capture_checkpoint_artifacts(
             session,
             job,
-            session_descriptor,
+            resolved_session_descriptor,
             checkpoint_name="session_validated",
-            metadata={"profile_name": session_descriptor.profile_name},
+            metadata={"profile_name": resolved_session_descriptor.profile_name},
         )
         provider.open_workspace()
         _log_browser_job_event(
@@ -256,14 +287,14 @@ def _prepare_provider_session(
             job,
             event_type="browser_workspace_opened",
             message="Browser provider workspace opened successfully.",
-            metadata={"workspace_label": session_descriptor.workspace_label},
+            metadata={"workspace_label": resolved_session_descriptor.workspace_label},
         )
         _capture_checkpoint_artifacts(
             session,
             job,
-            session_descriptor,
+            resolved_session_descriptor,
             checkpoint_name="workspace_opened",
-            metadata={"workspace_label": session_descriptor.workspace_label},
+            metadata={"workspace_label": resolved_session_descriptor.workspace_label},
         )
     except Exception as error:
         _capture_failure_artifacts(session, provider, job, None, None, error)
@@ -274,12 +305,12 @@ def _prepare_provider_session(
                 job,
                 reason=manual_intervention.reason,
                 category=manual_intervention.category,
-                session_descriptor=session_descriptor,
+                session_descriptor=resolved_session_descriptor,
             )
             raise _BrowserJobPausedForManualIntervention from error
         raise
 
-    return selector_bundle, session_descriptor
+    return resolved_selector_bundle, resolved_session_descriptor
 
 
 def _capture_failure_artifacts(
@@ -456,7 +487,10 @@ def _materialize_asset_output(
         download_input.metadata_path if isinstance(download_input, TaggedDownload) else None
     )
     source_path = Path(source_download_path)
-    destination_path = Path(asset.file_path or source_download_path)
+    destination_path = _resolve_project_storage_path(
+        Path(asset.file_path or source_download_path),
+        path_name="Browser asset destination path",
+    )
     destination_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not source_path.exists():
@@ -565,14 +599,17 @@ def _write_generation_attempt_metadata(
     selector_bundle: SelectorBundle | None,
     session_descriptor: BrowserSessionDescriptor | None,
 ) -> str:
-    metadata_path = Path(
-        build_project_storage_path(
-            attempt.project_id,
-            "metadata",
-            "browser-jobs",
-            f"job-{attempt.background_job_id}",
-            f"attempt-{attempt.id}-request.json",
-        )
+    metadata_path = _resolve_project_storage_path(
+        Path(
+            build_project_storage_path(
+                attempt.project_id,
+                "metadata",
+                "browser-jobs",
+                f"job-{attempt.background_job_id}",
+                f"attempt-{attempt.id}-request.json",
+            )
+        ),
+        path_name="Browser attempt metadata path",
     )
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text(
@@ -649,14 +686,17 @@ def _write_output_registration_payload(
     provider_job_id: str,
     output_registrations: list[dict[str, object]],
 ) -> str:
-    registration_path = Path(
-        build_project_storage_path(
-            attempt.project_id,
-            "metadata",
-            "browser-jobs",
-            f"job-{attempt.background_job_id}",
-            f"attempt-{attempt.id}-outputs.json",
-        )
+    registration_path = _resolve_project_storage_path(
+        Path(
+            build_project_storage_path(
+                attempt.project_id,
+                "metadata",
+                "browser-jobs",
+                f"job-{attempt.background_job_id}",
+                f"attempt-{attempt.id}-outputs.json",
+            )
+        ),
+        path_name="Browser output registration path",
     )
     registration_path.parent.mkdir(parents=True, exist_ok=True)
     registration_path.write_text(
@@ -727,13 +767,16 @@ def _quarantine_mismatched_downloads(
     *,
     expected_count: int,
 ) -> list[str]:
-    quarantine_dir = Path(
-        build_project_storage_path(
-            attempt.project_id,
-            "quarantine",
-            f"job-{attempt.background_job_id}",
-            f"attempt-{attempt.id}",
-        )
+    quarantine_dir = _resolve_project_storage_path(
+        Path(
+            build_project_storage_path(
+                attempt.project_id,
+                "quarantine",
+                f"job-{attempt.background_job_id}",
+                f"attempt-{attempt.id}",
+            )
+        ),
+        path_name="Browser quarantine path",
     )
     quarantine_dir.mkdir(parents=True, exist_ok=True)
 
@@ -772,14 +815,17 @@ def _quarantine_conflicting_download(
     attempt: GenerationAttempt,
     source_path: Path,
 ) -> str:
-    quarantine_dir = Path(
-        build_project_storage_path(
-            attempt.project_id,
-            "quarantine",
-            f"job-{attempt.background_job_id}",
-            f"attempt-{attempt.id}",
-            "conflicts",
-        )
+    quarantine_dir = _resolve_project_storage_path(
+        Path(
+            build_project_storage_path(
+                attempt.project_id,
+                "quarantine",
+                f"job-{attempt.background_job_id}",
+                f"attempt-{attempt.id}",
+                "conflicts",
+            )
+        ),
+        path_name="Browser conflicting-download quarantine path",
     )
     quarantine_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1012,3 +1058,11 @@ def _refresh_job(session: Session, job: BackgroundJob) -> None:
 
 def _refresh_attempt(session: Session, attempt: GenerationAttempt) -> None:
     session.refresh(attempt, attribute_names=["assets"])
+
+
+def _resolve_project_storage_path(value: Path, *, path_name: str) -> Path:
+    return resolve_path_within_roots(
+        value,
+        allowed_roots=(Path("storage"),),
+        path_name=path_name,
+    )
