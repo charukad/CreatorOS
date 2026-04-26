@@ -35,7 +35,7 @@
 - operations recovery now surfaces failed jobs, manual-intervention jobs, stale running jobs, quarantined downloads, duplicate asset warnings, and non-destructive artifact retention candidates in API responses
 - final-video approval, publish-job preparation, publish approval, and queue-backed platform-aware manual publish handoffs are implemented before manual published completion
 - manual analytics snapshots and first-pass insight generation are implemented for published jobs
-- queued browser, media, publisher, and analytics jobs now publish Redis wake-up signals plus general job events, worker entrypoints keep Redis-backed heartbeats for operations visibility, and the project/job/operations screens auto-refresh while active work is present; fully blocking Redis-backed execution for inline idea/script planning and automated retry backoff beyond the current inline worker retry are still planned
+- queued browser, media, publisher, and analytics jobs now publish Redis wake-up signals plus general job events, worker entrypoints keep Redis-backed heartbeats for operations visibility, and the dashboard/project/job/operations screens can subscribe to a live SSE job-event stream while timed refresh remains as fallback; fully blocking Redis-backed execution for inline idea/script planning and automated retry backoff beyond the current inline worker retry are still planned
 
 ## Core Resources
 ### Brand Profiles
@@ -107,6 +107,9 @@
 - `POST /api/jobs/:id/manual-intervention`
 - `POST /api/jobs/:id/resume`
 - `POST /api/jobs/:id/retry`
+
+### Events
+- `GET /api/events/background-jobs/stream`
 
 ### Operations
 - `GET /api/operations/recovery`
@@ -321,6 +324,11 @@ Response excerpt:
   "feedback_notes": "Lean harder into the transformation angle."
 }
 ```
+
+Behavior note:
+- marks the selected idea as `approved`
+- marks every other non-rejected idea on the project as `rejected`
+- advances the parent project to `script_pending_approval` so script generation becomes the next expected step
 
 ### `POST /api/ideas/:id/reject`
 ```json
@@ -658,6 +666,15 @@ Behavior note:
 - marks the job `waiting_external`
 - preserves a redacted human-readable reason in `error_message`
 - writes a `manual_intervention_required` job log entry for project activity and recovery queues
+
+### `GET /api/events/background-jobs/stream`
+Behavior note:
+- returns a `text/event-stream` response backed by the general Redis job-events channel
+- optional query params:
+  - `project_id` limits the stream to one project
+  - `job_id` limits the stream to one background job
+- current event types include `stream_open`, `job_event`, `keepalive`, and `stream_error`
+- the web dashboard, project, job, and operations screens use this route for live refresh and keep timed polling as fallback
 
 ### `GET /api/operations/recovery`
 Query parameters:
@@ -1139,6 +1156,7 @@ Behavior note:
 ## Current Guarded Transition Rules
 - the API only allows explicit transitions between known adjacent states
 - invalid jumps return `409 Conflict`
+- approving an idea now moves the project into `script_pending_approval`
 - moving into `script_pending_approval` requires a generated script to exist
 - moving into `asset_generation` now requires the current script version to be explicitly approved
 - scene edits are only allowed while the current script is in `draft` or `rejected` state during script approval

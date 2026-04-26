@@ -164,6 +164,8 @@ def approve_content_idea(
 
         db.add(existing_idea)
 
+    project.status = ProjectStatus.SCRIPT_PENDING_APPROVAL
+    db.add(project)
     create_approval_record(
         db,
         user=user,
@@ -677,9 +679,7 @@ def _build_idea_candidates(
     revised_prefix = "Revised: " if revision_note else ""
     learned_prefix = "Analytics-backed: " if learning_focus and not revised_prefix else ""
     research_prefix = (
-        "Research-led: "
-        if research_summary and not revised_prefix and not learned_prefix
-        else ""
+        "Research-led: " if research_summary and not revised_prefix and not learned_prefix else ""
     )
     primary_topic = research_topics[0]
     secondary_topic = research_topics[1] if len(research_topics) > 1 else primary_topic
@@ -750,9 +750,7 @@ def _build_idea_candidates(
         },
         {
             "topic": tertiary_topic,
-            "suggested_title": (
-                f"{revised_prefix}My {tertiary_topic} workflow in 4 fast shots"
-            ),
+            "suggested_title": (f"{revised_prefix}My {tertiary_topic} workflow in 4 fast shots"),
             "hook": (
                 f"Here is the {visual_style.lower()} version of how I approach "
                 f"{tertiary_topic.lower()}."
@@ -786,11 +784,7 @@ def _research_topics(
     if not isinstance(raw_topics, list):
         return [fallback, fallback, fallback]
 
-    topics = [
-        _normalize_phrase(str(topic))
-        for topic in raw_topics
-        if str(topic).strip()
-    ]
+    topics = [_normalize_phrase(str(topic)) for topic in raw_topics if str(topic).strip()]
     if not topics:
         return [fallback, fallback, fallback]
     while len(topics) < 3:

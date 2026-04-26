@@ -146,7 +146,7 @@ Brand profiles now support create/edit/view/list flows, readiness checks, postin
 ## Phase 7 - Idea Generation and Research Workflow
 
 Current implementation note:
-The repo now has inline-local `generate_idea_research` and `generate_ideas` background job records with lifecycle logs, persisted research snapshots for trend and competitor context, a deterministic local idea generator that stores `topic` alongside score/rationale/angle, explicit approve/reject actions with review comments, and project-page research plus approval history UI.
+The repo now has inline-local `generate_idea_research` and `generate_ideas` background job records with lifecycle logs, persisted research snapshots for trend and competitor context, a deterministic local idea generator that stores `topic` alongside score/rationale/angle, explicit approve/reject actions with review comments, project-page research plus approval history UI, and project-state advancement into `script_pending_approval` once an idea is approved.
 
 ### Build tasks
 - [x] Implement idea generation job submission from a project
@@ -156,7 +156,7 @@ The repo now has inline-local `generate_idea_research` and `generate_ideas` back
 - [x] Persist generated content ideas with score, rationale, topic, and angle
 - [x] Add UI for idea review, comparison, approval, rejection, and regeneration
 - [x] Add revision notes and regenerate-with-feedback flow
-- [ ] Update project status when ideas are pending approval or approved
+- [x] Update project status when ideas are pending approval or approved
 - [x] Add tests for idea generation payload creation and approval gating
 
 ### Manual checks
@@ -204,7 +204,7 @@ The repo now has an inline-local `generate_script` background job record with li
 ## Phase 10 - Queue System, Background Jobs, and Progress Tracking
 
 Current implementation note:
-The repo now persists inline-local idea/script generation jobs, queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, per-type retry budgets, publish scheduling idempotency, file-ingestion idempotency/conflict quarantine, and safe cancel/retry/resume operations from the project page and dedicated job detail screen. `/api/health/ready` now performs real database and Redis checks, queued browser/media/publisher/analytics jobs publish Redis wake-up signals plus general job events after commit, all four worker entrypoints run as long-lived Redis-backed listener services with timed polling fallback, worker heartbeats are exposed in operations, and project/job/operations pages auto-refresh while active work is present. Inline idea/script planning remains synchronous, and automated retry backoff plus push-based live progress transport are still pending.
+The repo now persists inline-local idea/script generation jobs, queued narration/visual/media job plans, per-attempt records, planned asset placeholders, job detail responses, lifecycle job logs, project activity entries, per-type retry budgets, publish scheduling idempotency, file-ingestion idempotency/conflict quarantine, and safe cancel/retry/resume operations from the project page and dedicated job detail screen. `/api/health/ready` now performs real database and Redis checks, queued browser/media/publisher/analytics jobs publish Redis wake-up signals plus general job events after commit, all four worker entrypoints run as long-lived Redis-backed listener services with timed polling fallback, worker heartbeats are exposed in operations, and the dashboard/project/job/operations pages can subscribe to live SSE job events while timed refresh remains as fallback. Inline idea/script planning remains synchronous, and automated retry backoff is still pending.
 
 ### Build tasks
 - [x] Choose and implement the job runner architecture backed by Redis
@@ -441,11 +441,11 @@ The API readiness response and shared JSON log formatter now redact URL credenti
 
 ### Build tasks
 - [ ] Add unit tests for schemas, services, state transitions, and helpers
-- [ ] Add API integration tests for project, idea, script, approval, asset, publish, and analytics routes
+- [x] Add API integration tests for project, idea, script, approval, asset, publish, and analytics routes
 - [x] Add browser worker smoke tests and replay-friendly debug fixtures
 - [ ] Add media pipeline smoke tests with sample assets
-- [ ] Add end-to-end happy-path test from project creation to final export
-- [ ] Add end-to-end failure-path tests for rejected approvals, selector failures, download mismatch, and FFmpeg failure
+- [x] Add end-to-end happy-path test from project creation to final export
+- [x] Add end-to-end failure-path tests for rejected approvals, selector failures, download mismatch, and FFmpeg failure
 - [x] Add CI workflow for lint, typecheck, tests, and migration checks
 - [x] Add release checklist for docs, env samples, migrations, and smoke tests
 - [x] Add sample demo project data for manual validation
@@ -473,17 +473,17 @@ The API readiness response and shared JSON log formatter now redact URL credenti
 
 Mark MVP complete only after all items below are true:
 
-- [ ] A user can create and manage a brand profile
-- [ ] A user can create a project and move it through the defined workflow states
-- [ ] A user can generate and approve ideas
-- [ ] A user can generate, edit, and approve scripts and scene plans
-- [ ] The browser worker can generate narration through ElevenLabs and register the asset
-- [ ] The browser worker can generate scene visuals through Flow and register the assets
-- [ ] The download manager correctly maps generated files into canonical project storage
-- [ ] The media worker can assemble a rough cut automatically from approved assets
-- [ ] A user can review and approve the final video
-- [ ] The system can prepare metadata and a publish job with approval gating
-- [ ] The system can sync analytics and surface useful insights
-- [ ] Logs, retries, and manual override paths are present for critical failures
-- [ ] Core lint, typecheck, migration, and test commands pass
+- [x] A user can create and manage a brand profile
+- [x] A user can create a project and move it through the defined workflow states
+- [x] A user can generate and approve ideas
+- [x] A user can generate, edit, and approve scripts and scene plans
+- [x] The browser worker can generate narration through ElevenLabs and register the asset
+- [x] The browser worker can generate scene visuals through Flow and register the assets
+- [x] The download manager correctly maps generated files into canonical project storage
+- [x] The media worker can assemble a rough cut automatically from approved assets
+- [x] A user can review and approve the final video
+- [x] The system can prepare metadata and a publish job with approval gating
+- [x] The system can sync analytics and surface useful insights
+- [x] Logs, retries, and manual override paths are present for critical failures
+- [x] Core lint, typecheck, migration, and test commands pass
 - [ ] All required manual checks for the shipped phases have been completed

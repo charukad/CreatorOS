@@ -7,6 +7,7 @@ import { useDeferredValue, useState } from "react";
 import { BrandProfileForm } from "./brand-profile-form";
 import { ProjectForm } from "./project-form";
 import { StatusBadge } from "./status-badge";
+import { useBackgroundJobEventRefresh } from "./use-background-job-event-refresh";
 import { useToast } from "./toast-provider";
 import { createBrandProfile, createProject } from "../lib/api";
 import type {
@@ -107,6 +108,9 @@ export function DashboardWorkspace({
   );
   const failedJobs = jobs.filter((job) => job.state === "failed");
   const attentionItemCount = initialOperationsRecovery?.summary.total_attention_items ?? 0;
+  const { isLiveConnected } = useBackgroundJobEventRefresh({
+    enabled: activeJobs.length > 0,
+  });
   const accountAnalytics = initialAccountAnalytics;
   const strongestSummary =
     accountAnalytics?.hook_patterns[0] ??
@@ -221,6 +225,11 @@ export function DashboardWorkspace({
                 Open jobs
               </p>
               <p className="mt-3 text-3xl font-semibold text-white">{activeJobs.length}</p>
+              {activeJobs.length > 0 ? (
+                <p className="mt-2 text-xs leading-5 text-slate-400">
+                  {isLiveConnected ? "Live updates connected" : "Listening for live job updates"}
+                </p>
+              ) : null}
             </article>
           </div>
         </section>

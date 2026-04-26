@@ -8,6 +8,7 @@ import {
 } from "@creatoros/shared";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { useBackgroundJobEventRefresh } from "./use-background-job-event-refresh";
 import { useAutoRefresh } from "./use-auto-refresh";
 import type {
   ArtifactRetentionCandidate,
@@ -298,6 +299,11 @@ export function OperationsRecoveryCenter({
 }: OperationsRecoveryCenterProps) {
   const totalAttentionItems = recovery.summary.total_attention_items;
   const retentionSummary = retentionPlan.summary;
+  const liveUpdatesEnabled =
+    workerPresence.summary.active_workers > 0 || totalAttentionItems > 0;
+  const { isLiveConnected } = useBackgroundJobEventRefresh({
+    enabled: liveUpdatesEnabled,
+  });
   useAutoRefresh({ enabled: workerPresence.summary.active_workers > 0, intervalMs: 8000 });
 
   return (
@@ -339,7 +345,10 @@ export function OperationsRecoveryCenter({
 
       {workerPresence.summary.active_workers > 0 ? (
         <section className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">
-          Auto-refresh is on while {workerPresence.summary.active_workers} worker
+          {isLiveConnected
+            ? "Live job events are connected for operations, and timed refresh remains active while workers are busy."
+            : "Auto-refresh is on while workers are active, and the page will reconnect to the live event stream when available."}{" "}
+          {workerPresence.summary.active_workers} worker
           {workerPresence.summary.active_workers === 1 ? "" : "s"} are actively listening,
           polling, or processing jobs.
         </section>

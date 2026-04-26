@@ -9,6 +9,7 @@ import { ProjectForm } from "./project-form";
 import { ProjectPublishCenter } from "./project-publish-center";
 import { ProjectStatusActions } from "./project-status-actions";
 import { StatusBadge } from "./status-badge";
+import { useBackgroundJobEventRefresh } from "./use-background-job-event-refresh";
 import { useToast } from "./toast-provider";
 import { useAutoRefresh } from "./use-auto-refresh";
 import { updateProject } from "../lib/api";
@@ -68,6 +69,10 @@ export function ProjectDetail({
   const activeJobs = jobs.filter((job) =>
     ["queued", "running", "waiting_external"].includes(job.state),
   );
+  const { isLiveConnected } = useBackgroundJobEventRefresh({
+    enabled: project !== null && activeJobs.length > 0,
+    projectId: project?.id ?? null,
+  });
   useAutoRefresh({ enabled: activeJobs.length > 0, intervalMs: 8000 });
 
   async function handleSubmit(payload: ProjectPayload) {
@@ -119,9 +124,10 @@ export function ProjectDetail({
         <>
           {activeJobs.length > 0 ? (
             <section className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">
-              Auto-refresh is on while {activeJobs.length} job
-              {activeJobs.length === 1 ? "" : "s"} are active, so progress and status changes stay
-              visible from this page.
+              {isLiveConnected
+                ? "Live job updates are connected for this project. Timed refresh stays on as a fallback while work is active."
+                : "Auto-refresh is on while active jobs run, and the page will also reconnect to the live job stream when available."}{" "}
+              {activeJobs.length} job{activeJobs.length === 1 ? "" : "s"} are active.
             </section>
           ) : null}
 

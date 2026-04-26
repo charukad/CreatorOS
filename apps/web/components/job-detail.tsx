@@ -8,6 +8,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
+import { useBackgroundJobEventRefresh } from "./use-background-job-event-refresh";
 import { useToast } from "./toast-provider";
 import { useAutoRefresh } from "./use-auto-refresh";
 import { cancelJob, markJobManualIntervention, resumeJob, retryJob } from "../lib/api";
@@ -86,6 +87,10 @@ export function JobDetail({ detail }: JobDetailProps) {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const { job } = detail;
   const isActiveJob = ["queued", "running", "waiting_external"].includes(job.state);
+  const { isLiveConnected } = useBackgroundJobEventRefresh({
+    enabled: isActiveJob,
+    jobId: job.id,
+  });
   useAutoRefresh({ enabled: isActiveJob, intervalMs: 6000 });
 
   function successMessage(actionKey: string): string {
@@ -179,8 +184,9 @@ export function JobDetail({ detail }: JobDetailProps) {
 
       {isActiveJob ? (
         <section className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">
-          Auto-refresh is on while this job is active, so progress changes and worker state
-          updates stay visible without reloading the page.
+          {isLiveConnected
+            ? "Live updates are connected for this job, and timed refresh remains available as a safety net."
+            : "Auto-refresh is on while this job is active, and the page will reconnect to the live job stream when available."}
         </section>
       ) : null}
 
